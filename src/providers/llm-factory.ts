@@ -378,6 +378,16 @@ export class LlmFactory {
     return resolved;
   }
 
+  /**
+   * The role's model label — `provider:modelId` — WITHOUT resolving it: a
+   * report caption or a record field may name the model a role is routed to
+   * even when its key is absent, and must not demand the key to do so. Reads
+   * the same `modelIdFor` a resolved model carries, so the two agree.
+   */
+  labelFor(role: LlmRole): string {
+    return modelIdFor(this.config.roles[role]);
+  }
+
   /** Whether `forRole` would succeed — used to fail fast with a clear message. */
   canResolve(role: LlmRole): boolean {
     return (this.config.apiKeys[this.config.roles[role].provider]?.length ?? 0) > 0;

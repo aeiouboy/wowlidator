@@ -330,13 +330,16 @@ describe('the recording plays (CDP)', { skip: skipBrowser }, () => {
 
       const kase1 = page.locator('details.case').first();
       await kase1.locator('> summary').click();
+      // The test config has no DOM lib (tsconfig pins `types: ["node"]`), so
+      // the page-side shapes are spelled structurally, as `src/` does.
+      type VideoLike = { readyState: number; src: string; duration: number; currentTime: number; getAttribute(name: string): string | null };
       await page.waitForFunction(
-        () => (document.querySelector('video') as HTMLVideoElement | null)?.readyState >= 2,
+        () => ((globalThis as { document?: { querySelector(sel: string): VideoLike | null } }).document?.querySelector('video')?.readyState ?? 0) >= 2,
         undefined,
         { timeout: 15_000 },
       );
       const video = kase1.locator('video').first();
-      const state = await video.evaluate((el: HTMLVideoElement) => ({
+      const state = await video.evaluate((el: VideoLike) => ({
         blob: el.src.startsWith('blob:'),
         duration: el.duration,
         kept: (el.getAttribute('data-webm') ?? '').length,
@@ -350,11 +353,11 @@ describe('the recording plays (CDP)', { skip: skipBrowser }, () => {
       await seek.click();
       await page.waitForTimeout(500);
       assert.ok(
-        (await video.evaluate((el: HTMLVideoElement) => el.currentTime)) > 0,
+        (await video.evaluate((el: VideoLike) => el.currentTime)) > 0,
         'clicking a step cue moves the film',
       );
       assert.equal(
-        await kase1.locator('details.step').nth(1).evaluate((el: HTMLDetailsElement) => el.open),
+        await kase1.locator('details.step').nth(1).evaluate((el: { open: boolean }) => el.open),
         false,
         'and playing the film does not expand the step as a side effect',
       );

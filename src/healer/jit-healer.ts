@@ -461,26 +461,39 @@ export interface LlmHealerModelOptions {
  * right fit for the fastest free tier rather than the smartest one.
  */
 export class LlmHealerModel implements HealerModel {
-  readonly id: string;
-
   readonly #source: ModelSource;
   readonly #maxOutputTokens: number;
   readonly #maxRetries: number;
   readonly #hints: HealHintsProvider | undefined;
+  readonly #givenId: string | undefined;
 
   constructor(options: LlmHealerModelOptions = {}) {
     this.#hints = options.hints;
     if (options.model) {
       this.#source = { model: options.model };
-      this.id = options.id ?? 'custom:healer';
+      this.#givenId = options.id ?? 'custom:healer';
       this.#maxRetries = options.maxRetries ?? 2;
     } else {
       const factory = options.factory ?? new LlmFactory();
       this.#source = { factory, role: 'healer' };
-      this.id = options.id ?? factory.forRole('healer').id;
+      this.#givenId = options.id;
       this.#maxRetries = options.maxRetries ?? factory.maxRetries;
     }
     this.#maxOutputTokens = options.maxOutputTokens ?? 1024;
+  }
+
+  /**
+   * The model's label, and never a key demand. The CLI builds a healer for
+   * every run and the bundle records `healerModel` before the first step;
+   * resolving the role here demanded the healer's key on a flow that never
+   * healed — `wowlidator needs a Groq key to run the "healer" role` on a
+   * passing flow, exit 1. "A run that never heals never demands a key" is
+   * the factory's contract; the key is asked for by `suggest`, when a heal
+   * actually happens.
+   */
+  get id(): string {
+    if (this.#givenId !== undefined) return this.#givenId;
+    return 'factory' in this.#source ? this.#source.factory.labelFor('healer') : 'custom:healer';
   }
 
   async suggest(request: HealRequest): Promise<HealSuggestion> {

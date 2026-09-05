@@ -906,27 +906,38 @@ export interface LlmAgentModelOptions {
  * enough here as long as it can pick an action from the tree in front of it.
  */
 export class LlmAgentModel implements AgentModel {
-  readonly id: string;
-
   readonly #source: ModelSource;
   readonly #maxOutputTokens: number;
   readonly #maxRetries: number;
+  readonly #givenId: string | undefined;
 
   constructor(options: LlmAgentModelOptions = {}) {
     if (options.model) {
       this.#source = { model: options.model };
-      this.id = options.id ?? 'custom:agent';
+      this.#givenId = options.id ?? 'custom:agent';
       this.#maxRetries = options.maxRetries ?? 2;
     } else {
       const factory = options.factory ?? new LlmFactory();
       this.#source = { factory, role: 'agent' };
-      this.id = options.id ?? factory.forRole('agent').id;
+      this.#givenId = options.id;
       this.#maxRetries = options.maxRetries ?? factory.maxRetries;
     }
     this.#maxOutputTokens = options.maxOutputTokens ?? 2048;
   }
 
+  /**
+   * The model's label, resolved LAZILY. The CLI builds this model for every
+   * `run` (the agent is on by default), and resolving the role in the
+   * constructor demanded the agent's API key up front — so a flow with no
+   * `workflow` step, on a machine with no Groq key, exited 1 before touching
+   * a browser. "A run that never heals never demands a key" is the factory's
    * contract, and the id is read only when a leg actually runs.
+   */
+  get id(): string {
+    if (this.#givenId !== undefined) return this.#givenId;
+    return 'factory' in this.#source ? this.#source.factory.labelFor('agent') : 'custom:agent';
+  }
+
   async decide(observation: AgentObservation): Promise<AgentDecision> {
     const contract = agentContract({ dbCount: observation.dbCount ?? true, skills: observation.skills ?? [] });
     const { object, inputTokens, outputTokens, cachedInputTokens } = await generateStructuredForModel(this.#source, {

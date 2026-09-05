@@ -764,22 +764,25 @@ describe('the value-hunt guard (CDP) — a set-X-to-Y goal whose value never app
   });
 
   it('never fires again once the value has appeared once, however many turns follow', async () => {
-    // Turn 1 reaches the page that renders the value — the guard's
-    // `huntedValueSeenAtTurn` latches there — then MORE turns than
+    // The leg STARTS on the page that renders the value — the guard's
+    // `huntedValueSeenAtTurn` latches on the first tree — then MORE turns than
     // `AGENT_VALUE_HUNT_TURNS` follow, each a genuine click on a still-wrong
-    // control, exactly like the trip test above. The only difference is the
-    // one turn where the value was visible, and that alone must be enough to
-    // silence the guard for the rest of the leg.
+    // control, exactly like the trip test above. The only difference is that
+    // the value was visible once, and that alone must be enough to silence
+    // the guard for the rest of the leg. It starts there rather than going
+    // there because a leg that leaves its page and stays away is ended by the
+    // off-page allowance (`AGENT_OFF_PAGE_TURNS`, 2026-09-03) after eight
+    // turns — a different judge, which this test must not trip.
     const clicks = Array.from({ length: AGENT_VALUE_HUNT_TURNS + 3 }, (_, i) => ({
       action: 'click' as const,
       selector: `text="Other section ${i}"`,
     }));
-    const { model, seen } = scripted([{ action: 'goto' as const, url: `${origin}/en/found` }, ...clicks]);
+    const { model, seen } = scripted(clicks);
     // Capped exactly to the script's length: nothing here is meant to test
     // termination, only that the value-hunt guard stays quiet throughout.
-    const agent = new WorkflowAgent({ model, maxSteps: clicks.length + 1 });
+    const agent = new WorkflowAgent({ model, maxSteps: clicks.length });
     const result = await withPage(CDP_URL, async (page) => {
-      await page.goto(`${origin}/`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${origin}/en/found`, { waitUntil: 'domcontentloaded' });
       return agent.run(page, 'set Employee Group to "G - Internship"');
     });
     assert.doesNotMatch(result.summary, /never appeared/);
@@ -810,7 +813,7 @@ describe('a stall made only of looking (CDP)', { skip: skipBrowser }, () => {
   let origin: string;
 
   before(async () => {
-    server = createServer((req, res) => {
+    server = createServer((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       res.end('<h1>Plans</h1><p>Nothing here names a control the goal could press.</p>');
     });
@@ -895,7 +898,7 @@ describe('a read-only agent run', { skip: skipBrowser }, () => {
   before(async () => {
     // A summary card, the be100 shape: label and value in separate elements,
     // plus a button the agent must not be able to press.
-    server = createServer((req, res) => {
+    server = createServer((_req, res) => {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       res.end(
         '<h1>Plans</h1><div id="card"><span>TOTAL PLANS</span><span>75</span></div>' +

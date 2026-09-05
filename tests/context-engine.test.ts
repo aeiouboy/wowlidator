@@ -26,7 +26,6 @@ import { detectDbHint } from '../src/context/db-hint.js';
 import { ManifestIngester } from '../src/context/ingesters/manifest-ingester.js';
 import { ComponentIngester } from '../src/context/ingesters/component-ingester.js';
 import { MessageIngester, isMessageFile } from '../src/context/ingesters/message-ingester.js';
-import { toPromptContext } from '../src/context/query.js';
 import { RouteIngester } from '../src/context/ingesters/route-ingester.js';
 import { nearestRoutes, routeIsDeclared } from '../src/context/route-match.js';
 import { TestIngester } from '../src/context/ingesters/test-ingester.js';
