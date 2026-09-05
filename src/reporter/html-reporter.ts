@@ -1070,8 +1070,8 @@ function videoBlock(bundle: ProofBundle): string {
       at: (step.videoOffsetMs ?? 0) / 1000,
       step: step.index,
       text: step.intent ?? `${step.action}${step.selector ? ` ${step.selector}` : ''}`,
-      failed: step.status !== 'passed' && !step.superseded,
-      error: step.status !== 'passed' ? (step.error?.split('\n')[0] ?? '') : '',
+      failed: step.status !== 'passed' && step.status !== 'skipped' && !step.superseded,
+      error: step.status !== 'passed' && step.status !== 'skipped' ? (step.error?.split('\n')[0] ?? '') : '',
     }));
   return `
   <figure class="video" data-segments="${esc(JSON.stringify(segments))}">
@@ -1124,7 +1124,7 @@ function expectedActualLine(step: ProofStep): string {
   const render = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify(v));
   const expected = render(detail['expected']);
   const actual = detail['actual'] === undefined ? null : render(detail['actual']);
-  const bad = step.status !== 'passed';
+  const bad = step.status !== 'passed' && step.status !== 'skipped';
   return `<p class="step-compare">expected <code>${captured(expected)}</code>${
     actual === null ? '' : ` &middot; actual <code${bad ? ' class="cmp-bad"' : ''}>${captured(actual)}</code>`
   }</p>`;
@@ -1177,7 +1177,7 @@ function stepList(bundle: ProofBundle, hasVideo: boolean): string {
   const steps = bundle.steps;
   // A superseded failure is history, not a break in the run: the passes that
   // follow it are not "in doubt", so the first LIVE failure is what counts.
-  const firstFailure = steps.findIndex((s) => s.status !== 'passed' && !s.superseded);
+  const firstFailure = steps.findIndex((s) => s.status !== 'passed' && s.status !== 'skipped' && !s.superseded);
   const rows: string[] = [];
   let pending: ProofStep[] = [];
   for (const step of steps) {
@@ -1237,14 +1237,14 @@ function stepRow(
     <div class="step-body" hidden>
       ${step.unsure ? `<div class="callout unsure"><div class="callout-title">Proved-? — a human must rule on this step</div><pre>${captured(step.unsure)}</pre></div>` : ''}
       ${step.backendHint ? `<div class="callout"><div class="callout-title">Proved on screen — a backend check could prove it better</div><p>Backend testing was off for this run, so this claim was settled through the page. ${captured(step.backendHint)}</p><p class="muted">The step passed on its own terms. Turn backend testing on (and give the run a database URL) to prove it against the data itself.</p></div>` : ''}
-      ${step.error ? `<div class="callout error"><div class="callout-title">Failure</div><pre>${esc(step.error.split('\n')[0] ?? step.error)}</pre></div>` : ''}
+      ${step.error ? `<div class="callout${step.status === 'skipped' ? '' : ' error'}"><div class="callout-title">${step.status === 'skipped' ? 'Not run' : 'Failure'}</div><pre>${esc(step.error.split('\n')[0] ?? step.error)}</pre></div>` : ''}
       ${pageContextBlock(step)}
       ${seekControl(step, hasVideo)}
       ${
         step.screenshot
           ? `<figure class="shot-wrap">
                <img loading="lazy" alt="Screenshot at step ${step.index}" src="data:image/jpeg;base64,${step.screenshot}">
-               <figcaption>${step.status !== 'passed' ? 'the page when this step failed' : 'the page after this step'} — click to enlarge</figcaption>
+               <figcaption>${step.status === 'skipped' ? 'this step was not run' : step.status !== 'passed' ? 'the page when this step failed' : 'the page after this step'} — click to enlarge</figcaption>
              </figure>`
           : ''
       }
@@ -1378,12 +1378,14 @@ ol.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;g
 .step{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
 .step.failed,.step.dead-end{border-color:var(--bad)}
 .step.error{border-color:var(--warn)}
+.step.skipped{border-color:var(--line);color:var(--muted)}
 .step-head{width:100%;display:flex;align-items:center;gap:11px;padding:11px 14px;background:none;
   border:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .step-head:hover{background:color-mix(in srgb,var(--ink) 4%,transparent)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
 .step.failed .dot,.step.dead-end .dot{background:var(--bad)}
 .step.error .dot{background:var(--warn)}
+.step.skipped .dot{background:var(--muted)}
 .idx{color:var(--muted);font-size:12px;min-width:20px;font-family:ui-monospace,monospace}
 .action{font-weight:600;min-width:88px}
 .target{flex:1;color:var(--muted);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

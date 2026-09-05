@@ -1301,7 +1301,7 @@ function stepClaim(step) {
 function familyOf(bundle, step) {
   var defect = (bundle.defects || []).filter(function (d) { return d.stepIndex === step.index; })[0];
   if (defect) return defect.category;
-  if (step.status !== 'passed') return 'unclassified';
+  if (step.status !== 'passed' && step.status !== 'skipped') return 'unclassified';
   return null;
 }
 
@@ -2287,7 +2287,7 @@ function taskRow(task) {
 function firstFailure(card) {
   var bundle = S.bundles[card.runId];
   if (!bundle) return null;
-  var step = bundle.steps.filter(function (s) { return s.status !== 'passed'; })[0];
+  var step = bundle.steps.filter(function (s) { return s.status !== 'passed' && s.status !== 'skipped'; })[0];
   return step ? stepClaim(step) : null;
 }
 
@@ -3078,7 +3078,7 @@ function whyBlock(bundle) {
   } else {
     // The verdict travels with the bundle fetch; a bundle read before this
     // build (or a fetch that failed) still gets the honest floor.
-    var step = (bundle.steps || []).filter(function (s) { return s.status !== 'passed' && !s.superseded; })[0];
+    var step = (bundle.steps || []).filter(function (s) { return s.status !== 'passed' && s.status !== 'skipped' && !s.superseded; })[0];
     box.appendChild(el('div', { class: 'why-line', text: bundle.error || (step ? stepClaim(step) + ' \u2014 ' + ((step.error || '').split('\n')[0] || 'did not hold') : 'the run did not complete') }));
   }
   /* The system-error diagnosis, when the judge ran: which layer broke and the
@@ -6259,8 +6259,8 @@ function openFlowPlayer(bundle) {
       return {
         at: s.videoOffsetMs / 1000, step: s.index,
         text: s.intent || (s.action + (s.selector ? ' ' + s.selector : '')),
-        failed: s.status !== 'passed' && !s.superseded,
-        error: s.status !== 'passed' ? String(s.error || '').split('\n')[0] : ''
+        failed: s.status !== 'passed' && s.status !== 'skipped' && !s.superseded,
+        error: s.status !== 'passed' && s.status !== 'skipped' ? String(s.error || '').split('\n')[0] : ''
       };
     });
 

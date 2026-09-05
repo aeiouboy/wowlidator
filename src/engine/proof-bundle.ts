@@ -35,7 +35,13 @@ import { join, resolve } from 'node:path';
  * `dead-end` — every rung of the escalation ladder was spent and the selector
  *            still could not be resolved; there is nothing left to try.
  */
-export type StepStatus = 'passed' | 'failed' | 'error' | 'dead-end';
+export type StepStatus = 'passed' | 'failed' | 'error' | 'dead-end' | 'skipped';
+interface SkippableStep {
+  readonly action: string;
+  readonly selector?: unknown;
+  readonly url?: unknown;
+  readonly intent?: unknown;
+}
 export type RunStatus =
   | 'passed'
   | 'passed-with-issues'
@@ -1012,6 +1018,7 @@ export interface ProofSummary {
   totalSteps: number;
   passed: number;
   failed: number;
+  skipped?: number | undefined;
   /** Steps that drove the page. */
   frontend: TierSummary;
   /**
@@ -1491,7 +1498,7 @@ export class ProofBundleBuilder {
         step.persona === undefined && this.#actor.persona !== undefined ? { ...step, persona: this.#actor.persona } : step,
       ),
     };
-    if (recorded.status !== 'passed') {
+    if (recorded.status !== 'passed' && recorded.status !== 'skipped') {
       // Marked here, at the one choke point, rather than by any caller: a
       // failure after an earlier failure may be a consequence of it, and the
       // report should be able to say so instead of presenting eleven
@@ -1861,6 +1868,21 @@ export class ProofBundleBuilder {
     last.status = status;
   }
 
+  recordSkipped(step: SkippableStep, message: string): ProofStep {
+    return this.addStep({
+      action: step.action,
+      selector: typeof step.selector === 'string' ? step.selector : null,
+      resolvedSelector: null,
+      resolution: null,
+      status: 'skipped',
+      startedAt: new Date().toISOString(),
+      durationMs: 0,
+      url: typeof step.url === 'string' ? step.url : null,
+      ...(typeof step.intent === 'string' ? { intent: step.intent } : {}),
+      error: message,
+    });
+  }
+
   /**
    * Attach a backend step's baseline comparison to the step just recorded.
    * A separate method because the probe is async and runs AFTER the step is
@@ -1964,12 +1986,13 @@ export class ProofBundleBuilder {
       // step list, which is the transparency half of the bargain.
       if (step.superseded) continue;
       if (step.status === 'passed') summary.passed += 1;
+      else if (step.status === 'skipped') summary.skipped = (summary.skipped ?? 0) + 1;
       else summary.failed += 1;
 
       const tier = BACKEND_TIER_ACTIONS.has(step.action) ? summary.backend : summary.frontend;
       tier.steps += 1;
       if (step.status === 'passed') tier.passed += 1;
-      else tier.failed += 1;
+      else if (step.status !== 'skipped') tier.failed += 1;
 
       switch (step.resolution) {
         case 'fast':
@@ -2020,7 +2043,7 @@ export class ProofBundleBuilder {
 
       if (step.db) {
         summary.dbChecks += 1;
-        if (step.status !== 'passed') summary.dbFailures += 1;
+        if (step.status !== 'passed' && step.status !== 'skipped') summary.dbFailures += 1;
       }
 
       if (step.agent) {
@@ -2109,7 +2132,7 @@ export class ProofBundleBuilder {
       (status === 'failed' || status === 'dead-end') &&
       (this.#error === undefined || this.#errorIsTally)
     ) {
-      const broken = counted.filter((s) => s.status !== 'passed');
+      const broken = counted.filter((s) => s.status !== 'passed' && s.status !== 'skipped');
       const allNearMisses =
         broken.length > 0 &&
         broken.every(
@@ -2213,14 +2236,14 @@ export async function writeProofBundle(bundle: ProofBundle, dir: string): Promis
  * HTML report's `.step-intent`.
  */
 export function formatStepLine(step: ProofStep): string {
-  const mark = step.status === 'passed' ? '✓' : '✗';
+  const mark = step.status === 'passed' ? '✓' : step.status === 'skipped' ? '–' : '✗';
   // Not `resolvedSelector ?? selector`: four wave-2 step kinds carry no
   // selector at all (`expectAnyVisible` has a list, `signIn` a persona label,
   // `upload` its files), and a bare `✗ [9] expectAnyVisible` names nothing a
   // reader can act on. `stepTarget` is the one reading every renderer shares.
   const target = stepTarget(step);
   const tag = step.resolution && step.resolution !== 'fast' ? `${step.resolution}, ` : '';
-  const kind = step.status === 'error' ? '  ERROR' : step.status === 'dead-end' ? '  DEAD END' : '';
+  const kind = step.status === 'error' ? '  ERROR' : step.status === 'dead-end' ? '  DEAD END' : step.status === 'skipped' ? '  SKIPPED' : '';
   // Columns: mark, index, action, duration, then the target — so a reader
   // scanning fifty of these compares durations down one column and reads
   // the selector after the fixed-width part. `joblog.mjs` and the panel's
@@ -2325,7 +2348,7 @@ function statusLabel(status: ProofBundle['status']): string {
 /** The broken action steps behind a `PASS**`, one line each. */
 export function issueSteps(bundle: ProofBundle): string[] {
   return bundle.steps
-    .filter((s) => !s.superseded && s.status !== 'passed')
+    .filter((s) => !s.superseded && s.status !== 'passed' && s.status !== 'skipped')
     .map(
       (s) =>
         `step ${s.index} ${s.action}${s.selector ? ` ${s.selector}` : ''}` +

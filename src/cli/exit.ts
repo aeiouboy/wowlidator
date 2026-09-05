@@ -148,7 +148,7 @@ export interface CaseOutcome {
  */
 export function neverRan(bundle: ProofBundle): string | null {
   if (isPassing(bundle.status)) return null;
-  if (bundle.steps.some((step) => step.status !== 'passed')) return null;
+  if (bundle.steps.some((step) => step.status !== 'passed' && step.status !== 'skipped')) return null;
   // First line only, same as `failureOf`: this goes on one line of a roll-up
   // that has one line per case, and the engine's attach error carries a
   // two-line "start Chrome like this" hint. The whole text is still on the
@@ -188,7 +188,7 @@ export function harnessOnly(bundle: {
 }): string | null {
   const status = effectiveStatus(bundle);
   if (isPassing(status) || status === 'needs-review') return null;
-  const broken = bundle.steps.filter((step) => !step.superseded && step.status !== 'passed');
+  const broken = bundle.steps.filter((step) => !step.superseded && step.status !== 'passed' && step.status !== 'skipped');
   // Nothing broke at all — that is `neverRan`'s territory, not this one's.
   if (broken.length === 0) return null;
   if (broken.some((step) => step.status !== 'error')) return null;
@@ -233,7 +233,7 @@ export function suiteExit(outcomes: readonly CaseOutcome[]): number {
 
 /** The step that broke, as one line, or undefined when none did. */
 export function failureOf(bundle: ProofBundle): string | undefined {
-  const broke = bundle.steps.find((step) => step.status !== 'passed');
+  const broke = bundle.steps.find((step) => step.status !== 'passed' && step.status !== 'skipped');
   if (broke === undefined) return undefined;
   return `${broke.intent ?? broke.action}: ${(broke.error ?? 'failed').split('\n')[0] ?? 'failed'}`;
 }

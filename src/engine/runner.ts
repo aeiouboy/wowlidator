@@ -5862,10 +5862,11 @@ export class SmartRunner {
     // The stranded guard already said this, with more for a reader to act on.
     if (this.#strandedReported) return;
     const steps = this.bundle.steps;
-    if (!steps.some((step) => step.status !== 'passed')) return;
+    if (!steps.some((step) => step.status !== 'passed' && step.status !== 'skipped')) return;
 
     let previous: { url: string; action: string } | null = null;
     for (const step of steps) {
+      if (step.status === 'skipped') continue;
       const url = step.url;
       if (url === null) continue;
       if (
@@ -5978,7 +5979,7 @@ export class SmartRunner {
     let sawSuperseded = false;
     let firstBroken: ProofStep | undefined;
     for (const step of steps) {
-      if (step.status === 'passed') continue;
+      if (step.status === 'passed' || step.status === 'skipped') continue;
       // A superseded failure is an attempt, not the outcome — its
       // reconstruction passed in its place, and the run went on. Cutting the
       // film at it produced a PASSED run whose recording showed two steps of
@@ -8045,6 +8046,7 @@ export class SmartRunner {
       for (const step of this.bundle.steps) {
         if (
           step.status !== 'passed' &&
+          step.status !== 'skipped' &&
           step.selector !== null &&
           step.resolution === null &&
           step.url === here &&
@@ -8988,7 +8990,9 @@ async function executeSteps(
   // observation rather than an assumption about what a login URL looks like.
   let urlBeforeFills: string | null = null;
   let hydrationReplayed = false;
-  for (const raw of steps) {
+  for (let rawIndex = 0; rawIndex < steps.length; rawIndex += 1) {
+    const raw = steps[rawIndex];
+    if (raw === undefined) break;
     const issuesBefore = issues.length;
     // **The data lock, taken and given back by the steps themselves.** A run
     // in a parallel suite holds a data section only from the step that
@@ -9247,8 +9251,58 @@ async function executeSteps(
       break;
     }
     runner.dataGate?.after(raw);
+    if (
+      raw.action === 'workflow' &&
+      issues.length > issuesBefore &&
+      skipAfterFailedLeg()
+    ) {
+      const goal = raw.goal.slice(0, 80);
+      const failedStep = runner.bundle.steps[runner.bundle.steps.length - 1];
+      const message = `not run: depends on step ${failedStep?.index ?? rawIndex} (${goal}), which did not reach its goal`;
+      const tail = dependentTail(steps, rawIndex);
+      for (const skippedIndex of tail) {
+        const skipped = steps[skippedIndex];
+        if (skipped === undefined) continue;
+        runner.bundle.recordSkipped(skipped, message);
+        runner.dataGate?.after(skipped);
+      }
+      rawIndex = tail[tail.length - 1] ?? rawIndex;
+    }
     if (stopAfterFirstIssue() && issues.length > issuesBefore) throw new StopAfterFirstIssue();
   }
+}
+
+const PLACE_REESTABLISHING_ACTIONS: ReadonlySet<FlowStep['action']> = new Set([
+  'goto',
+  'signIn',
+  'signOut',
+  'workflow',
+  'back',
+  'forward',
+  'setClock',
+  'clearStorage',
+]);
+
+/**
+ * The steps after a failed `workflow` leg that only made sense on the page the
+ * leg was meant to reach: everything up to the next action that re-establishes
+ * where the run is, OR the next browser-free step — a `request`/DB step reads
+ * nothing off the page, and the assertions after it belong to it, not to the
+ * leg (a consent case whose leg dead-ends still proves its claim through the
+ * API it calls next).
+ */
+export function dependentTail(steps: readonly FlowStep[], failedIndex: number): number[] {
+  const tail: number[] = [];
+  for (let index = failedIndex + 1; index < steps.length; index += 1) {
+    const step = steps[index];
+    if (step === undefined || PLACE_REESTABLISHING_ACTIONS.has(step.action) || BROWSER_FREE_ACTIONS.has(step.action)) break;
+    tail.push(index);
+  }
+  return tail;
+}
+
+export function skipAfterFailedLeg(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env['WOWLIDATOR_SKIP_AFTER_FAILED_LEG'] ?? '').trim().toLowerCase() !== 'off';
 }
 
 function repairModelId(runner: SmartRunner): string {

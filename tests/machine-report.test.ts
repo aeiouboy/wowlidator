@@ -51,6 +51,21 @@ const failing = bundleOf('probation filter', (b) => {
 });
 
 describe('junit xml', () => {
+  it('maps a skipped proof step to neutral JUnit and CTRF results', () => {
+    const skipped = bundleOf('failed leg tail', (b) => {
+      b.recordSkipped({ action: 'expectVisible', selector: 'text=Order' } as never, 'not run: depends on step 1');
+    });
+    assert.equal(skipped.summary.passed, 0);
+    assert.equal(skipped.summary.failed, 0);
+    const xml = renderJUnit([skipped]);
+    assert.match(xml, /<skipped message="not run: depends on step 1"\/|<skipped message="not run: depends on step 1"\/>/);
+    assert.match(xml, /failures="0" skipped="1"/);
+    const ctrf = renderCtrf([skipped]);
+    assert.equal(ctrf.results.tests[0]?.status, 'skipped');
+    assert.equal(ctrf.results.summary.skipped, 1);
+    assert.equal(ctrf.results.summary.failed, 0);
+    assert.equal(ctrf.results.summary.passed, 0);
+  });
   it('emits one testcase per step, named by the author intent', () => {
     const xml = renderJUnit([passing]);
     assert.match(xml, /^<\?xml version="1\.0" encoding="UTF-8"\?>/);

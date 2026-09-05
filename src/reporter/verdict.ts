@@ -207,7 +207,7 @@ export function ownerOf(bundle: ProofBundle): Owner | null {
 
 /** Build the opening paragraph. Pure — every sentence comes from the bundle. */
 export function buildVerdict(bundle: ProofBundle): Verdict {
-  const failing = bundle.steps.find((step) => step.status !== 'passed');
+  const failing = bundle.steps.find((step) => step.status !== 'passed' && step.status !== 'skipped');
   const owner = ownerOf(bundle);
   const summary = bundle.summary;
 
@@ -227,7 +227,7 @@ export function buildVerdict(bundle: ProofBundle): Verdict {
   if (bundle.status === 'passed-with-issues') {
     const counted = bundle.steps.filter((s) => !s.superseded);
     const assertions = counted.filter((s) => /^expect|^snapshot$|^fillEach$|^fillRetry$/.test(s.action)).length;
-    const broken = counted.filter((s) => s.status !== 'passed').length;
+    const broken = counted.filter((s) => s.status !== 'passed' && s.status !== 'skipped').length;
     return {
       status: 'passed-with-issues',
       headline: VERDICT_COPY.passedWithIssuesHeadline(bundle.name),

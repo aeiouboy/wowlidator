@@ -238,7 +238,7 @@ function stepDetail(step: ProofStep, budget: ShotBudget): string {
     );
   }
   if (step.screenshot) {
-    const isFailure = step.status !== 'passed';
+    const isFailure = step.status !== 'passed' && step.status !== 'skipped';
     const size = step.screenshot.length;
     if (isFailure || budget.left >= size) {
       if (!isFailure) budget.left -= size;
@@ -276,7 +276,7 @@ function videoBlock(c: CatalogReportCase): string {
     )}</div></figure>`;
   }
   const steps = c.bundle?.steps ?? [];
-  const failing = steps.find((s) => s.status !== 'passed' && !s.superseded && s.videoOffsetMs !== undefined);
+  const failing = steps.find((s) => s.status !== 'passed' && s.status !== 'skipped' && !s.superseded && s.videoOffsetMs !== undefined);
   return (
     `<figure class="rec">` +
     `<figcaption>Recording — the run as it happened<span class="hint">each step has “play from here”</span></figcaption>` +
@@ -326,7 +326,7 @@ function timePane(steps: readonly ProofStep[]): string {
     .map((s) => {
       const width = Math.max(2, Math.round((s.durationMs / max) * 100));
       const slow = s.durationMs >= SLOW_STEP_MS ? ' slow' : '';
-      const failed = s.status !== 'passed' ? ' broke' : '';
+      const failed = s.status !== 'passed' && s.status !== 'skipped' ? ' broke' : '';
       return (
         `<div class="trow" data-step="${s.index}"><span class="tname">${s.index} ${esc(s.action)}</span>` +
         `<span class="tbar${slow}${failed}" style="width:${width}%"></span>` +
@@ -377,9 +377,9 @@ function caseSection(c: CatalogReportCase, input: CatalogReportInput, budget: Sh
       : steps
           .filter((s) => !s.superseded)
           .map((s) => {
-            const ok = s.status === 'passed';
+            const tone = s.status === 'passed' ? 'ok' : s.status === 'skipped' ? 'skip' : 'no';
             return (
-              `<details class="step ${ok ? 'ok' : 'no'}"><summary><b class="dot"></b>` +
+              `<details class="step ${tone}"><summary><b class="dot"></b>` +
               `<span class="sname">${s.index} ${esc(s.action)}</span>` +
               `<span class="ssub">${esc(s.intent ?? stepTarget(s) ?? '')}</span>` +
               `<span class="sms">${esc(fmtMs(s.durationMs))}</span>` +
@@ -615,8 +615,10 @@ details.case > summary .cms { color: var(--muted); font-variant-numeric: tabular
 .cap { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 0 6px; }
 details.step { border-left: 3px solid var(--line); margin: 4px 0; }
 details.step.no { border-left-color: #c0392b; }
+details.step.skip { color: var(--muted); }
 details.step.ok .dot { background: var(--pass, #2e7d32); }
 details.step.no .dot { background: #c0392b; }
+details.step.skip .dot { background: var(--muted); }
 details.step > summary { display: flex; gap: 8px; align-items: baseline; padding: 4px 8px; cursor: pointer; list-style: none; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; }
 .sname { font-weight: 600; white-space: nowrap; }

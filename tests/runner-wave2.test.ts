@@ -30,6 +30,7 @@ import {
   MAX_STEP_TIMEOUT_MS,
   StepResolutionError,
   describeAttempt,
+  dependentTail,
   fieldNamesIn,
   isStateContradiction,
   isoDateOf,
@@ -38,6 +39,7 @@ import {
   resolvePersona,
   runFlow,
   signsInItself,
+  skipAfterFailedLeg,
   stopAfterFirstIssue,
   stepPatience,
   valueMatches,
@@ -50,6 +52,42 @@ const CDP_URL = process.env['WOWLIDATOR_CDP_URL'] ?? 'http://localhost:9222';
 // --- Unit tier -------------------------------------------------------------
 
 describe('state contradictions the wave-2 rungs read off an attempt line', () => {
+  it('finds only the steps that depend on a failed workflow leg', () => {
+    const workflow = { action: 'workflow', goal: 'open the order' } as const;
+    const tail = [
+      { action: 'expectVisible', selector: 'text=Order' },
+      { action: 'saveText', selector: 'text=ID', as: 'id' },
+      { action: 'expectText', selector: 'text=Status', value: 'Open' },
+    ] as const;
+    assert.deepEqual(dependentTail([workflow, ...tail, { action: 'goto', url: '/app' }] as Flow['steps'], 0), [1, 2, 3]);
+    assert.deepEqual(dependentTail([workflow] as Flow['steps'], 0), []);
+    assert.deepEqual(dependentTail([workflow, { action: 'workflow', goal: 'recover' }] as Flow['steps'], 0), []);
+    // A request reads nothing off the page: it and its own assertions still run.
+    assert.deepEqual(
+      dependentTail(
+        [workflow, ...tail, { action: 'request', method: 'GET', url: '/api/status' }, { action: 'expectStatus', status: 200 }] as Flow['steps'],
+        0,
+      ),
+      [1, 2, 3],
+    );
+    for (const action of ['goto', 'signIn', 'signOut', 'workflow', 'back', 'forward', 'setClock', 'clearStorage'] as const) {
+      const reset = action === 'goto'
+        ? { action, url: '/app' }
+        : action === 'signIn'
+          ? { action, as: 'TEST_ACCOUNT' }
+          : action === 'workflow'
+            ? { action, goal: 'recover' }
+            : action === 'setClock'
+              ? { action, now: '2026-09-05T00:00:00Z' }
+              : { action };
+      assert.deepEqual(dependentTail([workflow, tail[0], reset] as Flow['steps'], 0), [1], action);
+    }
+  });
+
+  it('runs dependent tails only when the kill-switch restores the old behavior', () => {
+    assert.equal(skipAfterFailedLeg({}), true);
+    assert.equal(skipAfterFailedLeg({ WOWLIDATOR_SKIP_AFTER_FAILED_LEG: 'off' }), false);
+  });
   it('enables first-issue triage only when explicitly requested', () => {
     assert.equal(stopAfterFirstIssue({}), false);
     assert.equal(stopAfterFirstIssue({ WOWLIDATOR_STOP_AFTER_FIRST_ISSUE: 'on' }), true);

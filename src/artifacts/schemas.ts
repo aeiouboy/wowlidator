@@ -27,7 +27,7 @@ import type { ProofBundle } from '../engine/proof-bundle.js';
 // --- vocabularies (mirrored from the engine's own unions) ---------------------
 
 export const RUN_STATUSES = ['passed', 'passed-with-issues', 'needs-review', 'failed', 'error', 'dead-end'] as const;
-export const STEP_STATUSES = ['passed', 'failed', 'error', 'dead-end'] as const;
+export const STEP_STATUSES = ['passed', 'failed', 'error', 'dead-end', 'skipped'] as const;
 export const BLOCKED_REASONS = ['capability', 'provenance', 'approval', 'guardrail'] as const;
 export const CASE_VERDICTS = ['passed', 'failed', 'blocked', 'review'] as const;
 /** Mirrors `AGENT_ENDED_BY` in `engine/proof-bundle.ts` — `tests/artifact-schemas.test.ts` pins the two equal. */

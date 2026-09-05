@@ -111,7 +111,7 @@ export function firstFailingStep(steps: readonly ProofStep[] | undefined): { ste
   for (let i = 0; i < steps.length; i += 1) {
     const step = steps[i]!;
     if (step.superseded === true) continue;
-    if (step.status !== 'passed') return { step, at: i };
+    if (step.status !== 'passed' && step.status !== 'skipped') return { step, at: i };
   }
   return null;
 }

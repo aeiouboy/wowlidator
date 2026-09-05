@@ -89,6 +89,20 @@ function newKindsBundle(over: Partial<ProofBundle> = {}): ProofBundle {
 /* ------------------------------------------------------------ step facts */
 
 describe('step-facts — what a step WAS, from the record', () => {
+  it('renders a skipped tail step as neutral with its reason', () => {
+    const bundle = bundleOf((builder) => {
+      builder.recordSkipped(
+        { action: 'expectVisible', selector: 'text="Order saved"' },
+        'not run: depends on step 2 (submit the order form), which did not reach its goal',
+      );
+    });
+    const html = renderReport(bundle);
+    assert.match(html, /class="step skipped"/);
+    assert.match(html, /Not run/);
+    assert.match(html, /depends on step 2/);
+    assert.equal(bundle.summary.passed, 0);
+    assert.equal(bundle.summary.failed, 0);
+  });
   it('an either/or assertion is aimed at its alternatives, never at nothing', () => {
     const step = { action: 'expectAnyVisible', selector: null, detail: { selectors: ['text=A', 'text=B'] } };
     assert.equal(stepTarget(step), 'text=A | text=B');

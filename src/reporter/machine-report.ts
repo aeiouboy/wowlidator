@@ -88,7 +88,8 @@ export function renderJUnit(
     (acc, bundle) => ({
       tests: acc.tests + bundle.summary.totalSteps,
       failures: acc.failures + (bundle.quarantined ? 0 : bundle.summary.failed),
-      skipped: acc.skipped + (bundle.quarantined ? bundle.summary.failed : 0),
+      skipped: acc.skipped + bundle.steps.filter((step) => step.status === 'skipped').length +
+        (bundle.quarantined ? bundle.summary.failed : 0),
       time: acc.time + bundle.durationMs,
     }),
     { tests: 0, failures: 0, skipped: 0, time: 0 },
@@ -108,7 +109,9 @@ export function renderJUnit(
           const body = xmlEscape(step.error ?? '');
           // A quarantined failure is reported, not counted — the report and
           // the JSON still shout about it.
-          const inner = bundle.quarantined
+          const inner = step.status === 'skipped'
+            ? `        <skipped message="${message}"/>`
+            : bundle.quarantined
             ? `        <skipped message="quarantined (known flaky): ${message}"/>`
             : `        <failure message="${message}" type="${xmlEscape(step.action)}">${body}</failure>`;
           return `      <testcase ${attrs}>\n${inner}\n      </testcase>`;
@@ -129,7 +132,7 @@ export function renderJUnit(
       return (
         `    <testsuite name="${xmlEscape(bundle.name)}" tests="${bundle.summary.totalSteps}" ` +
         `failures="${bundle.quarantined ? 0 : bundle.summary.failed}" ` +
-        `skipped="${bundle.quarantined ? bundle.summary.failed : 0}" ` +
+        `skipped="${bundle.steps.filter((step) => step.status === 'skipped').length + (bundle.quarantined ? bundle.summary.failed : 0)}" ` +
         `time="${seconds(bundle.durationMs)}" timestamp="${xmlEscape(options.timestamp ?? bundle.startedAt)}">\n` +
         `      <properties>\n${properties}\n      </properties>\n${cases}\n    </testsuite>`
       );
@@ -175,7 +178,7 @@ export function renderCtrf(bundles: readonly ProofBundle[], version = '0.2.0'): 
   const tests = bundles.flatMap((bundle) =>
     bundle.steps.map((step) => {
       const status: 'passed' | 'failed' | 'skipped' =
-        step.status === 'passed' ? 'passed' : bundle.quarantined ? 'skipped' : 'failed';
+        step.status === 'passed' ? 'passed' : step.status === 'skipped' || bundle.quarantined ? 'skipped' : 'failed';
       const test: CtrfReport['results']['tests'][number] = {
         name: caseName(step),
         status,

@@ -228,6 +228,8 @@ Three details worth keeping:
 
 ## In-run step reconstruction (`executeSteps` in `src/engine/runner.ts`)
 
+**A failed workflow leg closes its dependent tail (2026-09-05).** When a `workflow` step records a non-pass, `dependentTail` marks every following step through the next place-establishing action (or the next browser-free `request`/DB step, which reads nothing off the page) as `skipped`: those assertions and interactions are consequences of a page the leg never reached, not fresh defects to time out independently. Skipped steps stay in the proof with the leg's goal and still pass through the data gate's `after`, so a skipped window end releases its locks; they count as neither passed nor failed. `WOWLIDATOR_SKIP_AFTER_FAILED_LEG=off` restores run-to-the-end.
+
 Between the ladder (one selector, mid-step) and `--repair` (whole flow, between runs) sits the level a failed *step* actually wants: on failure, the repair model rebuilds the step against the **live page** — no re-run, session intact — and the step retries, until its failures reach `STEP_RECONSTRUCT_TRIES` (3, total, including the original). Only then does the ordinary classification (failed / error / dead end) land. On by default; `--no-reconstruct` disables; no generator key degrades silently to pre-reconstruction behaviour.
 
 Four rails hold it honest:
