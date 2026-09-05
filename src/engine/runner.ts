@@ -111,7 +111,16 @@ import {
   queryAndHash,
   verificationOnlyGoal,
 } from '../orchestrator/goal-evidence.js';
-import { performSignIn, performSignOut, acceptConsentGate, acceptConsentGateAnywhere, CONSENT_GATE_URL_PATTERN } from './sign-in.js';
+import {
+  performSignIn,
+  performSignOut,
+} from './sign-in.js';
+import {
+  acceptConsentGate,
+  acceptConsentGateAnywhere,
+  consentGateShowing,
+  CONSENT_GATE_URL_PATTERN,
+} from './consent-gate.js';
 import { generateValue, type DataKind } from '../data/mock-data.js';
 import type { DataModel } from '../data/data-model.js';
 import {
@@ -206,6 +215,10 @@ export function stepPatience(timeoutMs: number | undefined): number | undefined 
 // (`src/config.ts`); the rules themselves live in `evidence.ts`/`video.ts`.
 export type { ScreenshotMode } from './evidence.js';
 export type { VideoMode } from './video.js';
+
+export const CONSENT_POLICIES = ['accept', 'preserve'] as const;
+export type ConsentPolicy = (typeof CONSENT_POLICIES)[number];
+type ConsentSettlement = 'accepted' | 'preserved' | null;
 
 export interface SmartRunnerOptions {
   /** CDP endpoint of an already-running Chrome. Connect-only; never launches. */
@@ -448,6 +461,7 @@ export interface SmartRunnerOptions {
    * doing the signing in, and the harness must never race it.
    */
   flowSignsInItself?: boolean | undefined;
+  readonly consentPolicy?: ConsentPolicy | undefined;
   /**
    * Ring-buffer cap for the observer. The default (300) suits per-step
    * evidence; a long journey ending in an `expectCalls` over the whole run
@@ -1784,6 +1798,7 @@ export class SmartRunner {
   readonly #personaBrowsers: string[];
   /** See `SmartRunnerOptions.sessionStates`. */
   readonly #sessionStates: Readonly<Record<string, StoredSession>>;
+  readonly #consentPolicy: ConsentPolicy;
   /** The account the last `signIn` step established on the active session, for the suite's vault. */
   get #lastSignedInAs(): string | null {
     return this.#active.signedInAs;
@@ -1850,6 +1865,7 @@ export class SmartRunner {
     this.#downloadDir =
       options.downloadDir ?? join('.wowlidator', 'downloads', options.bundle.name.replace(/[^\p{L}\p{N}._-]+/gu, '_').slice(0, 80) || 'run');
     this.#flowSignsInItself = options.flowSignsInItself ?? false;
+    this.#consentPolicy = options.consentPolicy ?? 'accept';
     this.#networkMaxCalls = options.networkMaxCalls;
     this.#recording = (options.video ?? 'on') !== 'off';
     this.#humanize = options.humanize ?? this.#recording;
@@ -2256,7 +2272,8 @@ export class SmartRunner {
         detail: {
           url,
           ...(bootstrapped === null ? {} : { sessionEstablished: bootstrapped }),
-          ...(consentSettled ? { consentAccepted: true } : {}),
+          ...(consentSettled === 'accepted' ? { consentAccepted: true } : {}),
+          ...(consentSettled === 'preserved' ? { consentPreserved: true } : {}),
         },
         // The landing state. A navigation is where the page changes most, so
         // this is the frame everything after it is read against.
@@ -3949,6 +3966,12 @@ export class SmartRunner {
         detail['urlAfter'] = this.page.url();
         throw new Error(`signIn as ${persona.label} (${persona.email}) did not take — ${outcome.reason}`);
       }
+      const consentSettled =
+        this.#consentPolicy === 'accept'
+          ? ((await acceptConsentGate(this.page)) ? 'accepted' : null)
+          : ((await consentGateShowing(this.page)) !== null ? 'preserved' : null);
+      if (consentSettled === 'accepted') detail['consentAccepted'] = true;
+      if (consentSettled === 'preserved') detail['consentPreserved'] = true;
       // The run now means to be where the sign-in landed it: the session
       // guard reads the last goto, and this step was that navigation.
       try {
@@ -5774,16 +5797,16 @@ export class SmartRunner {
    * application finding, and the next step fails honestly with the gate in
    * its pageContext.
    */
-  async #settleConsentGate(askedUrl: string, urlBeforeNav: string): Promise<boolean> {
+  async #settleConsentGate(askedUrl: string, urlBeforeNav: string): Promise<ConsentSettlement> {
     try {
       const asked = new URL(askedUrl, this.page.url() || undefined);
       // A flow that means to test the consent page is never steered off it.
-      if (CONSENT_GATE_URL_PATTERN.test(asked.pathname)) return false;
+      if (CONSENT_GATE_URL_PATTERN.test(asked.pathname)) return null;
     } catch {
-      return false;
+      return null;
     }
-    let accepted = await acceptConsentGateAnywhere(this.page);
-    if (!accepted) {
+    let gate = await consentGateShowing(this.page);
+    if (gate === null) {
       // The gate has a THIRD shape on the measured application: the goto
       // lands on the target URL, and the client guard bounces to /en/consent
       // a beat AFTER domcontentloaded — so an immediate check sees nothing.
@@ -5792,6 +5815,7 @@ export class SmartRunner {
       // on one now. Only then is a short bounce-window paid, and the re-check
       // also catches an in-place gate that finished rendering meanwhile.
       const expectGate =
+        this.#consentPolicy === 'preserve' ||
         CONSENT_GATE_URL_PATTERN.test(this.page.url()) ||
         (() => {
           try {
@@ -5801,14 +5825,22 @@ export class SmartRunner {
           }
         })();
       if (expectGate) {
-        await this.page
-          .waitForURL((u) => CONSENT_GATE_URL_PATTERN.test(u.pathname), { timeout: 2_000 })
-          .catch(() => undefined);
-        await this.page.waitForTimeout(300).catch(() => undefined);
-        accepted = await acceptConsentGateAnywhere(this.page);
+        try {
+          await this.page.waitForURL((u) => CONSENT_GATE_URL_PATTERN.test(u.pathname), { timeout: 2_000 });
+        } catch (error) {
+          if (!(error instanceof errors.TimeoutError)) throw error;
+        }
+        await this.page.waitForTimeout(300);
+        gate = await consentGateShowing(this.page);
       }
     }
-    if (!accepted) return false;
+    if (gate === null) return null;
+    if (this.#consentPolicy === 'preserve') {
+      this.bundle.note(`consent gate: preserved the screen that stood in front of ${askedUrl}`);
+      return 'preserved';
+    }
+    const accepted = await acceptConsentGateAnywhere(this.page);
+    if (!accepted) return null;
     // Accepting abandons the deep link (the app lands on its home page), so
     // the recovery is only done once the goto is re-issued.
     await this.page.goto(askedUrl, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
@@ -5834,7 +5866,7 @@ export class SmartRunner {
     if (this.#sessionBootstrapTried) return null;
     if (this.#lastGotoAskedSignIn) return null;
     // A consent gate is the session HALF established — accept it and go on.
-    if (await acceptConsentGate(this.page)) {
+    if (this.#consentPolicy === 'accept' && (await acceptConsentGate(this.page))) {
       if (!looksLikeSignIn(this.page.url())) return null;
     }
     if (!looksLikeSignIn(this.page.url())) return null;
@@ -5850,7 +5882,10 @@ export class SmartRunner {
       );
       return null;
     }
-    await this.page.goto(askedUrl, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+    if (this.#consentPolicy === 'accept') {
+      await acceptConsentGate(this.page);
+      await this.page.goto(askedUrl, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
+    }
     await this.page
       .waitForLoadState('networkidle', { timeout: 10_000 })
       .catch(() => undefined);
@@ -8159,6 +8194,7 @@ export interface RunPlan {
 
 export interface Flow {
   name: string;
+  readonly consentPolicy?: ConsentPolicy | undefined;
   /**
    * The authoring pass that wrote this flow, when a model did.
    *
@@ -9788,6 +9824,7 @@ export async function runFlow(
       flowDir: options.flowDir,
       downloadDir: options.downloadDir,
       flowSignsInItself: signsInItself(flow),
+      consentPolicy: flow.consentPolicy,
       screenshots: options.screenshots,
       highlightTarget: options.highlightTarget,
       dbBaselineProbe: options.dbBaselineProbe,

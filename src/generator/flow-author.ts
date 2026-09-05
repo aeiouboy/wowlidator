@@ -22,7 +22,7 @@
 
 import type { LanguageModel } from 'ai';
 import { formatElapsed, wrapText } from '../log-format.js';
-import { CONSENT_ACCEPT_NAME } from '../engine/sign-in.js';
+import { CONSENT_ACCEPT_NAME } from '../engine/consent-gate.js';
 import type { Page } from 'playwright';
 import { z } from 'zod';
 
@@ -48,7 +48,7 @@ import {
   type ValueResolutionContext,
   type ValueResolverModel,
 } from './value-resolution.js';
-import { fieldNamesIn } from '../engine/runner.js';
+import { fieldNamesIn, hasAssertion, type ConsentPolicy } from '../engine/runner.js';
 import { matchesRoutePattern } from '../context/context-engine.js';
 import { nearestRoutes, pathnameOf, routeIsDeclared } from '../context/route-match.js';
 import { formatProbeReport, probeInteractions } from '../context/page-probe.js';
@@ -58,7 +58,6 @@ import {
   generateStructuredForModel,
   type ModelSource,
 } from '../providers/llm-factory.js';
-import { hasAssertion } from '../engine/runner.js';
 import { observationSteps, vacuousClaim } from './vacuous.js';
 import { describeUnprovedExclusivity, optionSetsIn, unprovedExclusivity } from './exclusivity.js';
 // The words the lints read a row with are DATA (`value-rules.ts`, 2026-09-04):
@@ -4045,8 +4044,13 @@ export class FlowAuthor {
       }
     }
 
+    const consentPolicy = consentPolicyForCase(extra.caseText ?? trimmed, [
+      ...result.setup,
+      ...result.steps,
+    ]);
     const flow: Flow = {
       name: result.name,
+      ...(consentPolicy === undefined ? {} : { consentPolicy }),
       ...(originOf(url) === undefined ? {} : { baseUrl: originOf(url) }),
       // A persona-switching flow is an end-to-end journey by construction —
       // the mark travels IN the flow file, like `polarity`, so a re-run or a
@@ -6588,6 +6592,21 @@ function isConsentAccept(step: FlowStep): boolean {
     return name !== null && CONSENT_ACCEPT_NAME.test(name);
   }
   return false;
+}
+
+function isConsentDecline(step: FlowStep): boolean {
+  if (step.action !== 'click') return false;
+  const name = clickTargetName(step.selector);
+  return name !== null && /^(decline|reject|do not accept|ไม่ยอมรับ|ปฏิเสธ)$/i.test(name);
+}
+
+export function consentPolicyForCase(
+  caseText: string,
+  steps: readonly FlowStep[],
+): ConsentPolicy | undefined {
+  if (steps.some(isConsentAccept)) return undefined;
+  if (steps.some(isConsentDecline)) return 'preserve';
+  return /\bCONSENT_REQUIRED\b/i.test(caseText) ? 'preserve' : undefined;
 }
 
 /**

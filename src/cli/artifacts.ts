@@ -10,7 +10,7 @@ import { join, resolve } from 'node:path';
 import { ensureChrome, ensureChromePool, portOf, stopChrome, waitForApp, type PoolMember } from '../browser/chrome.js';
 import { poolMember } from '../browser/pool.js';
 import type { ProofBundle } from '../engine/proof-bundle.js';
-import { DEFAULT_CDP_URL, type Flow, type FlowStep } from '../engine/runner.js';
+import { CONSENT_POLICIES, DEFAULT_CDP_URL, type Flow, type FlowStep } from '../engine/runner.js';
 import { decideQuarantine } from '../history/quarantine.js';
 import { RunHistory, type HistoryEntry } from '../history/run-history.js';
 import { defaultReportFilename, reportGroupForUrl } from '../reporter/html-reporter.js';
@@ -67,12 +67,11 @@ export function groupForFlow(flow: Flow): string | undefined {
 }
 
 export function isFlow(value: unknown): value is Flow {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as Flow).name === 'string' &&
-    Array.isArray((value as Flow).steps)
-  );
+  if (typeof value !== 'object' || value === null) return false;
+  if (!('name' in value) || typeof value.name !== 'string') return false;
+  if (!('steps' in value) || !Array.isArray(value.steps)) return false;
+  if (!('consentPolicy' in value) || value.consentPolicy === undefined) return true;
+  return CONSENT_POLICIES.some((policy) => policy === value.consentPolicy);
 }
 
 /**

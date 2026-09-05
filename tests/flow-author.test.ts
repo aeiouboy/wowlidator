@@ -112,6 +112,50 @@ function stubModel(result: Partial<AuthorResult>): FlowAuthorModel & { seen?: Au
 }
 
 describe('FlowAuthor', () => {
+  it('preserves consent when the catalog oracle requires the consent blocker', async () => {
+    // Given: a catalog case whose machine-readable oracle is CONSENT_REQUIRED.
+    const author = new FlowAuthor({
+      model: stubModel({
+        name: 'CNS-EC-029',
+        setup: [{ action: 'signIn', as: 'EMPLOYEE_ACCOUNT', url: '/login' }],
+        steps: [
+          { action: 'request', method: 'GET', url: '/consent/status' },
+          { action: 'expectJson', path: '$.data.status', value: 'CONSENT_REQUIRED' },
+        ],
+      }),
+    });
+
+    // When: the catalog row is authored into a runnable flow.
+    const authored = await author.author('CNS-EC-029', undefined, {
+      caseText: 'Expected: CONSENT_REQUIRED',
+    });
+
+    // Then: runtime gate handling is explicit rather than inferred from step prose.
+    assert.equal(authored.flow.consentPolicy, 'preserve');
+  });
+
+  it('preserves consent when the authored script rejects the consent document', async () => {
+    // Given: the script needs the consent gate so it can exercise rejection itself.
+    const author = new FlowAuthor({
+      model: stubModel({
+        name: 'CNS-EC-002',
+        setup: [{ action: 'signIn', as: 'EMPLOYEE_ACCOUNT', url: '/login' }],
+        steps: [
+          { action: 'click', selector: 'role=button[name="ปฏิเสธ" i]' },
+          { action: 'expectModal', name: 'ยืนยันการปฏิเสธ' },
+        ],
+      }),
+    });
+
+    // When: the row is authored without a CONSENT_REQUIRED oracle.
+    const authored = await author.author('CNS-EC-002', undefined, {
+      caseText: 'Steps: กดปุ่มปฏิเสธ Expected: ระบบแสดงกล่องยืนยัน',
+    });
+
+    // Then: automatic gate acceptance is disabled for the run.
+    assert.equal(authored.flow.consentPolicy, 'preserve');
+  });
+
   it('builds a flow from a prompt', async () => {
     const author = new FlowAuthor({
       model: stubModel({

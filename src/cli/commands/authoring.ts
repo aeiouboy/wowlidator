@@ -101,7 +101,8 @@ import {
 import { LlmGeneratorModel, TestGenerator } from '../../generator/test-generator.js';
 import type { GeneratedSuite } from '../../generator/test-generator.js';
 import { captureAxNodes, captureAxTree, type AxNode } from '../../healer/jit-healer.js';
-import { performSignIn, acceptConsentGate } from '../../engine/sign-in.js';
+import { performSignIn } from '../../engine/sign-in.js';
+import { acceptConsentGate } from '../../engine/consent-gate.js';
 import { probeInteractions } from '../../context/page-probe.js';
 import { formatTrend } from '../../history/run-history.js';
 import {

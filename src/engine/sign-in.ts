@@ -17,43 +17,22 @@
  * once (identity + Next, no password field yet); the password filled and
  * submitted with a wait on the URL actually leaving the sign-in page; one
  * hydration replay (a click that lands before the app hydrates is reset and
- * dropped — the engine replays the same shape for flows); and a consent gate
- * accepted only when the URL names one and a name-gated accept control is
- * present. Everything is deterministic, nothing invents a value: the
- * credentials are the person's own `--as`.
+ * dropped — the engine replays the same shape for flows). Consent is handled
+ * by `consent-gate.ts` after authentication. Everything is
+ * deterministic, nothing invents a value: the credentials are the person's
+ * own `--as`.
  */
 
-import type { Locator, Page } from 'playwright';
+import { errors, type Locator, type Page } from 'playwright';
 
 /** Whether a path reads as an authentication page. Presentation only. */
 export const SIGN_IN_URL_PATTERN = /(^|\/)(login|signin|sign-in|auth|sso)(\/|$)/i;
-/** A page standing between signing in and the application. */
-export const CONSENT_GATE_URL_PATTERN = /(^|\/)(consent|pdpa|terms|agreement)(\/|$|\?)/i;
-
 const IDENTITY_FIELD =
   'input[type="text"], input[type="email"], input[type="tel"], input:not([type])';
 const SUBMIT_CONTROL = 'button[type="submit"], input[type="submit"]';
+const SIGN_IN_RENDER_TIMEOUT_MS = 6_000;
 /** The control that advances a two-step sign-in past its identity screen. */
 const ADVANCE_CONTROL = 'role=button[name=/^(next|continue|proceed|ถัดไป|ดำเนินการต่อ)$/i]';
-/**
- * The accept control's accessible NAME — exported so the agent loop and the
- * authoring repair can recognise an accept-shaped control without a second
- * list that drifts from this one.
- */
-export const CONSENT_ACCEPT_NAME =
-  /^(accept and continue|accept|agree|i agree|ยอมรับและดำเนินการต่อ|ยอมรับ)$/i;
-/** A consent interstitial's accept control — name-gated, never a bare primary action. */
-const CONSENT_ACCEPT_CONTROL =
-  'role=button[name=/^(accept and continue|accept|agree|i agree|ยอมรับและดำเนินการต่อ|ยอมรับ)$/i]';
-/**
- * A consent-shaped page heading. Detection by CONTENT, because the gate this
- * was measured on (cnext-hrms-fortest, BE_Test2 2026-08-20 11:52 run) is
- * client-side and renders IN PLACE on whatever URL a goto asked for — the URL
- * never says "consent", the heading does. See
- * docs/consent-gate-recovery-spec.md.
- */
-export const CONSENT_HEADING_PATTERN = /consent|pdpa|personal data|ความยินยอม/i;
-
 /**
  * A sign-out control's accessible NAME — name-gated for the same reason as
  * `CONSENT_ACCEPT_NAME`: only a control that says it signs out is ever
@@ -88,53 +67,6 @@ async function firstVisible(scope: Page | Locator, selector: string): Promise<Lo
 }
 
 /**
- * If the tab is on a consent page, accept it and wait. True when it did.
- * Gated on the URL naming a consent page AND a name-gated accept control, so
- * this can accept a consent a sign-in steered it into, and nothing else.
- */
-export async function acceptConsentGate(tab: Page): Promise<boolean> {
-  if (!CONSENT_GATE_URL_PATTERN.test(tab.url())) return false;
-  const accept = await firstVisible(tab, CONSENT_ACCEPT_CONTROL);
-  if (accept === null) return false;
-  await accept.click();
-  await tab.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
-  await tab.waitForTimeout(300).catch(() => undefined);
-  return true;
-}
-
-/**
- * The gate detected by what the page SHOWS, not by its URL: the name-gated
- * accept control AND either a consent-naming URL or a consent-shaped heading
- * — both halves required, so a page that merely carries an "Accept" button (a
- * cookie banner has its own ladder rung) is never treated as this gate.
- * Returns the accept control when the gate is showing, `null` otherwise.
- */
-export async function consentGateShowing(tab: Page): Promise<Locator | null> {
-  const accept = await firstVisible(tab, CONSENT_ACCEPT_CONTROL);
-  if (accept === null) return null;
-  if (CONSENT_GATE_URL_PATTERN.test(tab.url())) return accept;
-  const headings = await tab
-    .locator('h1, h2, h3, [role="heading"]')
-    .allInnerTexts()
-    .catch(() => [] as string[]);
-  return headings.some((heading) => CONSENT_HEADING_PATTERN.test(heading)) ? accept : null;
-}
-
-/**
- * Accept the gate WHEREVER it renders — the content-detected sibling of
- * `acceptConsentGate`, for the gate that renders on the URL the flow asked
- * for. True when a gate was showing and was accepted.
- */
-export async function acceptConsentGateAnywhere(tab: Page): Promise<boolean> {
-  const accept = await consentGateShowing(tab);
-  if (accept === null) return false;
-  await accept.click();
-  await tab.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
-  await tab.waitForTimeout(300).catch(() => undefined);
-  return true;
-}
-
-/**
  * Sign in on the page the tab is currently showing. The tab must already be
  * on the sign-in form; the caller decides how it got there.
  */
@@ -146,6 +78,18 @@ export async function performSignIn(
   // case this settle misses.
   await tab.waitForTimeout(400).catch(() => undefined);
   let password = await firstVisible(tab, 'input[type="password"]');
+
+  if (password === null && (await firstVisible(tab, IDENTITY_FIELD)) === null) {
+    try {
+      await tab.locator('input[type="password"]').first().waitFor({
+        state: 'visible',
+        timeout: SIGN_IN_RENDER_TIMEOUT_MS,
+      });
+    } catch (error) {
+      if (!(error instanceof errors.TimeoutError)) throw error;
+    }
+    password = await firstVisible(tab, 'input[type="password"]');
+  }
 
   // A sign-in may take two screens: identity + Next first, password after.
   if (password === null) {
@@ -212,9 +156,6 @@ export async function performSignIn(
     return { ok: false, reason: `the page never left the sign-in screen (${tab.url()})` };
   }
 
-  // A consent gate after the first sign-in of a fresh context is part of
-  // signing in: nothing behind it is reachable until it is accepted.
-  await acceptConsentGate(tab);
   return { ok: true, landedUrl: tab.url() };
 }
 

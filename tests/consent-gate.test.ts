@@ -16,6 +16,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { runFlow, withPage, type Flow, type FlowStep } from '../src/engine/runner.js';
+import { acceptConsentGate } from '../src/engine/consent-gate.js';
 import { settleConsentEarly } from '../src/generator/flow-author.js';
 import { WorkflowAgent, type AgentDecision, type AgentObservation } from '../src/orchestrator/workflow-agent.js';
 
@@ -71,7 +72,31 @@ describe('consent-gate recovery (CDP)', { skip: skipBrowser }, () => {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       if (path === '/app/target') res.end(GATED('<h1>Target content</h1><button>Create Plan</button>'));
       else if (path === '/app/sticky') res.end(GATED('<h1>Never shown</h1>', true));
-      else if (path === '/consent') res.end(PLAIN('<h1>Consent to the Collection of Personal Data</h1><button>Accept and continue</button>'));
+      else if (path === '/app/late') {
+        res.end(PLAIN('<h1>Loading</h1><script>setTimeout(function(){location.href="/consent";},50);</script>'));
+      }
+      else if (path === '/login') {
+        res.end(PLAIN(
+          '<form id="login"><input type="email"><input type="password"><button type="submit">Sign in</button></form>' +
+          '<script>document.getElementById("login").addEventListener("submit",function(event){event.preventDefault();location.href="/consent";});</script>',
+        ));
+      } else if (path === '/consent') {
+        res.end(PLAIN(
+          '<h1>Consent to the Collection of Personal Data</h1>' +
+          '<button onclick="localStorage.setItem(\'gate-ok\',\'1\');location.href=\'/home\'">Accept and continue</button>',
+        ));
+      } else if (path === '/consent/scroll') {
+        res.end(PLAIN(
+          '<h1>Consent to the Collection of Personal Data</h1>' +
+          '<div id="document" style="height:80px;overflow:auto"><div style="height:400px">Policy</div></div>' +
+          '<button id="accept" disabled>Accept and continue</button>' +
+          '<script>' +
+          'var documentBox=document.getElementById("document");var accept=document.getElementById("accept");' +
+          'documentBox.addEventListener("scroll",function(){if(documentBox.scrollTop+documentBox.clientHeight>=documentBox.scrollHeight-1)accept.disabled=false;});' +
+          'accept.addEventListener("click",function(){location.href="/home";});' +
+          '</script>',
+        ));
+      }
       else if (path === '/home') res.end(PLAIN('<h1>Home landing</h1>'));
       else if (path === '/other') res.end(PLAIN('<h1>Somewhere else</h1>'));
       else res.end(PLAIN('<h1>Start</h1>'));
@@ -111,6 +136,91 @@ describe('consent-gate recovery (CDP)', { skip: skipBrowser }, () => {
     const finding = bundle.defects.find((d) => /consent gate/i.test(d.title));
     assert.equal(finding?.severity, 'low');
     assert.equal(finding?.category, 'usability');
+  });
+
+  it('preserves an in-place consent gate when the flow needs to prove the blocker', async () => {
+    // Given: a protected page whose consent gate normally gets cleared automatically.
+    const flow: Flow = {
+      name: 'prove the consent blocker',
+      consentPolicy: 'preserve',
+      steps: [
+        // When: the flow navigates to the protected page.
+        { action: 'goto', url: `${origin}/app/target` },
+        // Then: the gate remains the observable subject of the test.
+        { action: 'expectVisible', selector: 'role=heading[name="Consent to the Collection of Personal Data" i]' },
+      ],
+    };
+
+    const bundle = await runFlow(flow, runOptions);
+
+    assert.equal(bundle.status, 'passed', bundle.error ?? '');
+    const nav = bundle.steps.find((step) => step.action === 'goto');
+    assert.equal(nav?.detail?.['consentPreserved'], true);
+    assert.equal(nav?.detail?.['consentAccepted'], undefined);
+  });
+
+  it('preserves a consent gate that appears after navigation settles', async () => {
+    // Given: a protected route whose client guard redirects to consent after DOM content loads.
+    const flow: Flow = {
+      name: 'prove a late consent redirect',
+      consentPolicy: 'preserve',
+      steps: [
+        { action: 'goto', url: `${origin}/app/late` },
+        { action: 'expectUrl', value: '/consent' },
+      ],
+    };
+
+    // When: the runner observes the late redirect window.
+    const bundle = await runFlow(flow, runOptions);
+
+    // Then: it leaves the consent page visible for the test oracle.
+    const nav = bundle.steps.find((step) => step.action === 'goto');
+    assert.equal(bundle.status, 'passed', bundle.error ?? '');
+    assert.equal(nav?.url, `${origin}/consent`);
+    assert.equal(nav?.detail?.['consentPreserved'], true);
+    assert.equal(nav?.detail?.['consentAccepted'], undefined);
+  });
+
+  it('preserves the consent landing after a persona signs in', async () => {
+    // Given: a flow that authenticates a persona to observe the consent landing itself.
+    const flow: Flow = {
+      name: 'sign in and observe consent',
+      consentPolicy: 'preserve',
+      setup: [{ action: 'signIn', as: 'EMPLOYEE_ACCOUNT', url: `${origin}/login` }],
+      steps: [
+        // When: sign-in redirects the authenticated browser to consent.
+        // Then: the consent URL remains visible instead of being accepted automatically.
+        { action: 'expectUrl', value: '/consent' },
+      ],
+    };
+
+    const bundle = await runFlow(flow, {
+      ...runOptions,
+      personas: {
+        EMPLOYEE_ACCOUNT: { email: 'employee@example.test', password: 'secret' },
+      },
+    });
+
+    assert.equal(bundle.status, 'passed', bundle.error ?? '');
+    const signIn = bundle.steps.find((step) => step.action === 'signIn');
+    assert.equal(signIn?.detail?.['consentPreserved'], true);
+    assert.equal(signIn?.detail?.['urlAfter'], `${origin}/consent`);
+  });
+
+  it('accepts consent after reading a document that gates the accept control', async () => {
+    // Given: a consent page whose accept control stays disabled until its document reaches the end.
+    const observed = await withPage(CDP_URL, async (page) => {
+      page.setDefaultTimeout(1_000);
+      await page.goto(`${origin}/consent/scroll`, { waitUntil: 'domcontentloaded' });
+
+      // When: deterministic consent handling runs.
+      const accepted = await acceptConsentGate(page);
+
+      // Then: the control was enabled through document scrolling and the gate was accepted.
+      return { accepted, url: page.url() };
+    });
+
+    assert.deepEqual(observed, { accepted: true, url: `${origin}/home` });
   });
 
   it("F1: a goto that asks for the consent page itself keeps its subject", async () => {

@@ -22,13 +22,13 @@ import { z } from 'zod';
 import { lenientObject } from '../providers/model-output.js';
 
 import { SELECTOR_SYNTAX_RULES, captureAxNodes } from '../healer/jit-healer.js';
+import { performSignOut } from '../engine/sign-in.js';
 import {
   CONSENT_ACCEPT_NAME,
   CONSENT_GATE_URL_PATTERN,
   acceptConsentGateAnywhere,
   consentGateShowing,
-  performSignOut,
-} from '../engine/sign-in.js';
+} from '../engine/consent-gate.js';
 import { revealHidden } from '../engine/reveal.js';
 import { approach, humanClick, humanFill, humanKeys, humanScrollBy, humanScrollTo } from '../engine/humanize.js';
 import { ListboxOptionMissingError, selectFromListbox } from '../engine/listbox.js';

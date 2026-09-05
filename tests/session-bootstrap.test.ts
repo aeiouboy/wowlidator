@@ -47,6 +47,20 @@ describe('the session bootstrap (CDP)', { skip: skipBrowser }, () => {
       const cookie = req.headers.cookie ?? '';
       const signedIn = cookie.includes('session=ok');
 
+      if (url.pathname === '/login/delayed') {
+        res.writeHead(200, { 'content-type': 'text/html' });
+        res.end(
+          PAGE(
+            '<div id="form"></div><script>setTimeout(() => {' +
+              'document.getElementById("form").innerHTML = ' +
+              "'<form method=\"post\" action=\"/login\"><input type=\"email\" name=\"email\">" +
+              '<input type="password" name="password"><button type="submit">Sign in</button></form>\'' +
+              '}, 1200)</script>',
+          ),
+        );
+        return;
+      }
+
       if (url.pathname === '/login') {
         if (req.method === 'POST') {
           let raw = '';
@@ -125,6 +139,28 @@ describe('the session bootstrap (CDP)', { skip: skipBrowser }, () => {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );
+  });
+
+  it('waits for a client-rendered sign-in form before deciding it is absent', async () => {
+    // Given: the sign-in route paints its credential fields after client hydration.
+    const flow: Flow = {
+      name: 'delayed sign-in form',
+      steps: [{ action: 'signIn', as: 'HR_ADMIN_ACCOUNT', url: `${origin}/login/delayed` }],
+    };
+
+    // When: the runner signs in immediately after navigation.
+    const bundle = await runFlow(flow, {
+      cdpUrl: CDP_URL,
+      video: 'off',
+      isolate: true,
+      screenshots: 'off',
+      healer: null,
+      personas: { HR_ADMIN_ACCOUNT: { email: 'admin@b.test', password: 'pw2026' } },
+    });
+
+    // Then: it waits for hydration and submits the real form.
+    assert.equal(bundle.status, 'passed', bundle.error ?? '');
+    assert.equal(bundle.steps[0]?.status, 'passed');
   });
 
   /** BE_Test2's shape: assume the session, never sign in. */
