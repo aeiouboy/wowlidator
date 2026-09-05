@@ -200,6 +200,16 @@ export function harnessOnly(bundle: {
   if (first.blocked !== undefined) {
     return `blocked (${first.blocked.reason}, ${first.blocked.rule}) — the harness withheld the action; the application was never asked: ${first.blocked.message}`;
   }
+  // A workflow leg the MODEL ended with `fail` (task C3, 2026-09-05): the
+  // harness did not end this case and neither did the application — the
+  // agent's own account did, and an account is a claim, never evidence. Said
+  // as that, with the claim, so nobody reads "runtime error" and goes to fix
+  // the runner. Typed on the record (`endedBy`), never parsed off the message;
+  // the claim itself comes from the redacted record.
+  if (first.agent?.endedBy === 'fail') {
+    const claim = (first.agent.unreachable?.claim ?? first.agent.summary).split('\n')[0]?.trim() || first.agent.summary;
+    return `no verdict — the agent's own account, unverified: ${claim}`;
+  }
   const line = (first.error ?? 'runtime error').split('\n')[0]?.trim() || 'runtime error';
   return `runtime error — the harness ended this case, not the application: ${line}`;
 }

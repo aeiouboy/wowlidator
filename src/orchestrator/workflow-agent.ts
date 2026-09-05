@@ -78,7 +78,15 @@ import {
   generateStructuredForModel,
   type ModelSource,
 } from '../providers/llm-factory.js';
-import type { ActionOutcome, AgentAction, AgentRecord, BlockedOutcome } from '../engine/proof-bundle.js';
+import type {
+  ActionOutcome,
+  AgentAction,
+  AgentEndedBy,
+  AgentListboxFacts,
+  AgentRecord,
+  AgentUnreachableClaim,
+  BlockedOutcome,
+} from '../engine/proof-bundle.js';
 import {
   anyValueAppears,
   atGoalDestination,
@@ -1316,6 +1324,15 @@ export class WorkflowAgent {
   #lastBlocked: BlockedOutcome | null = null;
   /** The hold this run ENDED on, read into `WorkflowResult.blocked`. */
   #blocked: BlockedOutcome | null = null;
+  /**
+   * Why this run ENDED, typed (`AgentEndedBy`, task C3). Set at every place
+   * the loop already sets its final `summary` and stops — the source of the
+   * stop's evidence (page, harness, model) as data, never a change to WHEN
+   * the loop stops. Read into `WorkflowResult.endedBy`.
+   */
+  #endedBy: AgentEndedBy | null = null;
+  /** The model's `fail`, beside what the page showed — read into `WorkflowResult.unreachable`. */
+  #unreachable: AgentUnreachableClaim | null = null;
   /** The skills chosen for this leg, once, from the goal and the first tree (Phase C). */
   #skills: AgentSkillId[] | null = null;
   /** Prompt-cache reads the provider reported across the leg's turns. */
@@ -1359,6 +1376,8 @@ export class WorkflowAgent {
     this.#provenance.reset();
     this.#blocked = null;
     this.#lastBlocked = null;
+    this.#endedBy = null;
+    this.#unreachable = null;
     this.#skills = null;
     this.#cachedInputTokens = 0;
     this.#policy = runOptions.mutationPolicy === undefined ? this.#defaultPolicy : runOptions.mutationPolicy;
@@ -1492,6 +1511,8 @@ export class WorkflowAgent {
     const personas = runOptions.readOnly === true ? null : multiPersonaGoal(goal);
     if (personas !== null) {
       history.push(`(the goal names ${personas.join(' and ')}; one session cannot be both — refused before the first turn)`);
+      // Held before turn one: an authoring hold, with no mutation record.
+      this.#endedBy = 'blocked';
       return this.#result(goal, false, multiPersonaSummary(personas), actions, 0, startedMs, 0, 0, effectiveMaxSteps);
     }
 
@@ -1511,6 +1532,9 @@ export class WorkflowAgent {
       const replayed = await this.#replay(page, remembered, allowed, actions, history, startUrl, goal);
       if (replayed === null) {
         summary = `replayed ${remembered.length} recorded action(s) from an earlier run that reached this goal — no model turn spent`;
+        // A replay re-proves arrival against the page (`#replay`), so the
+        // zero-call rungs end as the page's own `arrived`, never a claim.
+        this.#endedBy = 'arrived';
         return this.#result(goal, true, summary, actions, 0, startedMs, 0, 0, effectiveMaxSteps);
       }
       memory?.forget(key as string);
@@ -1529,6 +1553,7 @@ export class WorkflowAgent {
       if (replayed === null) {
         this.#remember(key, memory, actions);
         summary = `replayed ${script.length} scripted action(s) recorded on the flow itself — no model turn spent`;
+        this.#endedBy = 'arrived';
         return this.#result(goal, true, summary, actions, 0, startedMs, 0, 0, effectiveMaxSteps);
       }
       history.push(`(the flow's recorded script failed at action ${replayed + 1}; asking the model)`);
@@ -1542,6 +1567,7 @@ export class WorkflowAgent {
     const showing = goalAlreadyShowing(goal, await this.#captureTree(page));
     if (showing !== null) {
       history.push(`(the goal's own surface "${showing}" is already showing; nothing to do)`);
+      this.#endedBy = 'arrived';
       return this.#result(
         goal,
         true,
@@ -1567,6 +1593,7 @@ export class WorkflowAgent {
     );
     if (preflight !== null) {
       this.#remember(key, memory, actions);
+      this.#endedBy = 'arrived';
       return this.#result(goal, true, preflight, actions, 0, startedMs, 0, 0, effectiveMaxSteps);
     }
     progressMade = actions.some((a) => a.ok && a.action !== 'wait' && a.action !== 'scroll' && !/consent gate/.test(a.reasoning));
@@ -1603,6 +1630,7 @@ export class WorkflowAgent {
       // progress, a model failure — ends the loop.
       if (turns >= effectiveMaxSteps) {
         summary = `agent gave up after ${turns} turns without reaching the goal`;
+        this.#endedBy = 'budget';
         break;
       }
       turns += 1;
@@ -1622,6 +1650,7 @@ export class WorkflowAgent {
         if (gate === 'arrived') {
           success = true;
           summary = `reached ${page.url()}, the destination the goal names, after clearing a consent gate on turn ${turns}`;
+          this.#endedBy = 'arrived';
           break;
         }
       }
@@ -1669,6 +1698,7 @@ export class WorkflowAgent {
           `agent gave up: the goal's ${named} never appeared on any of the ` +
           `${turns} page state(s) this leg observed — it may not exist on this journey, rather than merely ` +
           'being hard to reach';
+        this.#endedBy = 'value-hunt';
         break;
       }
 
@@ -1700,6 +1730,7 @@ export class WorkflowAgent {
           });
         } catch (error) {
           summary = `agent model failed: ${describe(error)}`;
+          this.#endedBy = 'model-error';
           return this.#result(goal, false, summary, actions, turns, startedMs, inputTokens, outputTokens, effectiveMaxSteps);
         }
         inputTokens += candidate.inputTokens ?? 0;
@@ -1726,6 +1757,7 @@ export class WorkflowAgent {
           if (refusal.startsWith('stalled')) {
             summary = `agent ${refusal}`;
             actions.push(this.#record(actions.length, candidate, page.url(), false, 0, refusal));
+            this.#endedBy = 'stalled';
             return this.#result(goal, false, summary, actions, turns, startedMs, inputTokens, outputTokens, effectiveMaxSteps);
           }
           if (refusal.startsWith('destructive') || refusal.startsWith('circling')) {
@@ -1751,12 +1783,14 @@ export class WorkflowAgent {
             history.push(`${candidate.action} ${candidate.selector} — REFUSED: ${refusal}`);
             this.#blocked = blocked;
             summary = `agent blocked (${blocked.reason}): ${blocked.message}`;
+            this.#endedBy = 'blocked';
             return this.#result(goal, false, summary, actions, turns, startedMs, inputTokens, outputTokens, effectiveMaxSteps);
           }
           if (candidate.action === 'finish') {
             // An unverified finish is recorded as one — never as success.
             summary = `agent claimed finish, but ${refusal}`;
             actions.push(this.#record(actions.length, candidate, page.url(), false, 0, refusal));
+            this.#endedBy = 'contradicted';
             return this.#result(goal, false, summary, actions, turns, startedMs, inputTokens, outputTokens, effectiveMaxSteps);
           }
           decision = candidate;
@@ -1769,6 +1803,7 @@ export class WorkflowAgent {
             summary =
               `agent stalled: nothing advanced in ${turnsWithoutProgress} consecutive turns` +
               ` (last refusal: ${actions[actions.length - 1]?.error ?? ''})`;
+            this.#endedBy = 'no-progress';
             break;
           }
         }
@@ -1828,6 +1863,7 @@ export class WorkflowAgent {
             }
             summary = `agent claimed finish, but the page does not show ${missing}`;
             actions.push(this.#record(actions.length, decision, page.url(), false, 0, summary));
+            this.#endedBy = 'contradicted';
             return this.#result(goal, false, summary, actions, turns, startedMs, inputTokens, outputTokens, effectiveMaxSteps);
           }
           this.#settledBy = { rule: 'observed-state', evidence: settled.shown.map((s) => s.line).join(' | ') };
@@ -1837,12 +1873,23 @@ export class WorkflowAgent {
         success = true;
         summary = decision.reasoning;
         actions.push(this.#record(actions.length, decision, page.url(), true, 0));
+        this.#endedBy = 'finish';
         break;
       }
 
       if (decision.action === 'fail') {
         summary = `agent reported the goal is unreachable: ${decision.reasoning}`;
         actions.push(this.#record(actions.length, decision, page.url(), false, 0));
+        // The model's word, kept as a CLAIM beside what the harness read off
+        // the page this turn: where it was, and which headings the tree
+        // showed. A reader weighs the one against the other; the runner
+        // never files the claim as a finding (task C3).
+        this.#endedBy = 'fail';
+        this.#unreachable = {
+          claim: decision.reasoning,
+          urlAfter: page.url(),
+          headingsAfter: headingsOf(all),
+        };
         break;
       }
 
@@ -1893,12 +1940,18 @@ export class WorkflowAgent {
         // without another model turn: the page's state is the verdict, and
         // the flow's next assertion carries it.
         let cannotOffer: { control: string; value: string; shown: string[] } | null = null;
+        // What the list showed, copied off the typed error BEFORE `describe`
+        // flattens it to a string (task C3): the trigger's label, the value
+        // asked, the count and head of the options, and whether the list was
+        // filtered — harness observation the record keeps as data.
+        let listbox: AgentListboxFacts | undefined;
 
         try {
           await this.#act(page, current, allowed);
         } catch (caught) {
           ok = false;
           error = describe(caught);
+          if (caught instanceof ListboxOptionMissingError) listbox = listboxFacts(caught, current.value);
           const missing =
             caught instanceof ListboxOptionMissingError && !caught.filtered
               ? listboxCannotOffer(current, caught.shown, goal, caught.trigger)
@@ -1910,8 +1963,12 @@ export class WorkflowAgent {
               await this.#act(page, current, allowed);
               ok = true;
               error = undefined;
+              listbox = undefined;
             } catch (again) {
               error = describe(again);
+              // The second enumeration is the one the record keeps: it is
+              // the list as it stood after the settle.
+              if (again instanceof ListboxOptionMissingError) listbox = listboxFacts(again, current.value);
               if (again instanceof ListboxOptionMissingError && !again.filtered && sameOptions(again.shown, missing.shown)) {
                 cannotOffer = missing;
               }
@@ -1927,6 +1984,8 @@ export class WorkflowAgent {
           Date.now() - actionStarted,
           error,
           this.#takeObserved(),
+          undefined,
+          listbox,
         );
         actions.push(record);
         // What the model needs to not repeat itself: WHICH value went into
@@ -2032,6 +2091,7 @@ export class WorkflowAgent {
         if (ok && destinationReached(goal, startUrl, page.url())) {
           success = true;
           summary = `reached ${page.url()}, the destination the goal names, after ${turns} turn(s)`;
+          this.#endedBy = 'arrived';
           arrived = true;
         }
         if (cannotOffer !== null) {
@@ -2043,6 +2103,9 @@ export class WorkflowAgent {
             `agent stopped: the goal's ${cannotOffer.control} = ${JSON.stringify(cannotOffer.value)} is not among the ` +
             `${cannotOffer.shown.length} option(s) the control offers (${listed}${cannotOffer.shown.length > 8 ? ', …' : ''}) — ` +
             `enumerated twice, ${WAIT_SETTLE_MS} ms apart, so the page cannot satisfy this pair`;
+          // Page evidence: the enumeration was repeated and identical, which
+          // is exactly the condition `cannotOffer` is set under.
+          this.#endedBy = 'cannot-offer';
           stopped = true;
         }
         // **A held mutation ends the leg, as a hold.** The policy does not
@@ -2054,6 +2117,7 @@ export class WorkflowAgent {
         if (record.outcome?.kind === 'blocked') {
           this.#blocked = record.outcome;
           summary = `agent blocked (${record.outcome.reason}): ${record.outcome.message}`;
+          this.#endedBy = 'blocked';
           stopped = true;
         }
         if (!ok) break;
@@ -2127,6 +2191,7 @@ export class WorkflowAgent {
               `agent wandered: left the step's page ${startUrl} and spent ${offPageTurns} turn(s) elsewhere ` +
               `(now at ${turnEndUrl}) without reaching ${destination === null ? 'anything the goal names' : `the goal's destination ${destination}`}` +
               ' — each move onto a fresh page counted as progress, so this allowance ended the leg';
+            this.#endedBy = 'wandered';
             break;
           }
         }
@@ -2200,6 +2265,9 @@ export class WorkflowAgent {
               'waiting with no control the goal could name — this is a reading question, and the ' +
               "flow's own assertions after this step are what answer it";
           this.#lookedOnly = true;
+          // The look-only handoff is the no-progress judge at a shorter
+          // count; `lookedOnly` is what tells the two apart.
+          this.#endedBy = 'no-progress';
           break;
         }
         if (turnsWithoutProgress >= this.#noProgressTurns) {
@@ -2207,6 +2275,7 @@ export class WorkflowAgent {
           summary =
             `agent stalled: nothing advanced in ${turnsWithoutProgress} consecutive turns` +
             (lastFailed?.error === undefined ? '' : ` (last failure: ${lastFailed.error})`);
+          this.#endedBy = 'no-progress';
           break;
         }
       }
@@ -2483,6 +2552,8 @@ export class WorkflowAgent {
       ...(!success && this.#blocked !== null ? { blocked: this.#blocked } : {}),
       ...(this.#skills !== null && this.#skills.length > 0 ? { skills: [...this.#skills] } : {}),
       ...(this.#cachedInputTokens > 0 ? { cachedInputTokens: this.#cachedInputTokens } : {}),
+      ...(this.#endedBy === null ? {} : { endedBy: this.#endedBy }),
+      ...(this.#endedBy === 'fail' && this.#unreachable !== null ? { unreachable: this.#unreachable } : {}),
     };
   }
 
@@ -3283,6 +3354,7 @@ export class WorkflowAgent {
     error?: string,
     observed?: string,
     blocked?: BlockedOutcome,
+    listbox?: AgentListboxFacts,
   ): ObservedAgentAction {
     // The typed outcome beside the boolean: a hold raised by `#act` (consumed
     // here, once), or one the caller names (a guardrail refusal that never
@@ -3304,6 +3376,7 @@ export class WorkflowAgent {
       finishedAt: new Date().toISOString(),
       ...(observed === undefined ? {} : { observed }),
       outcome,
+      ...(listbox === undefined ? {} : { listbox }),
     };
   }
 
@@ -3337,4 +3410,33 @@ export class MutationBlockedError extends Error {
 function describe(error: unknown): string {
   if (error instanceof Error) return error.message.split('\n')[0] ?? error.message;
   return String(error);
+}
+
+/** How many options a listbox record keeps verbatim — the same head the error message prints. */
+export const LISTBOX_HEAD = 8;
+
+/**
+ * The listbox facts an action record keeps when a `selectOption` missed
+ * (task C3) — copied off the typed `ListboxOptionMissingError` before it is
+ * flattened to a string. `value` is the option the decision asked for (the
+ * error carries the part it was matching, which is the same text for a
+ * single pick). Pure, so a hand-built error proves the shape.
+ */
+export function listboxFacts(error: ListboxOptionMissingError, value: string): AgentListboxFacts {
+  return {
+    trigger: error.trigger,
+    value,
+    shownCount: error.shown.length,
+    shownHead: error.shown.slice(0, LISTBOX_HEAD),
+    filtered: error.filtered,
+    searchedEmpty: error.searchedEmpty,
+  };
+}
+
+/** The headings a captured tree shows, in order, at most eight — what a person reads to know which screen this is. */
+export function headingsOf(nodes: readonly AxNode[]): string[] {
+  return nodes
+    .filter((n) => n.role === 'heading' && n.name !== '')
+    .map((n) => n.name)
+    .slice(0, 8);
 }

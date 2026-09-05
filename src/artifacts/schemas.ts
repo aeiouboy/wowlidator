@@ -30,6 +30,21 @@ export const RUN_STATUSES = ['passed', 'passed-with-issues', 'needs-review', 'fa
 export const STEP_STATUSES = ['passed', 'failed', 'error', 'dead-end'] as const;
 export const BLOCKED_REASONS = ['capability', 'provenance', 'approval', 'guardrail'] as const;
 export const CASE_VERDICTS = ['passed', 'failed', 'blocked', 'review'] as const;
+/** Mirrors `AGENT_ENDED_BY` in `engine/proof-bundle.ts` — `tests/artifact-schemas.test.ts` pins the two equal. */
+export const AGENT_ENDED_BY_VALUES = [
+  'finish',
+  'arrived',
+  'fail',
+  'budget',
+  'stalled',
+  'no-progress',
+  'value-hunt',
+  'cannot-offer',
+  'wandered',
+  'blocked',
+  'model-error',
+  'contradicted',
+] as const;
 
 const RunStatusSchema = z.enum(RUN_STATUSES);
 
@@ -42,11 +57,46 @@ const BlockedOutcomeSchema = z.looseObject({
   message: z.string(),
 });
 
+/**
+ * The workflow agent's record on a step (task C3, 2026-09-05). Everything on
+ * it is descriptive and optional — an older bundle wrote none of these — but
+ * `endedBy` is read by the exit contract (`harnessOnly` words a `fail` as the
+ * agent's own account), so a value outside the loop's vocabulary is refused;
+ * the listbox facts and the unreachable claim are checked for shape only.
+ */
+const AgentRecordSchema = z.looseObject({
+  endedBy: z.enum(AGENT_ENDED_BY_VALUES).optional(),
+  unreachable: z
+    .looseObject({
+      claim: z.string(),
+      urlAfter: z.string(),
+      headingsAfter: z.array(z.string()),
+    })
+    .optional(),
+  actions: z
+    .array(
+      z.looseObject({
+        listbox: z
+          .looseObject({
+            trigger: z.string(),
+            value: z.string(),
+            shownCount: z.number().int().nonnegative(),
+            shownHead: z.array(z.string()),
+            filtered: z.boolean(),
+            searchedEmpty: z.string().nullable(),
+          })
+          .optional(),
+      }),
+    )
+    .optional(),
+});
+
 const ProofStepSchema = z.looseObject({
   index: z.number().int().nonnegative(),
   action: z.string(),
   status: z.enum(STEP_STATUSES),
   blocked: BlockedOutcomeSchema.optional(),
+  agent: AgentRecordSchema.optional(),
 });
 
 /**

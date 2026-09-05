@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  AGENT_ENDED_BY_VALUES,
   BaselineSchema,
   HealedSelectorEntrySchema,
   HistoryEntrySchema,
@@ -26,6 +27,7 @@ import {
   parseArtifact,
   parseProofBundle,
 } from '../src/artifacts/schemas.js';
+import { AGENT_ENDED_BY } from '../src/engine/proof-bundle.js';
 import { CacheManager } from '../src/cache/cache-manager.js';
 import { readLedger, LEDGER_VERSION } from '../src/cli/suite-progress.js';
 import { ContextEngine } from '../src/context/context-engine.js';
@@ -88,6 +90,72 @@ describe('proof bundles are parsed before the panel scores them', () => {
     const result = ProofBundleSchema.safeParse({ ...BUNDLE, steps: [{ ...BUNDLE.steps[0], status: 'banana' }] });
     assert.equal(result.success, false);
     if (!result.success) assert.match(firstIssue(result.error), /^steps\.0\.status: /);
+  });
+
+  // The agent record's typed stop (task C3): descriptive fields an older
+  // build never wrote, so a bundle with them and a bundle without them both
+  // read — but `endedBy` steers the exit contract's wording, so a value
+  // outside the loop's vocabulary is refused like any other authority field.
+  const AGENT_STEP = {
+    index: 1, action: 'workflow', selector: null, resolvedSelector: null, resolution: null, status: 'error',
+    startedAt: 'x', durationMs: 1, url: 'http://x.test/en/form',
+    detail: { goal: 'set Employee Group to "Z - Nothing"', expected: 'Z - Nothing', actual: '"Employee Group" offered 9 option(s): "A - Alpha"' },
+    agent: {
+      goal: 'set Employee Group to "Z - Nothing"', model: 'stub', success: false,
+      summary: 'agent reported the goal is unreachable: no such group', turns: 2, maxSteps: 12, latencyMs: 700,
+      endedBy: 'fail',
+      unreachable: { claim: 'no such group', urlAfter: 'http://x.test/en/form', headingsAfter: ['Employment', 'Reporting'] },
+      actions: [
+        { index: 0, action: 'selectOption', selector: 'role=button[name="Employee Group" i]', value: 'Z - Nothing', url: 'http://x.test/en/form',
+          reasoning: 'pick', ok: false, error: 'opened "Employee Group" but no option named "Z - Nothing" appeared', durationMs: 40,
+          outcome: { kind: 'failed', message: 'miss' },
+          listbox: { trigger: 'Employee Group', value: 'Z - Nothing', shownCount: 9, shownHead: ['A - Alpha', 'B - Bravo'], filtered: false, searchedEmpty: null } },
+        { index: 1, action: 'fail', selector: null, value: null, url: 'http://x.test/en/form', reasoning: 'no such group', ok: false, durationMs: 0 },
+      ],
+      aFieldFromANewerBuild: true,
+    },
+  };
+
+  it('accepts a bundle whose agent record carries endedBy, unreachable and listbox facts, and one without them', () => {
+    const withTyped = parseProofBundle({ ...BUNDLE, steps: [BUNDLE.steps[0], AGENT_STEP] });
+    assert.equal(withTyped.ok, true, withTyped.ok ? '' : withTyped.issue);
+    if (withTyped.ok) {
+      const agent = withTyped.value.steps[1]?.agent;
+      assert.equal(agent?.endedBy, 'fail');
+      assert.equal(agent?.unreachable?.claim, 'no such group');
+      assert.deepEqual(agent?.actions[0]?.listbox?.shownHead, ['A - Alpha', 'B - Bravo']);
+      assert.equal((agent as unknown as { aFieldFromANewerBuild: boolean }).aFieldFromANewerBuild, true, 'unknown agent fields survive');
+    }
+    // An older build's record: no endedBy, no unreachable, actions without listbox.
+    const { endedBy: _e, unreachable: _u, ...olderAgent } = AGENT_STEP.agent;
+    const older = parseProofBundle({
+      ...BUNDLE,
+      steps: [BUNDLE.steps[0], { ...AGENT_STEP, agent: { ...olderAgent, actions: [AGENT_STEP.agent.actions[1]] } }],
+    });
+    assert.equal(older.ok, true, older.ok ? '' : older.issue);
+    // And the fixture that predates the field entirely still reads.
+    assert.equal(parseProofBundle(BUNDLE).ok, true);
+  });
+
+  it('refuses an endedBy outside the loop vocabulary, and a malformed listbox or claim', () => {
+    const badEnded = parseProofBundle({ ...BUNDLE, steps: [{ ...AGENT_STEP, agent: { ...AGENT_STEP.agent, endedBy: 'gave-up' } }] });
+    assert.equal(badEnded.ok, false);
+    if (!badEnded.ok) assert.match(badEnded.issue, /^steps\.0\.agent\.endedBy: /);
+
+    const badListbox = parseProofBundle({
+      ...BUNDLE,
+      steps: [{ ...AGENT_STEP, agent: { ...AGENT_STEP.agent, actions: [{ ...AGENT_STEP.agent.actions[0], listbox: { trigger: 'x', value: 'y', shownCount: 'nine', shownHead: [], filtered: false, searchedEmpty: null } }] } }],
+    });
+    assert.equal(badListbox.ok, false);
+    if (!badListbox.ok) assert.match(badListbox.issue, /listbox\.shownCount/);
+
+    const badClaim = parseProofBundle({ ...BUNDLE, steps: [{ ...AGENT_STEP, agent: { ...AGENT_STEP.agent, unreachable: { claim: 42 } } }] });
+    assert.equal(badClaim.ok, false);
+    if (!badClaim.ok) assert.match(badClaim.issue, /unreachable\.claim/);
+  });
+
+  it('mirrors the engine vocabulary exactly', () => {
+    assert.deepEqual([...AGENT_ENDED_BY_VALUES], [...AGENT_ENDED_BY]);
   });
 });
 
