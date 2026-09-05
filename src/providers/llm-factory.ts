@@ -34,7 +34,9 @@ import {
   type WowlidatorConfig,
 } from '../config.js';
 import { localFetch } from './local-fetch.js';
+import { createAgyCli } from './agy-cli.js';
 import { createClaudeCli } from './claude-cli.js';
+import { createCodexCli } from './codex-cli.js';
 import { createClaudeCloud, createClaudeTty } from './claude-tty.js';
 import { maybeLogClaudeQuota } from './claude-quota.js';
 import { dedupeKeyFor, serialGateFor } from './serial-gate.js';
@@ -165,6 +167,16 @@ export type ModelBuilder = (
  * common denominator — so nothing downstream knows which vendor answered.
  */
 const FACTORIES: Record<ProviderName, ModelBuilder> = {
+  'agy-cli': (_apiKey, modelId, options) =>
+    createAgyCli({
+      modelId,
+      ...(options?.effort === undefined ? {} : { effort: options.effort }),
+    }),
+  'codex-cli': (_apiKey, modelId, options) =>
+    createCodexCli({
+      modelId,
+      ...(options?.effort === undefined ? {} : { effort: options.effort }),
+    }),
   // No key: the CLI carries the operator's own session. See `claude-cli.ts`
   // for why the system prompt is replaced and the process runs from a
   // neutral directory.

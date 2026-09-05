@@ -51,7 +51,7 @@ import {
   slugify,
   writeHtmlReport,
 } from '../src/reporter/html-reporter.js';
-import { CLAUDE_CLI_PLACEHOLDER_KEY, ConfigError, DEFAULT_ROLE_MODELS, loadConfig, DEFAULT_PROVIDER_MODELS, LOCAL_LLM_PLACEHOLDER_KEY } from '../src/config.js';
+import { AGY_CLI_PLACEHOLDER_KEY, CLAUDE_CLI_PLACEHOLDER_KEY, CODEX_CLI_PLACEHOLDER_KEY, ConfigError, DEFAULT_ROLE_MODELS, loadConfig, DEFAULT_PROVIDER_MODELS, LOCAL_LLM_PLACEHOLDER_KEY } from '../src/config.js';
 import { hasAssertion, hasStorableOrigin, type FlowStep } from '../src/engine/runner.js';
 import {
   canonicalSelector,
@@ -953,6 +953,8 @@ describe('config & llm-factory', () => {
       'claude-cli': [CLAUDE_CLI_PLACEHOLDER_KEY],
       'claude-tty': [CLAUDE_CLI_PLACEHOLDER_KEY],
       'claude-cloud': [CLAUDE_CLI_PLACEHOLDER_KEY],
+      'codex-cli': [CODEX_CLI_PLACEHOLDER_KEY],
+      'agy-cli': [AGY_CLI_PLACEHOLDER_KEY],
     });
   });
 

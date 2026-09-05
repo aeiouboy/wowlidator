@@ -58,6 +58,8 @@ import {
   type WowlidatorConfig,
   FIXED_MODEL_PROVIDERS,
   fixedModelFor,
+  AGY_CLI_MODELS,
+  CODEX_CLI_MODELS,
 } from '../config.js';
 
 /** How long a fetched catalogue is reused. The panel polls; providers do not. */
@@ -365,6 +367,14 @@ async function fetchModels(
     return { models: [fixed], note: '', fetchedAt: stamp };
   }
 
+  if (provider === 'agy-cli' || provider === 'codex-cli') {
+    return {
+      models: provider === 'agy-cli' ? [...AGY_CLI_MODELS] : [...CODEX_CLI_MODELS],
+      note: '',
+      fetchedAt: stamp,
+    };
+  }
+
   // OpenRouter serves its catalogue unauthenticated; the other two cannot say
   // anything useful without a key, and asking anyway would spend a round trip
   // to be told so.
@@ -483,6 +493,16 @@ const REQUESTS: Record<ProviderName, (key: string | undefined) => ModelRequest> 
     url: `${localLlmBaseUrl()}/models`,
     headers: key === undefined ? {} : { authorization: `Bearer ${key}` },
     parse: () => ['default_model'],
+  }),
+  'agy-cli': () => ({
+    url: 'about:blank',
+    headers: {},
+    parse: () => [...AGY_CLI_MODELS],
+  }),
+  'codex-cli': () => ({
+    url: 'about:blank',
+    headers: {},
+    parse: () => [...CODEX_CLI_MODELS],
   }),
   // The CLI publishes no catalogue endpoint, so the aliases it accepts are
   // listed here. Aliases rather than dated ids on purpose: the CLI resolves
