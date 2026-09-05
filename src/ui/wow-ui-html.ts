@@ -515,11 +515,12 @@ h1 { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -.02em; line-hei
   border: 1px solid var(--line-strong); border-radius: var(--r-sm);
   color: var(--ink); background: var(--panel); min-width: 0;
 }
-.picker .sel { flex: 0 0 auto; max-width: 190px; }
-.picker .inp { flex: 1 1 auto; font-family: var(--mono); font-size: var(--fs-mono); }
+.picker .sel { flex: 0 0 max-content; inline-size: max-content; max-inline-size: none; }
+.picker .inp { flex: 0 0 30ch; inline-size: 30ch; font-family: var(--mono); font-size: var(--fs-mono); }
 .picker .sel:focus, .picker .inp:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent-line); }
 .picker-note { margin-top: 4px; font-size: var(--fs-xs); color: var(--faint); }
 .picker-note .mono { font-family: var(--mono); font-size: var(--fs-mono); }
+.key-mask code { white-space: nowrap; }
 
 /* Live progress. The bar is a run in flight, so it is only ever on screen while
    something is actually moving — there is no finished state to style. */
@@ -4139,7 +4140,7 @@ function renderHealed(main) {
     for (var i = 0; i < 5; i += 1) bars.appendChild(el('i', { class: confidence * 5 > i ? null : 'off' }));
 
     body.appendChild(el('tr', {}, [
-      el('td', {}, [
+      el('td', { class: 'key-mask' }, [
         el('div', {}, [el('code', { text: entry.key })]),
         el('div', { class: 'mono', style: 'margin-top:4px', text: '→ ' + entry.healed })
       ]),
