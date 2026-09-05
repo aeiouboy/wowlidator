@@ -8482,6 +8482,17 @@ class StepIssuesError extends Error {
   }
 }
 
+class StopAfterFirstIssue extends Error {
+  constructor() {
+    super('stop after first issue');
+    this.name = 'StopAfterFirstIssue';
+  }
+}
+
+export function stopAfterFirstIssue(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (env['WOWLIDATOR_STOP_AFTER_FIRST_ISSUE'] ?? '').trim().toLowerCase() === 'on';
+}
+
 function summarizeIssues(issues: readonly StepIssue[]): string {
   const label = { failed: 'failed', error: 'error', 'dead-end': 'dead end' } as const;
   const counts = { failed: 0, error: 0, 'dead-end': 0 };
@@ -8773,6 +8784,7 @@ async function executeSteps(
   let urlBeforeFills: string | null = null;
   let hydrationReplayed = false;
   for (const raw of steps) {
+    const issuesBefore = issues.length;
     // **The data lock, taken and given back by the steps themselves.** A run
     // in a parallel suite holds a data section only from the step that
     // changes it to the last step that still needs the change to hold — see
@@ -8812,6 +8824,7 @@ async function executeSteps(
         message: error instanceof Error ? error.message : String(error),
       });
       runner.dataGate?.after(raw);
+      if (stopAfterFirstIssue()) throw new StopAfterFirstIssue();
       continue;
     }
     let plan: FlowStep[] = [original];
@@ -8857,6 +8870,7 @@ async function executeSteps(
           }
         }
       } catch (error) {
+        if (error instanceof StopAfterFirstIssue) throw error;
         // A lost session is fatal: it stops the flow rather than being
         // recorded as one more failed step among many.
         if (error instanceof SessionLostError) throw error;
@@ -9028,6 +9042,7 @@ async function executeSteps(
       break;
     }
     runner.dataGate?.after(raw);
+    if (stopAfterFirstIssue() && issues.length > issuesBefore) throw new StopAfterFirstIssue();
   }
 }
 
@@ -9316,7 +9331,7 @@ export async function executeFlow(runner: SmartRunner, flow: Flow): Promise<void
     // does not. Attempting it would only stack more closed-target errors on
     // top of the one that matters.
     if (error instanceof BrowserGoneError) throw error;
-    if (!(error instanceof SessionLostError)) throw error;
+    if (!(error instanceof SessionLostError) && !(error instanceof StopAfterFirstIssue)) throw error;
     fatal = error;
   }
   if (flow.teardown?.length) {
@@ -9332,6 +9347,7 @@ export async function executeFlow(runner: SmartRunner, flow: Flow): Promise<void
     }
   }
 
+  if (fatal instanceof StopAfterFirstIssue) throw new StepIssuesError(issues);
   if (fatal) throw fatal;
   if (issues.length > 0) throw new StepIssuesError(issues);
 }

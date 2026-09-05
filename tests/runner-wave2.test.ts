@@ -38,6 +38,7 @@ import {
   resolvePersona,
   runFlow,
   signsInItself,
+  stopAfterFirstIssue,
   stepPatience,
   valueMatches,
   type Flow,
@@ -49,6 +50,12 @@ const CDP_URL = process.env['WOWLIDATOR_CDP_URL'] ?? 'http://localhost:9222';
 // --- Unit tier -------------------------------------------------------------
 
 describe('state contradictions the wave-2 rungs read off an attempt line', () => {
+  it('enables first-issue triage only when explicitly requested', () => {
+    assert.equal(stopAfterFirstIssue({}), false);
+    assert.equal(stopAfterFirstIssue({ WOWLIDATOR_STOP_AFTER_FIRST_ISSUE: 'on' }), true);
+    assert.equal(stopAfterFirstIssue({ WOWLIDATOR_STOP_AFTER_FIRST_ISSUE: 'ON' }), true);
+  });
+
   it('a missing option, a disabled control and an out-of-range day are verdicts', () => {
     assert.ok(isStateContradiction('fast "#grp": opened "Employee Group" but no option named "Z" appeared (looked for role=option, menuitem, menuitemradio; 3 shown: A, B, C)'));
     assert.ok(isStateContradiction('fast "#submit": locator.click: Timeout 400ms exceeded. (element is not enabled)'));
