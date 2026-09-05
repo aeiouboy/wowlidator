@@ -105,7 +105,14 @@ function describe(error: unknown): string {
   return String(error);
 }
 
-function resolveUrl(url: string, baseUrl: string | undefined): string {
+/**
+ * Resolve a step's URL against the flow's `baseUrl`, keeping the
+ * deployment's base path under an absolute path. Shared with the engine's
+ * `goto` (2026-09-05 smoke: an authored `goto /th/admin/hire` under
+ * `https://h/humi` resolved to the gateway's 404, the same drop this fixed
+ * for request steps the same day).
+ */
+export function resolveUrl(url: string, baseUrl: string | undefined): string {
   if (!baseUrl) return url;
   try {
     const base = new URL(baseUrl);

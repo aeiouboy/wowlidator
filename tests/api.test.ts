@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
+import { resolveUrl } from '../src/api/api-actions.js';
 import { FetchTransport, parseJson, recordOf } from '../src/api/api-client.js';
 import { classifyCall, isBlockingFailure, type NetworkCall } from '../src/api/network-observer.js';
 import {
@@ -77,6 +78,21 @@ function call(overrides: Partial<NetworkCall> = {}): NetworkCall {
 }
 
 // --- Redaction --------------------------------------------------------------
+
+describe('resolveUrl (shared by request and goto steps)', () => {
+  it('keeps the deployment base path under an absolute path, for goto as for request', () => {
+    // The engine's `goto` had its own `new URL(url, baseUrl)` twin of this
+    // resolver; a 2026-09-05 smoke run authored `goto /th/admin/hire` under
+    // `https://h/humi` and the twin sent it to the gateway's 404 while the
+    // request resolver had already been fixed. One resolver now serves both.
+    assert.equal(resolveUrl('/th/admin/hire', 'https://h/humi'), 'https://h/humi/th/admin/hire');
+    assert.equal(resolveUrl('/humi/th/admin/hire', 'https://h/humi'), 'https://h/humi/th/admin/hire');
+    assert.equal(resolveUrl('https://h/th/x', 'https://h/humi'), 'https://h/th/x');
+    assert.equal(resolveUrl('/th/x', 'https://h'), 'https://h/th/x');
+    assert.equal(resolveUrl('/th/x', undefined), '/th/x');
+    assert.equal(resolveUrl('/humi', 'https://h/humi'), 'https://h/humi');
+  });
+});
 
 describe('redaction', () => {
   it('masks credential headers case-insensitively and keeps the names', () => {

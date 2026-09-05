@@ -24,7 +24,7 @@ import {
 import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { ApiActions, type FlowRequestSpec } from '../api/api-actions.js';
+import { ApiActions, resolveUrl, type FlowRequestSpec } from '../api/api-actions.js';
 import { BrowserTransport, FetchTransport, type ApiTransport } from '../api/api-client.js';
 import {
   NetworkObserver,
@@ -8537,15 +8537,6 @@ export interface Flow {
   steps: FlowStep[];
   /** Cleanup. Always runs, including after a failure. */
   teardown?: FlowStep[] | undefined;
-}
-
-function resolveUrl(url: string, baseUrl: string | undefined): string {
-  if (!baseUrl) return url;
-  try {
-    return new URL(url, baseUrl).toString();
-  } catch {
-    return url;
-  }
 }
 
 /**
