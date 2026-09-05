@@ -45,14 +45,19 @@ import {
   AGENT_OFF_PAGE_TURNS,
   AGENT_VALUE_HUNT_TURNS,
   DEFAULT_AGENT_MAX_STEPS,
+  LISTBOX_HEAD,
   WorkflowAgent,
   agentEarlyStopDefault,
+  headingsOf,
+  listboxFacts,
   parseWherePairs,
   type AgentDecision,
   type AgentObservation,
 } from '../src/orchestrator/workflow-agent.js';
 import { withPage } from '../src/engine/runner.js';
+import { ListboxOptionMissingError } from '../src/engine/listbox.js';
 import type { AxNode } from '../src/healer/jit-healer.js';
+import type { Page } from 'playwright';
 
 const TREE = `RootWebArea "Queue" url="http://x.test/en/queue"
 heading "Probation Reviews"
@@ -1273,5 +1278,210 @@ describe('formGaps (OA-6, pure half)', () => {
     );
     assert.equal(formatFormGaps([]), null);
     assert.match(formatFormGaps(gaps, 2) ?? '', /^REQUIRED AND STILL EMPTY \(5\): textbox "Bank\*" · button "Currency" value="— Select —" · … and 3 more$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The typed stop reason (task C3) — unit tier, no browser.
+//
+// The loop is driven against a FAKE page: an object that answers the two
+// things the loop reads off a browser — the CDP accessibility tree and the
+// locator calls the listbox procedure makes — with fixed data. Every other
+// browser fact stays in the CDP suites above; what is proved here is the
+// loop's OWN bookkeeping: which `endedBy` each stop records, that the
+// model's `fail` is kept as a claim beside what the page showed, and that a
+// real `ListboxOptionMissingError` thrown by the real `#act` (through the
+// engine's own `selectFromListbox`) lands on the action as typed facts.
+// ---------------------------------------------------------------------------
+
+interface FakePageOptions {
+  url: string;
+  /** The accessibility nodes the CDP session hands back. */
+  nodes: Array<{ role: string; name: string; url?: string }>;
+  /** What the (only) control's DOM element reads as, for the listbox procedure. */
+  trigger: string;
+  /** The options its list holds. */
+  options: string[];
+}
+
+/**
+ * A page for the loop with no browser behind it. Locators resolve; the one
+ * element every locator points at is a `button` named `trigger` whose popup
+ * lists `options` and has no search box; role queries for an option match
+ * nothing, so a `selectOption` misses the way it does on a real list that
+ * lacks the value.
+ */
+function fakePage(opts: FakePageOptions): Page {
+  const optionEl = (text: string): unknown => ({ textContent: text, innerText: text, getAttribute: () => null });
+  const element = {
+    tagName: 'BUTTON',
+    innerText: opts.trigger,
+    textContent: opts.trigger,
+    getAttribute: () => null,
+    querySelectorAll: (selector: string): unknown[] =>
+      selector.includes('[role="option"]') ? opts.options.map(optionEl) : [],
+  };
+  const locator = (selector: string): unknown => {
+    const self: Record<string, unknown> = {
+      first: () => self,
+      nth: () => self,
+      locator: (inner: string) => locator(inner),
+      filter: () => self,
+      // A role query (`findOption`) matches nothing: the list lacks the value.
+      getByRole: () => locator('__role-query__'),
+      waitFor: async () => undefined,
+      click: async () => undefined,
+      fill: async () => undefined,
+      press: async () => undefined,
+      hover: async () => undefined,
+      scrollIntoViewIfNeeded: async () => undefined,
+      setChecked: async () => undefined,
+      count: async () => (selector === '__role-query__' ? 0 : 1),
+      // No search box in the popup — so the list is read whole, never filtered.
+      isVisible: async () => !/input|searchbox|textbox|combobox/.test(selector),
+      isEnabled: async () => true,
+      innerText: async () => '',
+      inputValue: async () => '',
+      all: async () => [],
+      allInnerTexts: async () => [],
+      ariaSnapshot: async () => '',
+      evaluate: async (fn: (el: unknown, arg: unknown) => unknown, arg?: unknown) => fn(element, arg),
+    };
+    return self;
+  };
+  const cdpNodes = opts.nodes.map((n, i) => ({
+    nodeId: String(i),
+    role: { value: n.role },
+    name: { value: n.name },
+    properties: n.url === undefined ? [] : [{ name: 'url', value: { value: n.url } }],
+  }));
+  return {
+    url: () => opts.url,
+    context: () => ({
+      newCDPSession: async () => ({
+        send: async (method: string) => (method === 'Accessibility.getFullAXTree' ? { nodes: cdpNodes } : {}),
+        detach: async () => undefined,
+      }),
+    }),
+    locator,
+    keyboard: { press: async () => undefined, insertText: async () => undefined },
+    waitForLoadState: async () => undefined,
+    waitForTimeout: async () => undefined,
+    goto: async () => undefined,
+  } as unknown as Page;
+}
+
+const FORM_URL = 'http://x.test/en/form';
+const FORM_NODES = [
+  { role: 'RootWebArea', name: 'Form', url: FORM_URL },
+  { role: 'heading', name: 'Reporting' },
+  { role: 'heading', name: 'Employment' },
+  { role: 'button', name: 'Employee Group' },
+  { role: 'button', name: 'Save' },
+];
+const TEN_OPTIONS = ['A - Alpha', 'B - Bravo', 'C - Charlie', 'D - Delta', 'E - Echo', 'F - Foxtrot', 'G - Golf', 'H - Hotel', 'I - India', 'J - Juliet'];
+
+describe('the typed stop reason on the record (no browser)', () => {
+  it('a leg that ends on the turn ceiling records endedBy = budget', async () => {
+    const { model } = scripted([{ action: 'wait', reasoning: 'let the page settle' }]);
+    const agent = new WorkflowAgent({ model, maxSteps: 1 });
+    const result = await agent.run(fakePage({ url: FORM_URL, nodes: FORM_NODES, trigger: 'Employee Group', options: TEN_OPTIONS }), 'reach the reporting screen');
+
+    assert.equal(result.success, false);
+    assert.equal(result.endedBy, 'budget');
+    assert.match(result.summary, /gave up after 1 turns/);
+    assert.equal(result.maxSteps, 1);
+    assert.equal(result.unreachable, undefined, 'only a fail carries the claim');
+  });
+
+  it('a leg the model ends with fail records endedBy = fail and the claim beside what the page showed', async () => {
+    const reasoning = 'the reporting screen is not linked from this page';
+    const { model } = scripted([{ action: 'fail', reasoning }]);
+    const agent = new WorkflowAgent({ model, maxSteps: 5 });
+    const result = await agent.run(fakePage({ url: FORM_URL, nodes: FORM_NODES, trigger: 'Employee Group', options: TEN_OPTIONS }), 'reach the reporting screen');
+
+    assert.equal(result.success, false);
+    assert.equal(result.endedBy, 'fail');
+    assert.equal(result.unreachable?.claim, reasoning, "the claim is the model's reasoning, verbatim");
+    assert.equal(result.unreachable?.urlAfter, FORM_URL);
+    assert.deepEqual(result.unreachable?.headingsAfter, ['Reporting', 'Employment'], 'the headings the harness read off the tree');
+    assert.equal(result.turns, 1);
+  });
+
+  it('a leg that finishes records endedBy = finish', async () => {
+    const { model } = scripted([{ action: 'finish', reasoning: 'the screen is up' }]);
+    const agent = new WorkflowAgent({ model, maxSteps: 5 });
+    const result = await agent.run(fakePage({ url: FORM_URL, nodes: FORM_NODES, trigger: 'Employee Group', options: TEN_OPTIONS }), 'reach the reporting screen');
+
+    assert.equal(result.success, true);
+    assert.equal(result.endedBy, 'finish');
+    assert.equal(result.settledBy, 'agent-claim', 'a goal naming no state rides the claim, and the record says so');
+    assert.equal(result.unreachable, undefined);
+  });
+
+  it('a selectOption miss lands the listbox facts on the action, copied off the typed error before it is flattened', async () => {
+    const { model } = scripted([
+      { action: 'selectOption', selector: 'role=button[name="Employee Group" i]', value: 'Z - Nothing', reasoning: 'pick the group' },
+      { action: 'fail', reasoning: 'no such group' },
+    ]);
+    const agent = new WorkflowAgent({ model, maxSteps: 4, actionTimeoutMs: 200 });
+    const result = await agent.run(
+      fakePage({ url: FORM_URL, nodes: FORM_NODES, trigger: 'Employee Group', options: TEN_OPTIONS }),
+      'set Employee Group to "Z - Nothing"',
+    );
+
+    const miss = result.actions.find((a) => a.action === 'selectOption');
+    assert.ok(miss, 'the selectOption was acted on');
+    assert.equal(miss.ok, false);
+    assert.match(miss.error ?? '', /no option named "Z - Nothing"/, 'the flattened message is still there for older readers');
+    assert.deepEqual(miss.listbox, {
+      trigger: 'Employee Group',
+      value: 'Z - Nothing',
+      shownCount: 10,
+      shownHead: TEN_OPTIONS.slice(0, 8),
+      filtered: false,
+      searchedEmpty: null,
+    });
+    assert.ok((miss.listbox?.shownHead.length ?? 99) <= LISTBOX_HEAD);
+    // The goal named the control and the value; the list was read whole,
+    // twice, and identical — the page's own enumeration ended the leg.
+    assert.equal(result.endedBy, 'cannot-offer');
+    assert.match(result.summary, /is not among the 10 option\(s\) the control offers/);
+    assert.equal(result.success, false);
+    assert.equal(result.turns, 1, 'no second model turn was spent on evidence the page already gave');
+  });
+
+  it('listboxFacts is pure: a hand-built error with a filtered list and an empty-row answer', () => {
+    const error = new ListboxOptionMissingError('Position', 'Q', TEN_OPTIONS, '', { filtered: true, searchedEmpty: 'Q' });
+    assert.deepEqual(listboxFacts(error, 'Q - Quebec'), {
+      trigger: 'Position',
+      value: 'Q - Quebec',
+      shownCount: 10,
+      shownHead: TEN_OPTIONS.slice(0, LISTBOX_HEAD),
+      filtered: true,
+      searchedEmpty: 'Q',
+    });
+    assert.deepEqual(listboxFacts(new ListboxOptionMissingError('Position', 'Q', [], 'no list'), 'Q'), {
+      trigger: 'Position',
+      value: 'Q',
+      shownCount: 0,
+      shownHead: [],
+      filtered: false,
+      searchedEmpty: null,
+    });
+  });
+
+  it('headingsOf keeps named headings, in order, at most eight', () => {
+    const nodes = Array.from({ length: 10 }, (_, i) => ({ role: 'heading', name: `H${i}`, value: '' })) as unknown as AxNode[];
+    assert.deepEqual(headingsOf(nodes).length, 8);
+    assert.deepEqual(
+      headingsOf([
+        { role: 'heading', name: 'One', value: '' },
+        { role: 'button', name: 'Two', value: '' },
+        { role: 'heading', name: '', value: '' },
+        { role: 'heading', name: 'Three', value: '' },
+      ] as unknown as AxNode[]),
+      ['One', 'Three'],
+    );
   });
 });

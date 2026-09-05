@@ -24,8 +24,19 @@ import { z } from 'zod';
 import { jsonModel, scriptedModel } from './helpers.js';
 import { MockLanguageModelV4 } from 'ai/test';
 
-import { ProofBundleBuilder, type Defect } from '../src/engine/proof-bundle.js';
-import { runFlow, withPage, type Flow } from '../src/engine/runner.js';
+import { ProofBundleBuilder, type AgentRecord, type Defect } from '../src/engine/proof-bundle.js';
+import {
+  AGENT_HARNESS_STOPS,
+  AgentBudgetError,
+  AgentEvidenceError,
+  agentLegComparison,
+  agentLegFailure,
+  classifyStepFailure,
+  redactAgentRecord,
+  runFlow,
+  withPage,
+  type Flow,
+} from '../src/engine/runner.js';
 import {
   LlmGeneratorModel,
   TestGenerator,
@@ -1777,5 +1788,115 @@ describe('clearing storage before there is an origin (CDP)', { skip: skipBrowser
       return page.evaluate(() => globalThis.localStorage.getItem('session'));
     });
     assert.equal(left, null, 'the seeded key must be gone');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Three classes of failed workflow leg, by the source of the evidence (task C3).
+// Pure over a hand-written record — no browser, no model.
+// ---------------------------------------------------------------------------
+
+describe('a failed workflow leg is classed by the source of its evidence', () => {
+  const record = (over: Partial<AgentRecord>): AgentRecord => ({
+    goal: 'set Employee Group to "Z - Nothing"',
+    model: 'stub',
+    success: false,
+    summary: 'agent stopped',
+    actions: [],
+    turns: 3,
+    maxSteps: 12,
+    latencyMs: 900,
+    ...over,
+  });
+  const listboxMiss = {
+    index: 0,
+    action: 'selectOption',
+    selector: 'role=button[name="Employee Group" i]',
+    value: 'Z - Nothing',
+    url: 'http://x.test/en/form',
+    reasoning: 'pick the group',
+    ok: false,
+    error: 'opened "Employee Group" but no option named "Z - Nothing" appeared',
+    durationMs: 40,
+    listbox: {
+      trigger: 'Employee Group',
+      value: 'Z - Nothing',
+      shownCount: 9,
+      shownHead: ['A - Alpha', 'B - Bravo', 'C - Charlie', 'D - Delta', 'E - Echo', 'F - Foxtrot', 'G - Golf', 'H - Hotel'],
+      filtered: false,
+      searchedEmpty: null,
+    },
+  };
+
+  it("the page's own enumeration (cannot-offer) is an AgentEvidenceError that classifies to failed, with expected and actual", () => {
+    const error = agentLegFailure(
+      record({ endedBy: 'cannot-offer', actions: [listboxMiss], summary: 'agent stopped: the goal\'s Employee Group = "Z - Nothing" is not among the 9 option(s)' }),
+    );
+    assert.ok(error instanceof AgentEvidenceError);
+    assert.equal(error.name, 'AgentEvidenceError');
+    assert.equal(error.expected, 'Z - Nothing');
+    assert.match(error.actual, /^"Employee Group" offered 9 option\(s\): "A - Alpha", .*"H - Hotel", …$/);
+    assert.match(error.message, /^workflow agent failed on the page's own evidence: /);
+    assert.equal(classifyStepFailure('workflow', error), 'failed');
+
+    // The same pair the runner writes onto the step's detail, where
+    // `expectedActual()` reads it like an assertion's.
+    const comparison = agentLegComparison(record({ endedBy: 'cannot-offer', actions: [listboxMiss] }));
+    assert.deepEqual(comparison, { expected: 'Z - Nothing', actual: error.actual });
+    assert.equal(agentLegComparison(record({ endedBy: 'cannot-offer' })), null, 'no listbox action, no pair');
+    assert.equal(
+      agentLegComparison(record({ actions: [{ ...listboxMiss, listbox: { ...listboxMiss.listbox, shownCount: 0, shownHead: [] } }] }))?.actual,
+      '"Employee Group" offered no options',
+    );
+  });
+
+  it('every harness stop is an AgentBudgetError that still classifies to error, naming the limit', () => {
+    for (const endedBy of AGENT_HARNESS_STOPS) {
+      const error = agentLegFailure(record({ endedBy, summary: `agent stopped (${endedBy})` }));
+      assert.ok(error instanceof AgentBudgetError, endedBy);
+      assert.equal(error.name, 'AgentBudgetError');
+      assert.equal(error.endedBy, endedBy);
+      assert.match(error.message, /^workflow agent stopped by a harness limit \(/, endedBy);
+      assert.match(error.message, /not a fact about the application/, endedBy);
+      assert.equal(classifyStepFailure('workflow', error), 'error', endedBy);
+    }
+    assert.match(agentLegFailure(record({ endedBy: 'budget', maxSteps: 12 })).message, /the 12-turn ceiling/);
+    assert.match(agentLegFailure(record({ endedBy: 'budget', maxSteps: null })).message, /the turn ceiling/);
+    assert.match(agentLegFailure(record({ endedBy: 'stalled' })).message, /repeated on an unchanged page/);
+    assert.match(agentLegFailure(record({ endedBy: 'no-progress' })).message, /nothing advanced/);
+  });
+
+  it("the model's own fail, a contradicted finish and a record from an older build stay the untyped error", () => {
+    for (const over of [
+      { endedBy: 'fail' as const, unreachable: { claim: 'no such group', urlAfter: 'http://x.test/en/form', headingsAfter: ['Employment'] } },
+      { endedBy: 'contradicted' as const },
+      {},
+    ]) {
+      const error = agentLegFailure(record({ ...over, summary: 'agent reported the goal is unreachable: no such group' }));
+      assert.equal(error.name, 'Error', JSON.stringify(over));
+      assert.equal(error.message, 'workflow agent failed: agent reported the goal is unreachable: no such group');
+      assert.equal(classifyStepFailure('workflow', error), 'error');
+    }
+  });
+
+  it('redaction masks the claim and the listbox value, and keeps the typed fields', () => {
+    const safe = redactAgentRecord(
+      record({
+        endedBy: 'fail',
+        unreachable: {
+          claim: 'typed hunter2 into the password box and it was refused',
+          urlAfter: 'http://x.test/en/form?pw=hunter2',
+          headingsAfter: ['Sign in'],
+        },
+        actions: [{ ...listboxMiss, listbox: { ...listboxMiss.listbox, value: 'hunter2' } }],
+      }),
+      new Set(['hunter2']),
+    );
+    assert.equal(safe.endedBy, 'fail');
+    assert.ok(!safe.unreachable?.claim.includes('hunter2'), safe.unreachable?.claim);
+    assert.ok(!safe.unreachable?.urlAfter.includes('hunter2'));
+    assert.deepEqual(safe.unreachable?.headingsAfter, ['Sign in']);
+    assert.ok(!(safe.actions[0]?.listbox?.value ?? '').includes('hunter2'));
+    assert.equal(safe.actions[0]?.listbox?.shownCount, 9, 'the observed facts are untouched');
   });
 });

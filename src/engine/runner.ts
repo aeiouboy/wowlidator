@@ -162,6 +162,7 @@ import {
   DB_STEP_ACTIONS,
   ProofBundleBuilder,
   type AgentAction,
+  type AgentEndedBy,
   type AgentRecord,
   type StepDecision,
   type DataCaseResult,
@@ -808,6 +809,128 @@ export class PersonaBrowserUnavailableError extends Error {
 }
 
 /**
+ * A workflow leg the HARNESS ended (task C3, 2026-09-05): the turn ceiling,
+ * a stall, the no-progress judge, the value hunt, the off-page allowance, a
+ * model that could not answer. None of these is a fact about the application
+ * — the agent may have been one click away — so `classifyStepFailure` scores
+ * the step `error` and the case blocked, exactly as the untyped
+ * `workflow agent failed` message did before; the message now names the
+ * limit, and `endedBy` carries it as data.
+ */
+export class AgentBudgetError extends Error {
+  override readonly name = 'AgentBudgetError';
+  readonly endedBy: AgentEndedBy;
+  constructor(endedBy: AgentEndedBy, message: string) {
+    super(message);
+    this.endedBy = endedBy;
+  }
+}
+
+/**
+ * A workflow leg the PAGE ended (task C3): the control the goal names was
+ * opened and its whole option list read twice, identically, after a settle,
+ * and the goal's value was on none of them (`AgentRecord.endedBy ===
+ * 'cannot-offer'`). That is an observation the harness made itself, so the
+ * step scores `failed` — the application could not satisfy the pair the
+ * goal asked for — with `expected` (the value asked) and `actual` (what the
+ * list offered) on the step's detail, where `expectedActual()` reads them
+ * for every assertion. A rewrite cannot make the option appear, so
+ * reconstruction is futile for it.
+ */
+export class AgentEvidenceError extends Error {
+  override readonly name = 'AgentEvidenceError';
+  readonly expected: string;
+  readonly actual: string;
+  constructor(expected: string, actual: string, message: string) {
+    super(message);
+    this.expected = expected;
+    this.actual = actual;
+  }
+}
+
+/** The stops the harness owns — see `AgentBudgetError`. */
+export const AGENT_HARNESS_STOPS: ReadonlySet<AgentEndedBy> = new Set<AgentEndedBy>([
+  'budget',
+  'stalled',
+  'no-progress',
+  'value-hunt',
+  'wandered',
+  'model-error',
+]);
+
+/**
+ * The "expected X, actual Y" pair a `cannot-offer` leg recorded: the value
+ * the goal asked for, and the options the control offered (count and head),
+ * read off the last action's `listbox` facts — harness observation, never
+ * the summary's prose. Null when the record carries no such action.
+ */
+export function agentLegComparison(record: AgentRecord): { expected: string; actual: string } | null {
+  const facts = [...record.actions].reverse().find((a) => a.listbox !== undefined)?.listbox;
+  if (facts === undefined) return null;
+  const head = facts.shownHead.map((o) => JSON.stringify(o)).join(', ');
+  return {
+    expected: facts.value,
+    actual:
+      facts.shownCount === 0
+        ? `${JSON.stringify(facts.trigger)} offered no options`
+        : `${JSON.stringify(facts.trigger)} offered ${facts.shownCount} option(s): ${head}${facts.shownCount > facts.shownHead.length ? ', …' : ''}`,
+  };
+}
+
+/** The harness limit an `AgentBudgetError` names, in words. */
+function harnessLimitOf(endedBy: AgentEndedBy, record: AgentRecord): string {
+  switch (endedBy) {
+    case 'budget':
+      return record.maxSteps === null ? 'the turn ceiling' : `the ${record.maxSteps}-turn ceiling`;
+    case 'stalled':
+      return 'an action repeated on an unchanged page';
+    case 'no-progress':
+      return 'consecutive turns in which nothing advanced';
+    case 'value-hunt':
+      return "the value hunt — the goal's values never appeared";
+    case 'wandered':
+      return 'the off-page allowance';
+    case 'model-error':
+      return 'the model could not answer';
+    default:
+      return endedBy;
+  }
+}
+
+/**
+ * The error a failed workflow leg throws, classed by the SOURCE of its
+ * evidence (task C3). Pure over the (redacted) record:
+ *
+ * - a harness stop (`AGENT_HARNESS_STOPS`) → `AgentBudgetError`, still an
+ *   `error` step and a blocked case, message naming the limit;
+ * - the page's own enumeration (`cannot-offer`) → `AgentEvidenceError`, a
+ *   `failed` step with expected/actual;
+ * - the model's `fail`, a contradicted finish, or a record from before the
+ *   field existed → the plain `workflow agent failed:` error, an `error`
+ *   step — the agent's account is not a verdict, and `harnessOnly`
+ *   (`src/cli/exit.ts`) words a `fail` as exactly that.
+ */
+export function agentLegFailure(record: AgentRecord): Error {
+  const endedBy = record.endedBy;
+  if (endedBy !== undefined && AGENT_HARNESS_STOPS.has(endedBy)) {
+    return new AgentBudgetError(
+      endedBy,
+      `workflow agent stopped by a harness limit (${harnessLimitOf(endedBy, record)}): ${record.summary} ` +
+        '(this is a limit of the run, not a fact about the application — nothing here says the feature is broken)',
+    );
+  }
+  if (endedBy === 'cannot-offer') {
+    const comparison = agentLegComparison(record);
+    return new AgentEvidenceError(
+      comparison?.expected ?? '',
+      comparison?.actual ?? '',
+      `workflow agent failed on the page's own evidence: ${record.summary}`,
+    );
+  }
+  return new Error(`workflow agent failed: ${record.summary}`);
+}
+
+/**
  * The identity a persona label or token reduces to, for matching: angle
  * brackets, an `_ACCOUNT`/`ACCOUNT` tail, case and separators all folded.
  * `<HR_ADMIN_ACCOUNT>`, `HR admin` and `hr-admin` are one key.
@@ -1149,6 +1272,7 @@ export function redactAgentRecord(
     reasoning: text(value.reasoning),
     ...(value.error === undefined ? {} : { error: text(value.error) }),
     ...(value.observed === undefined ? {} : { observed: text(value.observed) }),
+    ...(value.listbox === undefined ? {} : { listbox: { ...value.listbox, value: text(value.listbox.value) } }),
   });
 
   return {
@@ -1168,6 +1292,10 @@ export function redactAgentRecord(
     ...(record.settledEvidence === undefined
       ? {}
       : { settledEvidence: text(record.settledEvidence) }),
+    // The model's claim is prose the model wrote — it may echo a value it typed.
+    ...(record.unreachable === undefined
+      ? {}
+      : { unreachable: { ...record.unreachable, claim: text(record.unreachable.claim), urlAfter: text(record.unreachable.urlAfter) } }),
   };
 }
 
@@ -4851,6 +4979,14 @@ export class SmartRunner {
     const authoringRefused = !record.success && evidence === null && personaRefusal(record.summary);
     const failed = !record.success && evidence === null;
     const safeRecord = redactAgentRecord(record, this.#secretValues);
+    // **Three classes of failed leg, by the source of the evidence** (task
+    // C3). A leg the PAGE ended — the goal's control enumerated twice and
+    // its value on none of the options — is the one shape that records
+    // what an assertion records: what was asked, what the page offered.
+    const comparison =
+      failed && blocked === null && !providerFailed && !authoringRefused && record.endedBy === 'cannot-offer'
+        ? agentLegComparison(safeRecord)
+        : null;
     const safeEvidence =
       evidence === null
         ? null
@@ -4940,6 +5076,9 @@ export class SmartRunner {
         headingsAfter: headingsAfter.slice(0, 8),
         appeared: headingsAfter.filter((h) => !headingsBefore.includes(h)).slice(0, 8),
         callsMade: traffic.calls.length,
+        // The page's own enumeration, as an assertion records it — so
+        // `expectedActual()` reads this leg like any `expectText`.
+        ...(comparison === null ? {} : { expected: comparison.expected, actual: comparison.actual }),
       },
       agent: safeRecord,
       // The typed hold, lifted onto the step so no reader has to open the
@@ -5042,7 +5181,11 @@ export class SmartRunner {
           : `${safeRecord.summary}${displaced}`,
         undefined,
       );
-      throw new Error(`workflow agent failed: ${safeRecord.summary}`);
+      // Classed by the source of the evidence — see `agentLegFailure`: a
+      // harness stop stays `error` under a message that names the limit, the
+      // page's own enumeration is `failed` with expected/actual, and the
+      // model's `fail` stays the untyped `error` it always was.
+      throw agentLegFailure(safeRecord);
     }
 
     return safeRecord;
@@ -8447,7 +8590,7 @@ export interface StepIssue {
  * navigation that never landed, bad interpolation — is an *error*, because
  * calling it a test failure would blame the app for the harness's problem.
  */
-function classifyStepFailure(action: string, error: unknown): StepIssue['kind'] {
+export function classifyStepFailure(action: string, error: unknown): StepIssue['kind'] {
   // A content-only resolution failure is a verdict, not a lost control:
   // every rung resolved the element and only its text missed. `failed` keeps
   // it eligible for the near-miss gate (proved-? → the judge); `dead-end`
@@ -8457,6 +8600,11 @@ function classifyStepFailure(action: string, error: unknown): StepIssue['kind'] 
   if (error instanceof Error && error.cause instanceof StepResolutionError) {
     return error.cause.contentOnly ? 'failed' : 'dead-end';
   }
+  // A workflow leg the PAGE ended (task C3): the goal's control enumerated
+  // twice, identically, and its value on none of the options. The harness
+  // observed that itself, so it is a verdict — `failed`, with expected and
+  // actual on the step — never the `error` every other agent stop is.
+  if (error instanceof Error && error.name === 'AgentEvidenceError') return 'failed';
   // Harness and grounding facts are errors even under an `expect` name: an
   // unreachable database, an unattached observer, a table the schema does not
   // declare, an unknown {{variable}} nothing saved, an assertion with no
@@ -8494,7 +8642,12 @@ function classifyStepFailure(action: string, error: unknown): StepIssue['kind'] 
       // A mutation the run's own policy or provenance rules withheld
       // (2026-09-05): the application was never asked, so nothing about it
       // is established either way.
-      error.name === 'MutationBlockedError')
+      error.name === 'MutationBlockedError' ||
+      // A workflow leg the HARNESS ended (task C3): the turn ceiling, a
+      // stall, the no-progress judge — a limit of the run, not a fact about
+      // the application. (The default below already says `error` for a
+      // `workflow` step; named here so the classing is explicit.)
+      error.name === 'AgentBudgetError')
   ) {
     return 'error';
   }
@@ -8596,7 +8749,9 @@ function reconstructionFutile(error: unknown): boolean {
       // Nor start a Chrome.
       error.name === 'PersonaBrowserUnavailableError' ||
       // Nor grant a run a mutation its policy denies, nor make a row observed.
-      error.name === 'MutationBlockedError')
+      error.name === 'MutationBlockedError' ||
+      // Nor make a listbox offer an option it enumerated twice without (C3).
+      error.name === 'AgentEvidenceError')
   ) {
     return true;
   }

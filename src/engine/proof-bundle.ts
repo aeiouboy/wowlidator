@@ -402,6 +402,12 @@ export interface AgentAction {
    * produced. Absent on records written before the field existed.
    */
   outcome?: ActionOutcome | undefined;
+  /**
+   * What the list showed when a `selectOption` missed (task C3, 2026-09-05)
+   * — see `AgentListboxFacts`. Set only on an action whose act threw a
+   * `ListboxOptionMissingError`; absent otherwise and on older records.
+   */
+  listbox?: AgentListboxFacts | undefined;
 }
 
 /**
@@ -469,6 +475,85 @@ export type ActionOutcome =
   | { kind: 'ok' }
   | BlockedOutcome
   | { kind: 'failed'; message: string };
+
+/**
+ * Why a workflow leg ENDED (2026-09-05, task C3) — the loop's own stop, typed,
+ * so no reader has to parse `summary` to learn whether the PAGE, the HARNESS
+ * or the MODEL ended the leg. The runner classes a failed leg by that source
+ * (`agentLegFailure` in `engine/runner.ts`); the loop sets the value at every
+ * place it already stopped, and changes nothing about WHEN it stops.
+ *
+ * - Page evidence: `arrived` — the goal's destination (or the state it
+ *   describes) was reached, judged on the page, including the zero-call rungs
+ *   (a replayed journey, a link the tree showed, a state already showing);
+ *   `cannot-offer` — a control the goal names was opened and its WHOLE option
+ *   list read twice, identically, after a settle, and the goal's value was on
+ *   none of them (`ListboxOptionMissingError`, `listboxCannotOffer`).
+ * - Harness limits: `budget` (the turn ceiling), `stalled` (an ok action
+ *   repeated on an unchanged page after being told so), `no-progress` (nothing
+ *   advanced for the judge's count of turns — the look-only handoff included;
+ *   `lookedOnly` tells the two apart), `value-hunt`, `wandered`, `model-error`
+ *   (the provider could not answer), `blocked` (a mutation, guardrail or
+ *   authoring hold — see `blocked`; an authoring refusal has no hold record).
+ * - The model's own account: `finish` (accepted; `settledBy` says whether the
+ *   page or the claim settled it), `fail` (the model said the goal is
+ *   unreachable — a CLAIM, carried with what the page showed in
+ *   `unreachable`), `contradicted` (a finish the page refuted).
+ *
+ * Absent on records written before the field existed.
+ */
+export const AGENT_ENDED_BY = [
+  'finish',
+  'arrived',
+  'fail',
+  'budget',
+  'stalled',
+  'no-progress',
+  'value-hunt',
+  'cannot-offer',
+  'wandered',
+  'blocked',
+  'model-error',
+  'contradicted',
+] as const;
+export type AgentEndedBy = (typeof AGENT_ENDED_BY)[number];
+
+/**
+ * What a listbox showed when a `selectOption` missed — copied off the
+ * `ListboxOptionMissingError` the act threw, BEFORE the error is flattened to
+ * the action's `error` string. Harness observation, not the model's word: the
+ * engine opened the control and read its options itself.
+ */
+export interface AgentListboxFacts {
+  /** The trigger's own label when the list opened — the page's name for the control. */
+  trigger: string;
+  /** The option the goal asked for. */
+  value: string;
+  /** How many options the list showed. */
+  shownCount: number;
+  /** The first (at most eight) options, verbatim. */
+  shownHead: string[];
+  /** Was `shown` narrowed by a typed search head? A filtered list says nothing about what it hid. */
+  filtered: boolean;
+  /** The search head the list's own empty row answered, or null. */
+  searchedEmpty: string | null;
+}
+
+/**
+ * The model's `fail`, kept beside what the page showed at that moment.
+ *
+ * `claim` is the model's own reasoning — a CLAIM about the application,
+ * never evidence of anything; it is recorded so a reader can weigh it against
+ * `urlAfter` and `headingsAfter`, which the harness read off the page itself.
+ */
+export interface AgentUnreachableClaim {
+  /** The model's reasoning for `fail`, verbatim (secrets masked). A claim, not a finding. */
+  claim: string;
+  /** Where the page was when the model gave up — read by the harness. */
+  urlAfter: string;
+  /** The headings the accessibility tree showed then (at most eight) — read by the harness. */
+  headingsAfter: string[];
+}
 
 /**
  * What the agent judged, chose, and did when a step met something the flow
@@ -569,6 +654,19 @@ export interface AgentRecord {
    * prompt order is paying. Absent when the provider does not say.
    */
   cachedInputTokens?: number | undefined;
+  /**
+   * Why the leg ended — see `AgentEndedBy`. The typed form of the stop the
+   * `summary` narrates, so the runner, the exit contract and a report can
+   * class a failure by the SOURCE of its evidence without parsing prose.
+   * Absent on records written before the field existed.
+   */
+  endedBy?: AgentEndedBy | undefined;
+  /**
+   * Present only when `endedBy === 'fail'`: the model's own account of why
+   * the goal is unreachable (`claim` — a claim, never evidence) beside what
+   * the harness read off the page at that moment. See `AgentUnreachableClaim`.
+   */
+  unreachable?: AgentUnreachableClaim | undefined;
 }
 
 export type DefectSeverity = 'high' | 'medium' | 'low';

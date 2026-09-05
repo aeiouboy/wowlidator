@@ -414,3 +414,88 @@ the policy blocks in every variant, the stable-prefix invariant of
 `buildUserPrompt`, cache reads reported by a mock model),
 `tests/agent-skills.test.ts` (selection per shape, determinism and order, no
 policy in a body, the base prompt without the moved paragraphs).
+
+## Why the leg ended is data: `endedBy`, and three classes of failed leg (task C3, 2026-09-05)
+
+Every failing `workflow` step used to end as step status `error` under one
+message, whatever ended it: the runner recorded the leg failed, threw
+`workflow agent failed: …`, and `classifyStepFailure` scored it `error`. So
+an evidence-backed "the list offers 9 options and none is the value" (the
+harness read the options itself, twice, after a settle) scored the same as
+"the agent gave up after 15 turns" (a harness limit) and the same as the
+model saying `fail` with a reason (a bare claim) — and a case with no later
+assertion scored blocked with "runtime error — the harness ended this case"
+for all three.
+
+**`AgentRecord.endedBy`** (`engine/proof-bundle.ts`, `AGENT_ENDED_BY`) is the
+loop's own stop, typed. It is set at every place `run()` already set its
+final `summary` and stopped, and changes nothing about WHEN the loop stops —
+the same walk through the loop records the same actions and the same
+summary as before, plus one word. By the source of the evidence:
+
+- page: `arrived` (the destination rule, including the zero-call rungs — a
+  replayed journey, a link the tree showed, a state already showing, a gate
+  cleared onto the destination), `cannot-offer` (`listboxCannotOffer`: the
+  goal's control enumerated twice, identically, `WAIT_SETTLE_MS` apart, and
+  the goal's value on none of the options);
+- harness: `budget`, `stalled` (an ok action repeated on an unchanged page
+  after being told so), `no-progress` (the five-turn judge AND the look-only
+  handoff — `lookedOnly` tells them apart), `value-hunt`, `wandered`,
+  `model-error`, `blocked` (a mutation or guardrail hold — `blocked` carries
+  the record — or the multi-persona refusal before turn one, which has none);
+- model: `finish` (accepted; `settledBy` says whether the page or the claim
+  settled it), `fail`, `contradicted` (a finish the page refuted — the
+  destination rule or the observed-state settlement).
+
+**A `fail` is kept as a claim beside what the page showed.**
+`AgentRecord.unreachable = { claim, urlAfter, headingsAfter }`: `claim` is
+the model's reasoning verbatim (redacted like every other string on the
+record) and is labelled a claim in the type, because that is all it is; the
+URL and the headings are what `#captureTree` read that turn. A reader weighs
+one against the other. Nothing in `src/` files the claim as a finding.
+
+**A listbox miss is kept as facts, not only as a message.**
+`AgentAction.listbox` (`AgentListboxFacts`: trigger, value, shownCount,
+shownHead ≤ 8, filtered, searchedEmpty) is copied off the
+`ListboxOptionMissingError` in the one `catch` where `#act` misses, BEFORE
+`describe()` flattens it to the action's `error` string; on the settle-and-
+retry the second enumeration is the one kept. `listboxFacts()` is the pure
+writer.
+
+**The runner classes a failed leg by that source** (`agentLegFailure`,
+`engine/runner.ts`, pure over the redacted record), after the existing
+blocked / provider / authoring branches:
+
+- harness (`AGENT_HARNESS_STOPS`) → `AgentBudgetError`, message naming the
+  limit ("the 12-turn ceiling", "an action repeated on an unchanged page"),
+  still `error` in `classifyStepFailure`, still a blocked case — exactly the
+  outcome the untyped message produced, now saying which limit;
+- page (`cannot-offer`) → `AgentEvidenceError`, **`failed`** in
+  `classifyStepFailure`, with `detail.expected` (the value asked) and
+  `detail.actual` (the trigger's label, the count and head of the options)
+  written onto the step by `agentLegComparison`, so `expectedActual()` reads
+  the leg like an `expectText`. Reconstruction is futile for it: a rewrite
+  cannot make an option appear that the list enumerated twice without;
+- model (`fail`, `contradicted`, and every record from before the field
+  existed) → the plain `workflow agent failed:` error, `error` as before.
+  `harnessOnly` (`src/cli/exit.ts`) reads `agent.endedBy === 'fail'` off the
+  step's record — never the message — and words the case "no verdict — the
+  agent's own account, unverified: <claim>" instead of "runtime error — the
+  harness ended this case"; the case still scores blocked and exits 3.
+
+The bundle schema (`src/artifacts/schemas.ts`, `AgentRecordSchema`) accepts
+all three fields as the descriptive optionals they are and refuses an
+`endedBy` outside `AGENT_ENDED_BY_VALUES` (it steers a wording), mirrored
+from the engine's list and pinned equal by test. The reporter's wording
+tables were not touched: the new error messages are what it already prints.
+
+Tests: `tests/agent-guards.test.ts` ("the typed stop reason on the record
+(no browser)" — the loop driven against a fake `Page` whose CDP session and
+locators answer fixed data, so the REAL `#act` → `selectFromListbox` path
+throws a REAL `ListboxOptionMissingError`: budget, fail with the claim,
+finish, the listbox facts and the `cannot-offer` stop in one turn;
+`listboxFacts` and `headingsOf` pure), `tests/full-workflow.test.ts` ("a
+failed workflow leg is classed by the source of its evidence"),
+`tests/exit.test.ts` (the wording and the exit code), and
+`tests/artifact-schemas.test.ts` (a hand-written bundle with and without the
+fields, the refused vocabulary, the mirror).
