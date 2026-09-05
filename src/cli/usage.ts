@@ -48,6 +48,12 @@ Usage:
                                            ran. Needs WOWLIDATOR_DB_RESTORE_URL, a
                                            write credential. Newest baseline if no
                                            argument is given
+  wowlidator data check <catalog> --master-data <file> --url <app> [--as <email>:<pass>] [--json]
+                                           do the codes the sheet's Test Data names
+                                           exist in the application's master, what
+                                           are they called, are they free, and can
+                                           the UI picker reach them? A report, exit
+                                           0 always — see "data check" below
   wowlidator doctor
   wowlidator mcp
 
@@ -435,6 +441,35 @@ author options:
                         i.e. beside the report it produces)
   --run                Execute the authored flow immediately
   --policy <p>         Same three tiers as generate (default forms)
+
+data check:
+  A sheet names entity CODES (a position, a company); the UI picker shows
+  NAMES and may load only the first page of a large master. This rung reads
+  the sheet's Test Data pairs, fetches each declared lookup once per distinct
+  binding, and prints, per code: rows in the sheet, found, label, the declared
+  facts, and reachable (when the declaration gives the picker's page size).
+  Then a summary: codes/rows not found, codes/rows unreachable, consumable
+  codes two or more rows want, and the lookup URLs used. It informs a person;
+  it authors nothing, blocks nothing and changes no data. No model call.
+
+  --master-data <file> The lookup declaration: a JSON array of
+                       { field: ["Position", "Position Code"],   Test Data fields it grounds
+                         url: "/api/positions?company={Company}&page={page}",
+                                                    {Token} bound from the same row's
+                                                    Test Data; {page} is 1-based
+                         rows: "data.rows",         JSON path to the page's row array
+                         next: "data.hasNextPage",  JSON path to a has-more boolean (optional)
+                         code: "positionCode",      JSON path in a row to the code
+                         label: "name.en",          JSON path to the label (a locale key is fine)
+                         facts: ["vacant"],         row paths to report (optional)
+                         consumable: "vacant",      the fact one use consumes (optional)
+                         uiPageSize: 500 }          rows the UI picker loads (optional)
+  --url <app>          The application; lookup paths are resolved against it
+  --as / --persona     Sign in on a tab of its own and send the lookups through
+                       that browser context, so the application's own cookies
+                       are used. Without credentials the lookups go over plain
+                       HTTP and Chrome is never touched.
+  --json               The same report as one JSON document, for tooling
 
 LLM routing (verify with: wowlidator doctor):
   healer     repairs a dead selector      WOWLIDATOR_HEALER_PROVIDER / WOWLIDATOR_HEALER_MODEL

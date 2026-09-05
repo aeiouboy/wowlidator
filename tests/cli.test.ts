@@ -199,6 +199,118 @@ describe('cli — argument handling and gating', () => {
   });
 });
 
+describe('cli — data check (master-data grounding)', () => {
+  // A fixture master behind a local HTTP server: three pages of positions for
+  // one company, one for another, a flat cost-centre list. The CLI is given no
+  // credentials, so it fetches over plain HTTP and never asks for a browser.
+  const FIXTURES = join(ROOT, 'tests', 'fixtures');
+  const PAGES = [
+    { rows: [{ positionCode: 'P-001', name: { en: 'Analyst', th: 'นักวิเคราะห์' }, vacant: true, headcount: 1 }, { positionCode: 'P-002', name: { en: 'Clerk' }, vacant: false, headcount: 2 }], more: true },
+    { rows: [{ positionCode: 'P-003', name: { en: 'Driver' }, vacant: true, headcount: 1 }, { positionCode: 'P-004', name: { en: 'Engineer' }, vacant: true, headcount: 3 }], more: true },
+    { rows: [{ positionCode: 'P-005', name: { en: 'Foreman' }, vacant: true, headcount: 1 }, { positionCode: 'P-006', name: { en: 'Guard' }, vacant: false, headcount: 1 }], more: false },
+  ];
+  let server: Server;
+  let origin: string;
+  const hits: string[] = [];
+
+  before(async () => {
+    server = createServer((req, res) => {
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      hits.push(url.pathname + url.search);
+      const json = (status: number, body: unknown): void => {
+        res.writeHead(status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(body));
+      };
+      if (url.pathname === '/api/positions' && url.searchParams.get('company') === 'ACME') {
+        const page = PAGES[Number(url.searchParams.get('page')) - 1];
+        if (page === undefined) return json(404, { error: 'no such page' });
+        return json(200, { data: { rows: page.rows, hasNextPage: page.more } });
+      }
+      if (url.pathname === '/api/positions') {
+        // The second company answers as a sign-in page would: HTML, 200.
+        res.writeHead(200, { 'content-type': 'text/html' });
+        res.end('<!doctype html><title>Sign in</title>');
+        return;
+      }
+      if (url.pathname === '/api/cost-centers') return json(200, [{ code: 'CC-9', title: 'Nine' }]);
+      return json(500, { error: 'unexpected' });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  after(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((r, j) => server.close((e) => (e ? j(e) : r())));
+  });
+
+  const args = (...more: string[]): string[] => [
+    'data', 'check', join(FIXTURES, 'master-data-cases.csv'),
+    '--master-data', join(FIXTURES, 'master-data.lookups.json'),
+    '--url', origin,
+    ...more,
+  ];
+
+  it('prints one JSON document with per-code rows and the summary counts, exit 0', async () => {
+    hits.length = 0;
+    const result = await runCli(args('--json'));
+    assert.equal(result.code, EXIT.ok, result.stderr);
+    const parsed = JSON.parse(result.stdout) as {
+      rowsRead: number;
+      lookups: { status: string; bindings: Record<string, string>; codes: { code: string; cases: string[]; found?: boolean; label?: string; reachable?: boolean; facts?: Record<string, unknown> }[] }[];
+      summary: { codes: number; rows: number; notFound: { codes: number; rows: number }; unreachable: { codes: number; rows: number }; contended: { codes: number }; unknownLookups: number; urls: string[] };
+      finding: string;
+    };
+    assert.equal(parsed.rowsRead, 7);
+    const acme = parsed.lookups.find((l) => l.bindings['Company'] === 'ACME');
+    assert.ok(acme, 'the ACME group was fetched');
+    assert.equal(acme.status, 'ok');
+    const p005 = acme.codes.find((c) => c.code === 'P-005');
+    assert.deepEqual(
+      { found: p005?.found, label: p005?.label, reachable: p005?.reachable, facts: p005?.facts, cases: p005?.cases },
+      { found: true, label: 'Foreman', reachable: false, facts: { vacant: true, headcount: 1 }, cases: ['MD_01_02'] },
+    );
+    assert.equal(acme.codes.find((c) => c.code === 'P-404')?.found, false);
+    const zeta = parsed.lookups.find((l) => l.bindings['Company'] === 'ZETA');
+    assert.equal(zeta?.status, 'unknown', 'an HTML answer is unknown, not a missing code');
+    assert.equal(parsed.summary.codes, 6);
+    assert.equal(parsed.summary.rows, 7);
+    assert.deepEqual([parsed.summary.notFound.codes, parsed.summary.notFound.rows], [1, 1]);
+    assert.deepEqual([parsed.summary.unreachable.codes, parsed.summary.unreachable.rows], [1, 1]);
+    assert.equal(parsed.summary.contended.codes, 1);
+    assert.equal(parsed.summary.unknownLookups, 2, 'ZETA unread and the row with no Company unbound');
+    assert.ok(parsed.summary.urls.some((u) => u.startsWith(`${origin}/api/positions?company=ACME&page=1`)));
+    assert.match(parsed.finding, /^Master data: 6 codes named by 7 rows/);
+    // Each distinct page once, however many rows wanted it.
+    assert.equal(hits.filter((h) => h.startsWith('/api/positions?company=ACME')).length, 3);
+  });
+
+  it('prints the table and the summary line in text mode, exit 0', async () => {
+    const result = await runCli(args());
+    assert.equal(result.code, EXIT.ok, result.stderr);
+    assert.match(result.stdout, /Position \/ Position Code \[Company=ACME\]/);
+    assert.match(result.stdout, /P-005\s+1\s+yes\s+Foreman\s+yes\s+1\s+no/);
+    assert.match(result.stdout, /summary: 6 codes \/ 7 rows checked; 1 code\(s\) \/ 1 row\(s\) not found; 1 code\(s\) \/ 1 row\(s\) unreachable; 1 consumable code\(s\) shared by 2\+ rows; 2 lookup\(s\) unread/);
+    assert.match(result.stdout, /lookups used:/);
+    assert.match(result.stdout, /note: fetched over plain HTTP with no session/);
+  });
+
+  it('exits 2 when the declaration is missing or unusable', async () => {
+    const noFile = await runCli(['data', 'check', join(FIXTURES, 'master-data-cases.csv'), '--url', origin]);
+    assert.equal(noFile.code, EXIT.usage);
+    assert.match(noFile.stderr, /--master-data <file> is required/);
+    const notJson = await runCli(['data', 'check', join(FIXTURES, 'master-data-cases.csv'), '--master-data', join(FIXTURES, 'order.mmd'), '--url', origin]);
+    assert.equal(notJson.code, EXIT.usage);
+    assert.match(notJson.stderr, /is not JSON/);
+  });
+
+  it('documents the command in --help', async () => {
+    const result = await runCli(['--help']);
+    assert.match(result.stdout, /wowlidator data check <catalog> --master-data <file> --url <app>/);
+    assert.match(result.stdout, /--master-data <file>/);
+  });
+});
+
 describe('cli — run contract (CDP)', { skip: skipBrowser }, () => {
   let server: Server;
   let origin: string;

@@ -6,6 +6,7 @@
  *   wowlidator generate <url>    let an LLM write the tests by reading the page
  *   wowlidator author "<prompt>" turn a described test into one runnable flow
  *   wowlidator doctor            verify provider keys and model ids resolve
+ *   wowlidator data check <cat>  do the sheet's test-data codes exist, are they free, can the UI reach them
  *   wowlidator cache list        inspect healed selectors
  *   wowlidator cache forget      invalidate a repair (or all of them)
  *   wowlidator ui                open the control panel in a browser (--wow for wowUI)
@@ -45,7 +46,7 @@ import {
 import { USAGE } from './cli/usage.js';
 import { cmdAuthor, cmdCatalog, cmdDraft, cmdGenerate } from './cli/commands/authoring.js';
 import { cmdGo } from './cli/commands/go.js';
-import { cmdCache, cmdCatalogReport, cmdContext, cmdDb, cmdDoctor, cmdHistory } from './cli/commands/maintenance.js';
+import { cmdCache, cmdCatalogReport, cmdContext, cmdData, cmdDb, cmdDoctor, cmdHistory } from './cli/commands/maintenance.js';
 import { cmdCrawl, cmdRun, cmdWatch } from './cli/commands/run.js';
 
 // Re-exported for the tests (tests/suite-outcomes.test.ts) and for embedders
@@ -197,6 +198,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       'repair-regenerate': { type: 'boolean', default: false },
       openapi: { type: 'string' },
       'db-schema': { type: 'string' },
+      // `data check`: the master-data lookup declaration. Not on CliOptions —
+      // the one command that reads it takes it beside the options, so no other
+      // command grows a field it never reads.
+      'master-data': { type: 'string' },
       api: { type: 'boolean', default: false },
       // Catalogs. `context-doc` rather than `context`: `--context` already
       // means the static repository index, and two things called context would
@@ -528,6 +533,8 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       return cmdCatalogReport(positionals[1], options);
     case 'db':
       return cmdDb(positionals[1], positionals[2], options);
+    case 'data':
+      return cmdData(positionals[1], positionals[2], options, { masterData: values['master-data'] });
     case 'mcp':
       await mcpMain();
       return 0;

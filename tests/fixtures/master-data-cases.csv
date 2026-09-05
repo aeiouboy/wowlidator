@@ -1,0 +1,13 @@
+No.,Scenario ID,Test Scenario,Test Case ID,Positive/Negative,Priority,Test Case, Test Data,Menu,Test Script / Steps,Expected Output,Actual Result,Test Date,Test by,Bug ticket,Note,
+1,MD_01,Hire into a position,MD_01_01,Positive,High,Hire into the first position,"Company = ACME
+Position = P-001",HR > Hiring,1. Open Hiring,1. The form opens,,,,,,
+2,,,MD_01_02,Positive,High,Hire into a position past the picker's first page,"Company = ACME
+Position = P-005",,1. Open Hiring,1. The form opens,,,,,,
+3,,,MD_01_03,Positive,Medium,Second hire into the first position,"Company = ACME
+Position = P-001",,1. Open Hiring,1. The form opens,,,,,,
+4,,,MD_01_04,Negative,Low,Hire into a position that does not exist,"Company = ACME
+Position = P-404",,1. Open Hiring,1. The form refuses,,,,,,
+5,MD_02,Another company,MD_02_01,Positive,High,Hire in the second company,"Company = ZETA
+Position Code = P-001",HR > Hiring,1. Open Hiring,1. The form opens,,,,,,
+6,,,MD_02_02,Positive,Low,Hire with no company named,Position = P-002,,1. Open Hiring,1. The form opens,,,,,,
+7,MD_03,Cost centers,MD_03_01,Positive,Low,Charge a cost center,Cost Center = CC-9,Finance,1. Open the charge form,1. The center is listed,,,,,,
