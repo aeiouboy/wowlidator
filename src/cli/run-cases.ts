@@ -94,6 +94,7 @@ import {
   carriedOutcomes,
   newLedger,
   readLedger,
+  recordAuthored,
   recordOutcome,
   remaining,
   sortByPlan,
@@ -141,6 +142,18 @@ import {
   runPersonas,
   stepLogger,
 } from './runtime.js';
+
+/**
+ * What the runner hands its caller once the ledger is its to write: the
+ * seam through which a case authored elsewhere (the pipelined catalog
+ * authors in one loop, runs in another) is recorded the moment it is queued
+ * — see `SuiteLedger.authored`. Only the runner writes the ledger file, so
+ * the caller asks through here rather than opening the file itself.
+ */
+export interface LedgerHooks {
+  /** Record where this queued case's flow was written. No-op for a refused case or one without a flow path; never throws. */
+  noteAuthored(testCase: SuiteCase): Promise<void>;
+}
 
 /** One listed case, ready to run. */
 export interface SuiteCase {
@@ -305,6 +318,13 @@ export async function runCases(
           runKey?: (() => string | null) | undefined;
           /** What started this run, recorded so a resume can be rebuilt later. */
           launch?: SuiteLedger['launch'];
+          /**
+           * Called synchronously, before the runner's first await, with the
+           * hooks that write into ITS ledger. A pipelined caller calls
+           * `noteAuthored` right after each `queue.push`; notes that arrive
+           * before the ledger file is open are held and written then.
+           */
+          hooks?: ((hooks: LedgerHooks) => void) | undefined;
         }
       | undefined;
     /**
@@ -338,6 +358,31 @@ export async function runCases(
   // rather than re-running. Snapshotted here because `ledger` IS the prior
   // object and every fresh case overwrites its own entry.
   let inherited: Record<string, LedgerOutcome> | null = null;
+  // **An authored flow is on the ledger the moment its case is queued**
+  // (2026-09-05). The outcome comes minutes later — or never, when the run
+  // is paused, signalled or held for quota first — and until now that was
+  // the moment the flow's whereabouts were first written down, so a stop
+  // discarded every flow queued and not yet run (17, then 11, measured; each
+  // ~190 s and ~$1 of model time to author again). Handed to the caller
+  // synchronously, below, before the first await: a note that arrives before
+  // the ledger file is open waits here and is written the moment it is.
+  let ledgerOpen = false;
+  const notedBeforeOpen: SuiteCase[] = [];
+  const noteAuthored = async (testCase: SuiteCase): Promise<void> => {
+    if (where.ledger === undefined || testCase.refused !== undefined || testCase.flowPath === undefined) return;
+    if (!ledgerOpen) {
+      notedBeforeOpen.push(testCase);
+      return;
+    }
+    if (ledger === null) return;
+    recordAuthored(ledger, testCase.name, {
+      flowPath: testCase.flowPath,
+      ...(testCase.risk === undefined ? {} : { risk: testCase.risk }),
+      ...(testCase.scenarioId === undefined ? {} : { scenarioId: testCase.scenarioId }),
+    });
+    await writeLedger(where.ledger.path, ledger).catch(() => undefined);
+  };
+  where.ledger?.hooks?.({ noteAuthored });
   if (where.ledger !== undefined) {
     const prior = where.ledger.resume ? await readLedger(where.ledger.path) : null;
     if (prior !== null) {
@@ -349,6 +394,8 @@ export async function runCases(
     ledger.launch = where.ledger.launch ?? ledger.launch;
     ledger.ended = null;
     await writeLedger(where.ledger.path, ledger);
+    ledgerOpen = true;
+    for (const queued of notedBeforeOpen.splice(0)) await noteAuthored(queued);
     onSignal = (signal) => {
       if (ledger && where.ledger) {
         ledger.ended = {
@@ -431,6 +478,10 @@ export async function runCases(
           (c) => c.dependsOn ?? [],
         ),
       );
+  // A closed list's flows are all on disk already: every one is on the
+  // ledger before the first case runs. (A streaming caller notes each push
+  // through the hooks above.)
+  if (!streaming) for (const listed of queue.items) await noteAuthored(listed);
   // The report exists before the first case has a verdict.
   if (liveReport !== null) await liveReport.refresh();
 
@@ -959,6 +1010,11 @@ export async function runCases(
       );
     }
     const tag = tagOf(index);
+    // A streaming caller that never wired the hooks still gets the flow on
+    // the ledger no later than its dispatch.
+    if (ledger !== null && testCase.flowPath !== undefined && ledger.authored?.[caseIdOf(testCase.name)] === undefined) {
+      await noteAuthored(testCase);
+    }
     // **A case authoring refused to write has no flow to run.** It is recorded
     // blocked with the lint's reason — on the ledger, so the report's row
     // says why instead of "never ran", and so the next resume knows how many

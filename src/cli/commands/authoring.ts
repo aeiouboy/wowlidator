@@ -125,6 +125,7 @@ import {
 import { EXIT, exitCodeFor, suiteExit, type CaseOutcome } from '../exit.js';
 import {
   AUTHORING_REFUSAL_CAP,
+  forgetAuthored,
   isErrorOutcome,
   isFailedOutcome,
   ledgerPathFor,
@@ -133,8 +134,11 @@ import {
   readLedger,
   recordOutcome,
   remaining,
+  resumeAuthored,
   summariseLedger,
   writeLedger,
+  type LedgerAuthored,
+  type SuiteLedger,
 } from '../suite-progress.js';
 import { substantiveAssertions, vacuousFlow } from '../../generator/vacuous.js';
 import { CaseQueue, DEFAULT_CONCURRENCY, ScenarioGate, authorWorkers, dependencyCycles, mapPool, orderDependentsAfterSources, orderScenariosFastestFirst, unresolvedReferences } from '../case-plan.js';
@@ -157,7 +161,7 @@ import {
   stepLogger,
   buildRiskModel,
 } from '../runtime.js';
-import { runCases, type SuiteCase } from '../run-cases.js';
+import { runCases, type LedgerHooks, type SuiteCase } from '../run-cases.js';
 
 export async function cmdGenerate(url: string | undefined, options: CliOptions): Promise<number> {
   // `--api` reads the indexed spec rather than a page, so it needs no url.
@@ -2989,8 +2993,12 @@ export async function cmdCatalog(file: string | undefined, options: CliOptions):
   const refusedBefore = new Map<string, number>();
   /** Refused rows for the non-pipelined path, appended to the run so they are recorded. */
   let refusedForSerialRun: SuiteCase[] = [];
+  // The prior ledger as this resume leaves it after every rerun marking —
+  // what the pipelined path reads its reusable authored flows from.
+  let priorLedger: SuiteLedger | null = null;
   if (options.resume) {
     const prior = ledgerSpec === undefined ? null : await readLedger(ledgerSpec.path);
+    priorLedger = prior;
     for (const [id, outcome] of Object.entries(prior?.outcomes ?? {})) {
       if (outcome.authoringRefused !== undefined && outcome.authoringRefused > 0) refusedBefore.set(id, outcome.authoringRefused);
     }
@@ -3016,6 +3024,8 @@ export async function cmdCatalog(file: string | undefined, options: CliOptions):
           return null;
         }
       });
+      // Marked for re-authoring: the vacuous flow is not what a resume replays.
+      forgetAuthored(prior, marked);
       await writeLedger(ledgerSpec.path, prior);
       log?.(
         marked.length === 0
@@ -3046,6 +3056,8 @@ export async function cmdCatalog(file: string | undefined, options: CliOptions):
       }
       const tail = new Set(prior.planned.slice(start));
       const marked = markForRerun(prior, (_o, id) => tail.has(id), `resume-from ${prior.planned[start]}`);
+      // "Under the current config" means authored again, not replayed.
+      forgetAuthored(prior, marked);
       await writeLedger(ledgerSpec.path, prior);
       log?.(
         `--resume-from: rerunning from ${prior.planned[start]} — ${marked.length} recorded case(s) rerun, ` +
@@ -3071,12 +3083,17 @@ export async function cmdCatalog(file: string | undefined, options: CliOptions):
         (_o, id) => wanted.has(id) || [...wanted].some((w) => id.startsWith(w)),
         'rerun requested by case id — re-authored from the sheet row',
       );
+      // The sheet row is the source of truth: the recorded flow is not reused.
+      forgetAuthored(prior, marked);
       await writeLedger(ledgerSpec.path, prior);
       log?.(`--rerun-case: ${marked.length} case(s) re-authored from their sheet rows and re-run: ${marked.join(', ')}`);
     }
     if (prior !== null && ledgerSpec !== undefined && (options.rerunErrors || options.rerunFailed)) {
       const errors = options.rerunErrors ? markForRerun(prior, isErrorOutcome, 'rerun after error') : [];
       const failed = options.rerunFailed ? markForRerun(prior, isFailedOutcome, 'heal: re-run with autoheal') : [];
+      // An explicit rerun authors again, as it always has; only a row the
+      // last pass queued and never ran replays its recorded flow.
+      forgetAuthored(prior, [...errors, ...failed]);
       await writeLedger(ledgerSpec.path, prior);
       if (options.rerunErrors) log?.(errors.length === 0 ? '--rerun-errors: no recorded case ended in error' : `--rerun-errors: ${errors.length} case(s) the harness ended will run again: ${errors.join(', ')}`);
       if (options.rerunFailed) log?.(failed.length === 0 ? '--rerun-failed: no recorded case failed' : `--rerun-failed: ${failed.length} failed case(s) will run again with autoheal: ${failed.join(', ')}`);
@@ -3192,6 +3209,14 @@ export async function cmdCatalog(file: string | undefined, options: CliOptions):
     const g = first.sourceUrl === undefined ? undefined : reportGroupForUrl(first.sourceUrl);
     return { group: g, dir: g === undefined ? resolve(options.reportDir) : pageDir(options, g) };
   };
+  // The same rule for a flow a resume replays from disk: its provenance
+  // recorded the page the author read (an ungrounded pass wrote the catalog's
+  // name there instead, which is no page and lands, as it did, ungrouped).
+  const placeForReused = (flow: Flow): { group: string | undefined; dir: string } => {
+    const source = flow.authoredBy?.sourceUrl;
+    const g = source !== undefined && /^https?:\/\//i.test(source) ? reportGroupForUrl(source) : undefined;
+    return { group: g, dir: g === undefined ? resolve(options.reportDir) : pageDir(options, g) };
+  };
   try {
     if (rows.length > 0) {
       // Say which kind of test these rows become. A 'Test Script / Steps'
@@ -3266,7 +3291,25 @@ export async function cmdCatalog(file: string | undefined, options: CliOptions):
       if (riskModel === null && riskEnabled()) {
         log?.('pre-run dead-end risk is not judged: the generator role does not resolve — every case runs with every retry path');
       }
+      // **A resume runs the flows the stopped pass authored; it does not
+      // author them again** (2026-09-05). The ledger records each flow's
+      // path the moment its case is queued (`SuiteLedger.authored`, through
+      // the runner's `noteAuthored` hook below); a row still without a
+      // verdict, never refused and never judged vacuous, is read back
+      // through the zod seam and pushed straight into the queue. A file that
+      // is missing or fails the schema, or a persona this resume has no
+      // credentials for, falls back to authoring with the reason logged.
+      const hooks: { value: LedgerHooks | null } = { value: null };
+      let authorRows: TestCaseRow[] = rows;
+      let reused: { row: TestCaseRow; entry: LedgerAuthored; flow: Flow }[] = [];
+      if (queue !== null && priorLedger !== null) {
+        const split = await resumeAuthored(priorLedger, rows, { log });
+        authorRows = split.author;
+        reused = split.reuse;
+      }
       const queuedPaths: string[] = [];
+      /** Flows a resume replayed from disk, in the order they were queued. */
+      const reusedPaths: string[] = [];
       // Rows authoring refused: each becomes a flow-less case the runner
       // records as blocked, with the reason and the refusal count — that is
       // how the refusal reaches the ledger, the report and the next resume
@@ -3331,8 +3374,92 @@ export async function cmdCatalog(file: string | undefined, options: CliOptions):
         queue.push(refusedCase);
         void releaseDependents(refusedCase.name);
       };
+      // The consumer, started once — by the first authored flow, or by the
+      // first reused one, whichever is queued first. The report folder is
+      // fixed by that first case: nothing is queued before there is somewhere
+      // for its report to go.
+      const startRunner = (place: { group: string | undefined; dir: string }): { group: string | undefined; dir: string } => {
+        placed.value ??= place;
+        const { group, dir } = placed.value;
+        if (queue !== null) {
+          drain.value ??= runCases(queue, options, {
+            dir,
+            group,
+            indexTitle: `wowlidator catalog — ${document.name}`,
+            declaredRoutes: declaredPageRoutes(repoContextGraph),
+            graphFacts: graphFactsOf(repoContextGraph),
+            ledger:
+              ledgerSpec === undefined
+                ? undefined
+                : {
+                  ...ledgerSpec,
+                  hooks: (given) => {
+                    hooks.value = given;
+                  },
+                },
+            healHints: suiteHealHints,
+            // The sheet's words for every planned row: what the
+            // database baseline detects its tables from, so it can
+            // snapshot before the first case instead of waiting for
+            // the whole pass to author (which would disable the
+            // pipelining this path exists for).
+            planRows: rows.map(planRowText),
+            onCaseDone: (finished) => {
+              if (finished.scenarioId !== undefined) gate?.ran(finished.scenarioId);
+            },
+          });
+          // Refusals that arrived before the runner existed join its queue now.
+          for (const refusedCase of pendingRefused.splice(0)) enqueueRefused(refusedCase);
+        }
+        return placed.value;
+      };
+      let authoredRows: { first: AuthoredFlow; cases: TableCase[] } | null = null;
       try {
-        const authoredRows = await authorEachRow(rows, author, options, {
+        // The reused flows first: they are ready now, and the browser would
+        // otherwise idle through the first row's authoring.
+        const fellBack = new Set<string>();
+        for (const { row, entry, flow } of reused) {
+          const scenarioId = row.scenarioId || 'ungrouped';
+          const resolved = resolveRowPersonas(personasOf(row), options);
+          if (resolved.missing.length > 0) {
+            log?.(`resume: ${row.caseId} — persona ${resolved.missing.join(', ')} has no credentials in this resume; authoring it again`);
+            fellBack.add(row.caseId);
+            continue;
+          }
+          const { group } = startRunner(placeForReused(flow));
+          // Its authoring is done as far as the scenario gate is concerned.
+          gate?.authored(scenarioId);
+          const known = sheetVerdict(row.actual);
+          const reusedCase: SuiteCase = {
+            name: `${row.caseId} ${row.testCase}`,
+            flow,
+            flowPath: entry.flowPath,
+            kind: 'catalog',
+            scenarioId,
+            ...(group === undefined ? {} : { group: `${group}/${slugify(scenarioId)}` }),
+            ...(flow.authoredBy === undefined ? {} : { generatedBy: flow.authoredBy }),
+            ...(entry.risk === undefined ? {} : { risk: entry.risk }),
+            ...suiteFactsOf({
+              ...(row.dependsOn === undefined ? {} : { dependsOn: row.dependsOn }),
+              ...(known === undefined ? {} : { knownResult: known }),
+              ...(observeOnlyCase(row) ? { recordOnly: true } : {}),
+              ...(Object.keys(resolved.personas).length === 0 ? {} : { personas: resolved.personas }),
+            }),
+          };
+          reusedPaths.push(entry.flowPath);
+          await offer(row.caseId, row.dependsOn, async () => {
+            log?.(`  queued ${reusedCase.name} → ${entry.flowPath} (reused, not authored again)`);
+            queue!.push(reusedCase);
+            gate?.queued(scenarioId);
+            // Already on the ledger under this run key: nothing is re-noted,
+            // nothing re-substituted.
+          });
+        }
+        if (fellBack.size > 0) {
+          const back = new Set([...authorRows.map((row) => row.caseId), ...fellBack]);
+          authorRows = rows.filter((row) => back.has(row.caseId));
+        }
+        authoredRows = authorRows.length === 0 ? null : await authorEachRow(authorRows, author, options, {
           summary: claimsFile.summary,
           context: contextDocs,
           log,
@@ -3351,31 +3478,9 @@ export async function cmdCatalog(file: string | undefined, options: CliOptions):
             queue === null
               ? undefined
               : async (testCase, first) => {
-                // The report folder is known from the first authored flow,
-                // and the consumer starts then: nothing is queued before
-                // there is somewhere for its report to go.
-                placed.value ??= placeFor(first);
-                const { group, dir } = placed.value;
-                drain.value ??= runCases(queue, options, {
-                  dir,
-                  group,
-                  indexTitle: `wowlidator catalog — ${document.name}`,
-                  declaredRoutes: declaredPageRoutes(repoContextGraph),
-                  graphFacts: graphFactsOf(repoContextGraph),
-                  ledger: ledgerSpec,
-                  healHints: suiteHealHints,
-                  // The sheet's words for every planned row: what the
-                  // database baseline detects its tables from, so it can
-                  // snapshot before the first case instead of waiting for
-                  // the whole pass to author (which would disable the
-                  // pipelining this path exists for).
-                  planRows: rows.map(planRowText),
-                  onCaseDone: (finished) => {
-                    if (finished.scenarioId !== undefined) gate?.ran(finished.scenarioId);
-                  },
-                });
-                // Refusals that arrived before the runner existed join its queue now.
-                for (const refusedCase of pendingRefused.splice(0)) enqueueRefused(refusedCase);
+                // The report folder is known from the first queued flow —
+                // this one, unless a resume replayed one before it.
+                const { group, dir } = startRunner(placeFor(first));
                 // Same stamp and same file the non-pipelined path writes
                 // below — built here because the run needs both now.
                 testCase.flow.authoredBy = stampProvenance(provenanceOf(first), testCase);
@@ -3392,7 +3497,7 @@ export async function cmdCatalog(file: string | undefined, options: CliOptions):
                 const caseId = caseIdOfName(testCase.name);
                 await offer(caseId, testCase.dependsOn, async () => {
                   log?.(`  queued ${testCase.name} → ${flowPath}`);
-                  queue.push({
+                  const queued: SuiteCase = {
                     name: testCase.name,
                     flow: testCase.flow,
                     flowPath,
@@ -3402,25 +3507,35 @@ export async function cmdCatalog(file: string | undefined, options: CliOptions):
                     generatedBy: testCase.flow.authoredBy,
                     ...(testCase.risk === undefined ? {} : { risk: testCase.risk }),
                     ...suiteFactsOf(testCase),
-                  });
+                  };
+                  queue.push(queued);
                   gate?.queued(testCase.scenarioId);
+                  // On the ledger the moment it is queued — the file is
+                  // already on disk — so a stop before it runs costs the
+                  // next resume nothing.
+                  await hooks.value?.noteAuthored(queued);
                 });
               },
         });
-        authored = authoredRows.first;
-        tableCases = authoredRows.cases;
       } catch (error) {
-        // Authoring broke; the cases already queued are still running and
-        // still owed their reports. Let them finish before the error lands,
-        // or they are abandoned mid-run with their proofs half-written.
-        await flushHeld().catch(() => undefined);
-        queue?.close();
-        if (drain.value !== null) await drain.value.catch(() => undefined);
-        // Nothing ran, so no runner wrote the ledger: the refusals go there
-        // directly, or the next resume re-authors the same rows for the same
-        // answer — the loop this exists to end.
-        if (pendingRefused.length > 0 && ledgerSpec !== undefined) await persistRefusals(ledgerSpec.path, pendingRefused);
-        throw error;
+        if (error instanceof AuthoringError && reusedPaths.length > 0 && drain.value !== null) {
+          // Every row left to author was refused — each is on the queue
+          // already, blocked with its reason — while the reused flows run.
+          // Their refusals are rows of this run, not a reason to abandon it.
+          log?.(`authoring: ${error.message.split('\n')[0] ?? error.message} — the ${reusedPaths.length} reused flow(s) still run`);
+        } else {
+          // Authoring broke; the cases already queued are still running and
+          // still owed their reports. Let them finish before the error lands,
+          // or they are abandoned mid-run with their proofs half-written.
+          await flushHeld().catch(() => undefined);
+          queue?.close();
+          if (drain.value !== null) await drain.value.catch(() => undefined);
+          // Nothing ran, so no runner wrote the ledger: the refusals go there
+          // directly, or the next resume re-authors the same rows for the same
+          // answer — the loop this exists to end.
+          if (pendingRefused.length > 0 && ledgerSpec !== undefined) await persistRefusals(ledgerSpec.path, pendingRefused);
+          throw error;
+        }
       } finally {
         // A dependent whose source never arrived is pushed now — recorded
         // blocked with the reason, never abandoned — before the queue closes.
@@ -3428,10 +3543,24 @@ export async function cmdCatalog(file: string | undefined, options: CliOptions):
         queue?.close();
       }
       if (drain.value !== null && placed.value !== null) {
-        printAuthored(authored, tableCases, queuedPaths, approved.length, placed.value.group, placed.value.dir);
+        if (authoredRows !== null) {
+          printAuthored(authoredRows.first, authoredRows.cases, queuedPaths, approved.length, placed.value.group, placed.value.dir);
+        }
+        if (reusedPaths.length > 0) {
+          process.stdout.write(`reused ${reusedPaths.length} flow(s) authored before this resume:\n`);
+          for (const path of reusedPaths) process.stdout.write(`    flow     ${path}\n`);
+        }
         const outcomes = await drain.value;
         return suiteExit(outcomes);
       }
+      if (authoredRows === null) {
+        // Only the pipelined path reuses flows, and it returned above once
+        // its runner drained; a list that authored nothing and started no
+        // runner is a contradiction, said rather than swallowed.
+        throw new Error('wowlidator catalog: no row was authored and no run was started');
+      }
+      authored = authoredRows.first;
+      tableCases = authoredRows.cases;
       refusedForSerialRun = pendingRefused;
     } else {
       const approvedText = approvedClaims(claimsFile)
