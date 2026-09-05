@@ -272,6 +272,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     return 2;
   }
 
+  // Before the credential parsers: `WOWLIDATOR_AS` and `WOWLIDATOR_PERSONAS` are
+  // documented as living in `.env`, and both are read from `process.env` at
+  // parse time — loaded after them, every persona in the file "had no credentials".
+  loadDotEnv();
+
   const credentials = parseCredentials(values.as);
   if (credentials === null) {
     process.stderr.write(
@@ -300,8 +305,6 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     );
     return 2;
   }
-
-  loadDotEnv();
 
   let config: WowlidatorConfig;
   try {
