@@ -127,6 +127,7 @@ Agent safety rails, all load-bearing:
 - **The panel runs `dist/cli.js`.** Jobs launched from `npm run ui` execute the built CLI, so an engine change needs `npm run build` before it shows up in a panel run; the panel's own UI is served from source and needs a server restart instead.
 - **`bin/wow`** is the one-process launcher (engine + wowUI on one port) and passes unknown subcommands straight through to the CLI.
 - Cache writes are temp-file + rename, and a corrupt cache file is reported to stderr and ignored rather than aborting a run.
+- **Persisted artifacts are parsed, never asserted** (2026-09-05, `src/artifacts/schemas.ts`, Phase C). Six readers go through a zod schema at the file seam — the panel's proof-bundle reader (`looksLikeBundle`), the suite ledger (`readLedger`), the context graph (`ContextEngine.load`), the db baseline (`readBaseline`), the healed-selector cache (both parse sites, one corrupt entry dropped on its own) and the run history (one bad line skipped). The schemas are loose on purpose: they reject the shapes that carry authority (a status, a verdict, a hold's reason, a selector to replay, a table to restore) and let descriptive fields an older build never wrote pass through. An invalid artifact is the typed unavailable result the reader already documented — null, empty, or a thrown error naming the file and the first issue path — never a partial read. Tests: `tests/artifact-schemas.test.ts`, every fixture hand-written.
 
 ## Where the subsystem guidance lives
 

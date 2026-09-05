@@ -22,6 +22,7 @@ import { TestIngester } from './ingesters/test-ingester.js';
 import { OpenApiIngester } from './ingesters/openapi-ingester.js';
 import { SchemaIngester } from './ingesters/schema-ingester.js';
 import { MessageIngester } from './ingesters/message-ingester.js';
+import { ProjectGraphSchema, parseArtifact, type ArtifactParse } from '../artifacts/schemas.js';
 import {
   PROJECT_GRAPH_VERSION,
   type IngestContext,
@@ -280,15 +281,20 @@ export class ContextEngine {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw error;
     }
+    // Parsed, not asserted (Phase C): the graph's nodes name routes and
+    // tables the generator writes tests against, so a node of a kind this
+    // build does not know is an artifact to rebuild, not one to read around.
+    let parsed: ArtifactParse<ProjectGraph>;
     try {
-      return JSON.parse(raw) as ProjectGraph;
+      parsed = parseArtifact<ProjectGraph>(ProjectGraphSchema, JSON.parse(raw));
     } catch (error) {
-      if (this.#warn) {
-        const detail = error instanceof Error ? error.message : String(error);
-        process.stderr.write(`[wowlidator] ignoring unreadable context graph at ${this.cacheFile}: ${detail}\n`);
-      }
-      return null;
+      parsed = { ok: false, issue: error instanceof Error ? error.message : String(error) };
     }
+    if (parsed.ok) return parsed.value;
+    if (this.#warn) {
+      process.stderr.write(`[wowlidator] ignoring unreadable context graph at ${this.cacheFile}: ${parsed.issue}\n`);
+    }
+    return null;
   }
 
   /**

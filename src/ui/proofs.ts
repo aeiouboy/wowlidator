@@ -32,6 +32,7 @@ import { join, resolve } from 'node:path';
 import type { ProofBundle, RunStatus, TierSummary } from '../engine/proof-bundle.js';
 import { effectiveStatus, isPassing } from '../engine/proof-bundle.js';
 import { harnessOnly, neverRan } from '../cli/exit.js';
+import { parseProofBundle } from '../artifacts/schemas.js';
 import { provenanceExtras } from '../reporter/step-facts.js';
 
 /** Bundles read for one listing. Beyond this, the oldest are not shown. */
@@ -250,16 +251,16 @@ export function toCard(bundle: ProofBundle, path: string, reportPath: string | n
   };
 }
 
-/** Enough of a bundle to be worth showing. A JSON file that isn't one is skipped. */
+/**
+ * Enough of a bundle to be worth showing — and to be SCORED: the panel
+ * derives verdicts, families and the no-verdict line from a bundle's
+ * statuses, so a file whose step status is not one the engine writes is not
+ * a bundle with a typo, it is an artifact the panel must not rank. Parsed by
+ * `ProofBundleSchema` (`src/artifacts/schemas.ts`, Phase C); a file that
+ * fails is skipped exactly as a non-bundle JSON always was.
+ */
 function looksLikeBundle(value: unknown): value is ProofBundle {
-  if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as Partial<ProofBundle>;
-  return (
-    typeof candidate.runId === 'string' &&
-    typeof candidate.name === 'string' &&
-    Array.isArray(candidate.steps) &&
-    typeof candidate.summary === 'object'
-  );
+  return parseProofBundle(value).ok;
 }
 
 interface CacheEntry {

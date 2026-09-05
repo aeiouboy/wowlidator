@@ -10,6 +10,8 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
+import { HealedSelectorCacheFileSchema, HealedSelectorEntrySchema, parseArtifact } from '../artifacts/schemas.js';
+
 export const CACHE_FILE_VERSION = 1;
 export const DEFAULT_CACHE_FILENAME = 'healed-selectors.json';
 
@@ -41,6 +43,27 @@ export interface HealedSelectorCacheFile {
   version: number;
   updatedAt: string;
   entries: Record<string, HealedSelectorEntry>;
+}
+
+/**
+ * The entries of a cache file that may be replayed, judged one by one. A
+ * file that is not an object at all throws — the caller treats that exactly
+ * as an unreadable file; an entry that fails the schema is dropped and, when
+ * warnings are on, named once on stderr.
+ */
+function readCacheEntries(parsed: unknown, filePath: string, warn: boolean): [string, HealedSelectorEntry][] {
+  const file = parseArtifact<{ entries?: Record<string, unknown> | undefined }>(HealedSelectorCacheFileSchema, parsed);
+  if (!file.ok) throw new Error(file.issue);
+  const out: [string, HealedSelectorEntry][] = [];
+  for (const [key, entry] of Object.entries(file.value.entries ?? {})) {
+    const one = parseArtifact<HealedSelectorEntry>(HealedSelectorEntrySchema, entry);
+    if (one.ok) {
+      out.push([key, one.value]);
+    } else if (warn) {
+      process.stderr.write(`[wowlidator] dropping corrupt selector cache entry ${JSON.stringify(key)} in ${filePath}: ${one.issue}\n`);
+    }
+  }
+  return out;
 }
 
 export interface CacheManagerOptions {
@@ -126,11 +149,12 @@ export class CacheManager {
     }
 
     try {
-      const parsed = JSON.parse(raw) as Partial<HealedSelectorCacheFile>;
-      for (const [key, entry] of Object.entries(parsed.entries ?? {})) {
-        if (entry && typeof entry.healed === 'string') {
-          this.#entries.set(key, entry);
-        }
+      // Parsed, not asserted (Phase C): every entry is a selector that will
+      // be replayed against a live page, so an entry missing the fields the
+      // replay reads is dropped on its own — the rest of the cache survives,
+      // as a hand-edited file with one bad line always should have.
+      for (const [key, entry] of readCacheEntries(JSON.parse(raw), this.filePath, this.#warn)) {
+        this.#entries.set(key, entry);
       }
     } catch (error) {
       if (this.#warn) {
@@ -230,9 +254,8 @@ export class CacheManager {
     const onDisk = new Map<string, HealedSelectorEntry>();
     if (!this.#cleared) {
       try {
-        const parsed = JSON.parse(await readFile(this.filePath, 'utf8')) as Partial<HealedSelectorCacheFile>;
-        for (const [key, entry] of Object.entries(parsed.entries ?? {})) {
-          if (entry && typeof entry.healed === 'string') onDisk.set(key, entry);
+        for (const [key, entry] of readCacheEntries(JSON.parse(await readFile(this.filePath, 'utf8')), this.filePath, false)) {
+          onDisk.set(key, entry);
         }
       } catch {
         // Nothing to merge with.

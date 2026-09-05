@@ -15,6 +15,7 @@ import { dirname, resolve } from 'node:path';
 
 import type { ProofBundle, RunStatus } from '../engine/proof-bundle.js';
 import { isPassing } from '../engine/proof-bundle.js';
+import { HistoryEntrySchema } from '../artifacts/schemas.js';
 
 export const DEFAULT_HISTORY_PATH = '.wowlidator/history.jsonl';
 /** Runs inspected when classifying a result. */
@@ -111,10 +112,11 @@ export class RunHistory {
     for (const line of raw.split('\n')) {
       if (line.trim() === '') continue;
       try {
-        const parsed = JSON.parse(line) as HistoryEntry;
-        if (typeof parsed.runId === 'string' && typeof parsed.name === 'string') {
-          entries.push(parsed);
-        }
+        // Parsed, not asserted (Phase C): a line's status feeds the trend
+        // and the quarantine, so a status outside the engine's own set is a
+        // line to skip, exactly as an unparseable one always was.
+        const parsed = HistoryEntrySchema.safeParse(JSON.parse(line));
+        if (parsed.success) entries.push(parsed.data as HistoryEntry);
       } catch {
         continue;
       }

@@ -26,6 +26,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 import type { CaseOutcome } from './exit.js';
+import { SuiteLedgerSchema, parseArtifact } from '../artifacts/schemas.js';
 
 export const LEDGER_VERSION = 1;
 
@@ -195,11 +196,16 @@ export function newLedger(title: string, planned: readonly string[]): SuiteLedge
 
 export async function readLedger(path: string): Promise<SuiteLedger | null> {
   try {
-    const parsed = JSON.parse(await readFile(path, 'utf8')) as SuiteLedger;
-    if (!parsed || parsed.version !== LEDGER_VERSION || typeof parsed.outcomes !== 'object') return null;
+    // Parsed, not asserted (Phase C): a resume REPLAYS this file's verdicts
+    // into its own roll-up, so an outcome whose verdict is not one of the
+    // four the suite scores must make the whole ledger unreadable rather
+    // than ride in as a carried case.
+    const parsed = parseArtifact<SuiteLedger>(SuiteLedgerSchema, JSON.parse(await readFile(path, 'utf8')));
+    if (!parsed.ok || parsed.value.version !== LEDGER_VERSION) return null;
+    const ledger = parsed.value;
     // Ledgers written before the run key existed read back as key-less, not broken.
-    parsed.runKey ??= null;
-    return parsed;
+    ledger.runKey ??= null;
+    return ledger;
   } catch {
     return null;
   }

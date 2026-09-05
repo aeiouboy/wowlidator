@@ -47,6 +47,7 @@ import { dirname, resolve } from 'node:path';
 import type { Flow } from '../engine/runner.js';
 import type { StepDbChange } from '../engine/proof-bundle.js';
 import { redactRow } from './redact-row.js';
+import { BaselineSchema, parseArtifact } from '../artifacts/schemas.js';
 import type { DbClient, DbSchema, DbTable } from './client.js';
 
 /** Same escape as `db-actions.ts`'s `quoteIdent`; local so `src/db` never imports upward. */
@@ -440,9 +441,12 @@ export async function writeBaseline(path: string, baseline: Baseline): Promise<s
 }
 
 export async function readBaseline(path: string): Promise<Baseline> {
-  const parsed = JSON.parse(await readFile(path, 'utf8')) as Baseline;
-  if (parsed.version !== 1 || !Array.isArray(parsed.tables)) throw new Error(`${path} is not a wowlidator db baseline`);
-  return parsed;
+  // Parsed, not asserted (Phase C): this file is what `db restore` writes
+  // BACK into the database, so a table without its key columns or its rows
+  // is refused outright rather than restored as far as it goes.
+  const parsed = parseArtifact<Baseline>(BaselineSchema, JSON.parse(await readFile(path, 'utf8')));
+  if (!parsed.ok) throw new Error(`${path} is not a wowlidator db baseline (${parsed.issue})`);
+  return parsed.value;
 }
 
 /* --------------------------------------------------------------- compare */
