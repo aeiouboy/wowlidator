@@ -12,6 +12,7 @@
 
 import {
   chromium,
+  errors,
   type Browser,
   type BrowserContext,
   type Locator,
@@ -5958,7 +5959,7 @@ export class SmartRunner {
         `setup (a clickIfVisible right after sign-in) to make the flow self-contained.`,
       undefined,
     );
-    return true;
+    return 'accepted';
   }
 
   async #bootstrapSession(askedUrl: string): Promise<string | null> {
