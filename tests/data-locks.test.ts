@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 
 import { SectionLocks, dataGateFor, dataLocksEnabled, dataWindows } from '../src/cli/data-locks.js';
 import type { Flow, FlowStep } from '../src/engine/runner.js';
+import { routeSectionOf } from '../src/cli/sections.js';
 
 const flowOf = (steps: FlowStep[], setup: FlowStep[] = [], teardown?: FlowStep[]): Flow =>
   ({ name: 'f', steps, setup, ...(teardown ? { teardown } : {}) }) as Flow;
@@ -174,6 +175,123 @@ test('WOWLIDATOR_DATA_LOCKS=off restores case-level flagging', () => {
   assert.equal(dataLocksEnabled({}), true);
   assert.equal(dataLocksEnabled({ WOWLIDATOR_DATA_LOCKS: 'off' }), false);
   assert.equal(dataLocksEnabled({ WOWLIDATOR_DATA_LOCKS: 'on' }), true);
+});
+
+test('an unknown workflow place defers the lock until the agent reports its first mutation', async () => {
+  const workflow = { action: 'workflow', goal: 'submit the order form' } as FlowStep;
+  const check = { action: 'expectVisible', selector: 'text="Saved"' } as FlowStep;
+  const flow = flowOf([workflow, check], [
+    { action: 'goto', url: 'https://h/app/en/login' } as FlowStep,
+    { action: 'signIn', as: 'TEST_ACCOUNT' } as FlowStep,
+  ]);
+  const locks = new SectionLocks();
+  const gate = dataGateFor(flow, locks);
+  assert.ok(gate !== null);
+  assert.equal(dataWindows(flow)[0]?.deferred, true);
+
+  await gate.before(workflow, 'https://h/app/en/login');
+  assert.deepEqual(locks.heldSections, []);
+  const url = 'https://h/app/en/orders/new';
+  await gate.lockNow(url, 'agent click "Submit"');
+  assert.deepEqual(locks.heldSections, [routeSectionOf(url)]);
+  gate.after(check);
+  assert.deepEqual(locks.heldSections, []);
+});
+
+test('deferred gates overlap only when the live mutation route overlaps', async () => {
+  const workflow = { action: 'workflow', goal: 'submit the order form' } as FlowStep;
+  const check = { action: 'expectVisible', selector: 'text="Saved"' } as FlowStep;
+  const flow = flowOf([workflow, check]);
+  const locks = new SectionLocks();
+  const first = dataGateFor(flow, locks);
+  const second = dataGateFor(flow, locks);
+  assert.ok(first !== null && second !== null);
+  await first.before(workflow);
+  await second.before(workflow);
+  await first.lockNow('https://h/app/en/orders', 'first');
+  await second.lockNow('https://h/app/en/customers', 'second');
+  let sameResolved = false;
+  const same = second.lockNow('https://h/app/en/orders', 'same').then(() => { sameResolved = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(sameResolved, true, 'a second route extension never blocks while another route is held');
+  first.after(check);
+  second.after(check);
+  await same;
+});
+
+test('a deferred gate waits on its first live route until the holder releases it', async () => {
+  const workflow = { action: 'workflow', goal: 'submit the order form' } as FlowStep;
+  const check = { action: 'expectVisible', selector: 'text="Saved"' } as FlowStep;
+  const flow = flowOf([workflow, check]);
+  const locks = new SectionLocks();
+  const first = dataGateFor(flow, locks);
+  const second = dataGateFor(flow, locks);
+  assert.ok(first !== null && second !== null);
+  await first.before(workflow);
+  await second.before(workflow);
+  await first.lockNow('https://h/app/en/orders', 'first');
+  let secondResolved = false;
+  const waiting = second.lockNow('https://h/app/en/orders', 'second').then(() => { secondResolved = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(secondResolved, false);
+  first.after(check);
+  await waiting;
+  assert.equal(secondResolved, true);
+  second.after(check);
+});
+
+test('a deleting window remains global and eager', async () => {
+  const deleting = { action: 'workflow', goal: 'delete the order ORD-1' } as FlowStep;
+  const flow = flowOf([deleting]);
+  const locks = new SectionLocks();
+  const gate = dataGateFor(flow, locks);
+  assert.ok(gate !== null);
+  assert.equal(dataWindows(flow)[0]?.deferred, false);
+  await gate.before(deleting, 'https://h/app/en/orders');
+  assert.deepEqual(locks.heldSections, ['*']);
+});
+
+test('a deferred extension held by another lane returns immediately and logs the interference', async () => {
+  const workflow = { action: 'workflow', goal: 'submit the order form' } as FlowStep;
+  const check = { action: 'expectVisible', selector: 'text="Saved"' } as FlowStep;
+  const flow = flowOf([workflow, check]);
+  const locks = new SectionLocks();
+  const holder = dataGateFor(flow, locks);
+  const extending = dataGateFor(flow, locks, { onLog: (line) => logs.push(line) });
+  const logs: string[] = [];
+  assert.ok(holder !== null && extending !== null);
+  await holder.before(workflow);
+  await extending.before(workflow);
+  await holder.lockNow('https://h/app/en/customers', 'holder');
+  await extending.lockNow('https://h/app/en/orders', 'first route');
+  await extending.lockNow('https://h/app/en/customers', 'second route');
+  assert.match(logs.join('\n'), /route:customers is held by another lane .* continuing/);
+  holder.after(check);
+  extending.after(check);
+});
+
+test('WOWLIDATOR_DATA_LOCK_DEFER=off restores eager global locking', async () => {
+  const workflow = { action: 'workflow', goal: 'submit the order form' } as FlowStep;
+  const flow = flowOf([workflow]);
+  const locks = new SectionLocks();
+  const gate = dataGateFor(flow, locks, { env: { WOWLIDATOR_DATA_LOCK_DEFER: 'off' } });
+  assert.ok(gate !== null);
+  assert.equal(dataWindows(flow, [], { WOWLIDATOR_DATA_LOCK_DEFER: 'off' })[0]?.deferred, false);
+  await gate.before(workflow, 'https://h/app/en/orders');
+  assert.deepEqual(locks.heldSections, ['*']);
+});
+
+test('a deterministic mutation inside an unknown window locks its live route before it runs', async () => {
+  const workflow = { action: 'workflow', goal: 'submit the order form' } as FlowStep;
+  const fill = { action: 'fill', selector: 'role=textbox[name="Name" i]', value: 'x' } as FlowStep;
+  const flow = flowOf([workflow, fill]);
+  const locks = new SectionLocks();
+  const gate = dataGateFor(flow, locks);
+  assert.ok(gate !== null);
+  await gate.before(workflow);
+  const url = 'https://h/app/en/orders/new';
+  await gate.before(fill, url);
+  assert.deepEqual(locks.heldSections, [routeSectionOf(url)]);
 });
 
 test('a Thai create/approve goal opens a window and a Thai delete takes the global section (CG-16)', () => {

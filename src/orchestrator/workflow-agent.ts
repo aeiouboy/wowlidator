@@ -65,11 +65,14 @@ import {
   TargetProvenance,
   controlNameFromAriaSnapshot,
   gateMutation,
+  mutationCategoryFor,
   mutationCategoryFromName,
   mutationCategoryOf,
+  mutationTargets,
   mutationPolicyFromEnv,
   type ApproveMutation,
   type MutationPolicy,
+  type OnMutation,
 } from './mutation-policy.js';
 import { selectSkills, skillBodies, type AgentSkillId } from './agent-skills.js';
 import { normaliseAgentSelector } from '../engine/selector.js';
@@ -1029,6 +1032,7 @@ export interface WorkflowAgentOptions {
   mutationPolicy?: MutationPolicy | null | undefined;
   /** The host's explicit approval for an irreversible action a policy does not pre-approve. */
   approveMutation?: ApproveMutation | undefined;
+  onMutation?: OnMutation | undefined;
 }
 
 export interface RunOptions {
@@ -1037,6 +1041,7 @@ export interface RunOptions {
   mutationPolicy?: MutationPolicy | null | undefined;
   /** A per-run approval hook; wins over the instance's. */
   approveMutation?: ApproveMutation | undefined;
+  onMutation?: OnMutation | undefined;
   /**
    * A per-call turn ceiling, tighter than the instance's own `maxSteps`
    * (`WorkflowAgentOptions.maxSteps` / `DEFAULT_AGENT_MAX_STEPS`) — never
@@ -1312,9 +1317,11 @@ export class WorkflowAgent {
   /** The instance-wide policy and approval hook; a run may override either. */
   readonly #defaultPolicy: MutationPolicy | null;
   readonly #defaultApprove: ApproveMutation | undefined;
+  readonly #defaultOnMutation: OnMutation | undefined;
   /** This run's policy and hook — set at the top of `run()`. */
   #policy: MutationPolicy | null = null;
   #approve: ApproveMutation | undefined = undefined;
+  #onMutation: OnMutation | undefined = undefined;
   /**
    * What this run has observed, fed only from the accessibility captures the
    * loop itself makes (`#captureTree`). Reset at the top of `run()`.
@@ -1355,6 +1362,7 @@ export class WorkflowAgent {
     // Irreversible actions still require the explicit approval hook.
     this.#defaultPolicy = options.mutationPolicy === undefined ? mutationPolicyFromEnv() : options.mutationPolicy;
     this.#defaultApprove = options.approveMutation;
+    this.#defaultOnMutation = options.onMutation;
   }
 
   /**
@@ -1382,6 +1390,7 @@ export class WorkflowAgent {
     this.#cachedInputTokens = 0;
     this.#policy = runOptions.mutationPolicy === undefined ? this.#defaultPolicy : runOptions.mutationPolicy;
     this.#approve = runOptions.approveMutation ?? this.#defaultApprove;
+    this.#onMutation = runOptions.onMutation ?? this.#defaultOnMutation;
     const memory = runOptions.memory ?? this.#memory;
     // What this run may do at all: `readOnly` is the strictest form, an
     // explicit set is the middle ground (the reveal pass), absent is the full
@@ -2768,6 +2777,18 @@ export class WorkflowAgent {
       if (held !== null) {
         this.#lastBlocked = held;
         throw new MutationBlockedError(held);
+      }
+      const category = mutationCategoryFor(decision, observedControlName);
+      if (category !== null) {
+        await this.#onMutation?.({
+          category,
+          targets: mutationTargets(decision, this.#goal),
+          selector: decision.selector,
+          url: page.url(),
+          goal: this.#goal,
+          decisionAction: decision.action,
+          ...(observedControlName === null ? {} : { target: observedControlName }),
+        });
       }
     }
     switch (decision.action) {

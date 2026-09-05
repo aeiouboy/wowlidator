@@ -77,6 +77,8 @@ export interface DataWindow {
   /** The last step that needs the lock; it is released after this one runs. */
   to: FlowStep;
   sections: string[];
+  /** The wildcard came only from an agent leg whose live route was unknowable before it ran. */
+  deferred: boolean;
 }
 
 /** Every step a run will execute, in order, with `when` branches inlined. */
@@ -158,7 +160,11 @@ function touched(step: FlowStep, place: string | typeof LOGIN | null): string[] 
  * points, which is what makes a route and a table that belong to the same
  * change one lock rather than two that miss each other.
  */
-export function dataWindows(flow: Flow, fkPairs: readonly (readonly [string, string])[] = []): DataWindow[] {
+export function dataWindows(
+  flow: Flow,
+  fkPairs: readonly (readonly [string, string])[] = [],
+  env: NodeJS.ProcessEnv = process.env,
+): DataWindow[] {
   const steps = flatten([...(flow.setup ?? []), ...flow.steps, ...(flow.teardown ?? [])]);
   // Where the run is, carried forward from the last `goto`: the steps that
   // edit a plan carry no URL of their own, and the route they are on is the
@@ -243,6 +249,8 @@ export function dataWindows(flow: Flow, fkPairs: readonly (readonly [string, str
       unknownPlace = false;
     }
   }
+  const deferred = unknownPlace && !deleting && !sections.has(GLOBAL_SECTION) &&
+    (env['WOWLIDATOR_DATA_LOCK_DEFER'] ?? '').trim().toLowerCase() !== 'off';
   if (unknownPlace || deleting || sections.size === 0) sections.add(GLOBAL_SECTION);
 
   return [
@@ -250,6 +258,7 @@ export function dataWindows(flow: Flow, fkPairs: readonly (readonly [string, str
       from: steps[from]!,
       to: steps[to]!,
       sections: [...new Set(expandSections([...sections], fkPairs))].sort(),
+      deferred,
     },
   ];
 }
@@ -296,6 +305,14 @@ export class SectionLocks {
     });
   }
 
+  /** Acquire immediately or decline without joining the fair waiter queue. */
+  tryAcquire(sections: readonly string[]): boolean {
+    if (sections.length === 0) return true;
+    if (this.#waiters.length > 0 || intersects(sections, this.#held)) return false;
+    for (const section of sections) this.#held.add(section);
+    return true;
+  }
+
   release(sections: readonly string[]): void {
     for (const section of sections) this.#held.delete(section);
     this.#pump();
@@ -325,7 +342,8 @@ export class SectionLocks {
  * mid-window must not take the section down with it.
  */
 export interface DataGate {
-  before(step: FlowStep): Promise<void>;
+  before(step: FlowStep, url?: string): Promise<void>;
+  lockNow(url: string | undefined, why: string): Promise<void>;
   after(step: FlowStep): void;
   releaseAll(): void;
 }
@@ -334,6 +352,7 @@ export interface DataGateOptions {
   fkPairs?: readonly (readonly [string, string])[] | undefined;
   /** Told when a lock is waited for, taken and given back — for the lane log. */
   onLog?: ((line: string) => void) | undefined;
+  env?: NodeJS.ProcessEnv | undefined;
 }
 
 /**
@@ -341,7 +360,8 @@ export interface DataGateOptions {
  * reader never touches the lock table at all.
  */
 export function dataGateFor(flow: Flow, locks: SectionLocks, options: DataGateOptions = {}): DataGate | null {
-  const windows = dataWindows(flow, options.fkPairs ?? []);
+  const fkPairs = options.fkPairs ?? [];
+  const windows = dataWindows(flow, fkPairs, options.env ?? process.env);
   if (windows.length === 0) return null;
   const starts = new Map<FlowStep, DataWindow>();
   const ends = new Map<FlowStep, DataWindow>();
@@ -349,29 +369,84 @@ export function dataGateFor(flow: Flow, locks: SectionLocks, options: DataGateOp
     starts.set(window.from, window);
     ends.set(window.to, window);
   }
-  const held = new Set<DataWindow>();
+  const held = new Map<DataWindow, Set<string>>();
+  const openDeferred = new Set<DataWindow>();
   const log = options.onLog;
 
+  const release = (window: DataWindow): void => {
+    const sections = held.get(window);
+    if (sections !== undefined) {
+      held.delete(window);
+      locks.release([...sections]);
+      log?.(`data lock: released ${[...sections].join(' ')}`);
+    }
+    openDeferred.delete(window);
+  };
+
+  const deferredWindow = (): DataWindow | undefined =>
+    [...openDeferred].find((window) => window.deferred);
+
+  const lockNow = async (url: string | undefined, why: string): Promise<void> => {
+    const window = deferredWindow();
+    if (window === undefined) return;
+    const route = routeSectionOf(url ?? '') ?? GLOBAL_SECTION;
+    const known = window.sections.filter((section) => section !== GLOBAL_SECTION);
+    const wanted = [...new Set(expandSections([...known, route], fkPairs))].sort();
+    const current = held.get(window);
+    if (current === undefined) {
+      const waited = Date.now();
+      await locks.acquire(wanted);
+      held.set(window, new Set(wanted));
+      const ms = Date.now() - waited;
+      log?.(
+        `data lock: took ${wanted.join(' ')} at ${why} on ${url ?? '(unknown URL)'}` +
+        `${ms > 250 ? ` after waiting ${(ms / 1000).toFixed(1)}s` : ''}`,
+      );
+      return;
+    }
+    if (current.has(GLOBAL_SECTION) || current.has(route)) return;
+    const extra = wanted.filter((section) => !current.has(section));
+    if (locks.tryAcquire(extra)) {
+      for (const section of extra) current.add(section);
+      log?.(`data lock: also took ${route}`);
+      return;
+    }
+    log?.(
+      `data lock: ${route} is held by another lane — continuing; the interference detector reports any overlap`,
+    );
+  };
+
   return {
-    async before(step: FlowStep): Promise<void> {
+    async before(step: FlowStep, url?: string): Promise<void> {
       const window = starts.get(step);
-      if (window === undefined || held.has(window)) return;
+      if (window !== undefined && window.deferred && !openDeferred.has(window)) {
+        openDeferred.add(window);
+        log?.('data lock: place unknown — locking at the first write, not now');
+      }
+      const active = window ?? deferredWindow();
+      if (active?.deferred && mutates(step) && step.action !== 'workflow') {
+        await lockNow(url, describeStep(step));
+      }
+      if (window === undefined || window.deferred || held.has(window)) return;
       const waited = Date.now();
       await locks.acquire(window.sections);
-      held.add(window);
+      held.set(window, new Set(window.sections));
       const ms = Date.now() - waited;
       log?.(`data lock: took ${window.sections.join(' ')}${ms > 250 ? ` after waiting ${(ms / 1000).toFixed(1)}s` : ''}`);
     },
+    lockNow,
     after(step: FlowStep): void {
       const window = ends.get(step);
-      if (window === undefined || !held.has(window)) return;
-      held.delete(window);
-      locks.release(window.sections);
-      log?.(`data lock: released ${window.sections.join(' ')}`);
+      if (window === undefined) return;
+      release(window);
     },
     releaseAll(): void {
-      for (const window of held) locks.release(window.sections);
-      held.clear();
+      for (const window of [...new Set([...held.keys(), ...openDeferred])]) release(window);
     },
   };
+}
+
+function describeStep(step: FlowStep): string {
+  const selector = (step as { selector?: string }).selector;
+  return selector === undefined || selector === '' ? step.action : `${step.action} ${JSON.stringify(selector)}`;
 }

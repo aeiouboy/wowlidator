@@ -85,7 +85,7 @@ import { RunHistory, analyseTrend } from '../history/run-history.js';
 import { HealFailedError, HealUnavailableError, JitHealer, captureAxTree } from '../healer/jit-healer.js';
 import type { FlowRepairModel } from '../repair/flow-repair-model.js';
 import { MutationBlockedError, REVEAL_ACTIONS, WorkflowAgent, cacheAgentMemory, type AgentDbProbe, type PlanStep } from '../orchestrator/workflow-agent.js';
-import type { MutationPolicy } from '../orchestrator/mutation-policy.js';
+import type { MutationPolicy, OnMutation } from '../orchestrator/mutation-policy.js';
 import { nearestRoutes, routeIsDeclared } from '../context/route-match.js';
 import { claudeCliUsage, claudeCliUsageSince, type ClaudeCliUsage } from '../providers/claude-cli.js';
 import { sessionQuotaPoint, type SessionQuotaPoint } from '../providers/claude-quota.js';
@@ -4898,6 +4898,15 @@ export class SmartRunner {
       ...(this.#agentDbProbe() ?? {}),
       ...(this.#agentMaxSteps === undefined ? {} : { maxSteps: this.#agentMaxSteps }),
       ...(this.#mutationPolicy === undefined ? {} : { mutationPolicy: this.#mutationPolicy }),
+      ...(this.dataGate === null
+        ? {}
+        : {
+            onMutation: (request: Parameters<OnMutation>[0]) =>
+              this.dataGate?.lockNow(
+                request.url,
+                `agent ${request.decisionAction} ${JSON.stringify(request.target ?? request.selector)}`,
+              ),
+          }),
       saveVariable: (name: string, value: string): void => {
         this.variables.set(name, value);
         this.bundle.note(`workflow: saved {{${name}}} = ${JSON.stringify(value.slice(0, 120))} from the page`);
@@ -8987,7 +8996,7 @@ async function executeSteps(
     // `cli/data-locks.ts`. This is the only place that blocks, and it blocks
     // before the step is narrated, so a lane waiting on a section reads as
     // waiting rather than as a slow step.
-    await runner.dataGate?.before(raw);
+    await runner.dataGate?.before(raw, runner.page.url());
     // A step that does not pass no longer aborts the run: it is recorded and
     // classified (fail / error / dead end), and the next step gets its turn.
     // The run reports everything it saw at the end instead of stopping at the
@@ -9753,7 +9762,7 @@ async function executeApiSteps(
   for (const step of steps) {
     // The same step-level data lock the browser path takes — a browser-free
     // flow writes to the same database as everything else.
-    await dataGate?.before(step);
+    await dataGate?.before(step, undefined);
     // Same run-to-the-end rule as the browser path: a miss is classified and
     // collected, and the next step still runs.
     try {

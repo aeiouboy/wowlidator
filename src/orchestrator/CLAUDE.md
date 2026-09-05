@@ -376,6 +376,8 @@ a denied category, a missing approval, the host's yes, an ordinary journey
 under the strictest policy, and a `runFlow` whose held leg is an error with no
 defect and a held report.
 
+**The mutation hook waits after authority and before contact (2026-09-05).** `RunOptions.onMutation` (per-run before instance) observes only an allowed, classified `click` or targeted `press`, after `gateMutation` returned no hold and before the browser action starts. It may wait for a route-scoped data lock but never decides authority, changes a verdict, writes provenance, or runs for an ordinary click; its exception propagates as the action failure.
+
 ## Skills and the contract (Phase C, 2026-09-05)
 
 Phase C of `docs/research/commerce-agents-patterns.md`, items 1 and 2.

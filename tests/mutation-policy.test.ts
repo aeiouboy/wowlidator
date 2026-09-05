@@ -26,6 +26,7 @@ import {
   TargetProvenance,
   controlNameFromAriaSnapshot,
   gateMutation,
+  mutationCategoryFor,
   mutationCategoryOf,
   mutationPolicyFromEnv,
   mutationTargets,
@@ -72,6 +73,11 @@ function ledgerShowing(nodes: readonly AxNode[], url = 'http://x.test/en/rows'):
 // --- classification ----------------------------------------------------------
 
 describe('mutationCategoryOf — which clicks a policy governs', () => {
+  it('uses the observed accessible name before the model selector', () => {
+    assert.equal(mutationCategoryFor(click('role=button[name="Next"]'), 'Submit order'), 'submit');
+    assert.equal(mutationCategoryFor(click('role=button[name="Submit"]'), 'Next'), 'submit');
+    assert.equal(mutationCategoryFor(click('role=button[name="Next"]'), 'Next'), null);
+  });
   it('reads the category off the control the click lands on, in English and Thai', () => {
     assert.equal(mutationCategoryOf(click('role=row[name="PL_03_18" i] >> role=button[name="Delete" i]')), 'delete');
     assert.equal(mutationCategoryOf(click('role=button[name="ปิดใช้งาน"]')), 'delete');

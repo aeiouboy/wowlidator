@@ -70,10 +70,14 @@ export interface MutationRequest {
   readonly selector: string;
   readonly url: string;
   readonly goal: string;
+  readonly target?: string | undefined;
 }
 
 /** The host's explicit yes/no. Never derived from the goal or the model. */
 export type ApproveMutation = (request: MutationRequest) => Promise<boolean> | boolean;
+export type OnMutation = (
+  request: MutationRequest & { readonly url: string; readonly decisionAction: string; readonly selector: string },
+) => Promise<void> | void;
 
 // --- classification ----------------------------------------------------------
 
@@ -119,6 +123,13 @@ export function mutationCategoryOf(decision: DecisionLike): MutationCategory | n
   const name = targetName(decision.selector);
   if (name === null) return null;
   return mutationCategoryFromName(name);
+}
+
+export function mutationCategoryFor(
+  decision: DecisionLike,
+  observedControlName: string | null | undefined,
+): MutationCategory | null {
+  return mutationCategoryFromName(observedControlName ?? '') ?? mutationCategoryOf(decision);
 }
 
 /**
@@ -285,10 +296,7 @@ function held(
  * click, fill and goto exactly as fast and as free as before.
  */
 export async function gateMutation(input: MutationGateInput): Promise<BlockedOutcome | null> {
-  const observedCategory = input.observedControlName === undefined || input.observedControlName === null
-    ? null
-    : mutationCategoryFromName(input.observedControlName);
-  const category = observedCategory ?? mutationCategoryOf(input.decision);
+  const category = mutationCategoryFor(input.decision, input.observedControlName);
   if (category === null) return null;
   const targets = mutationTargets(input.decision, input.goal);
   const policy = input.policy;
@@ -345,6 +353,9 @@ export async function gateMutation(input: MutationGateInput): Promise<BlockedOut
       selector: input.decision.selector,
       url: input.url,
       goal: input.goal,
+      ...(input.observedControlName === undefined || input.observedControlName === null
+        ? {}
+        : { target: input.observedControlName }),
     });
     if (yes) return null;
     return held(

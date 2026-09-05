@@ -58,6 +58,7 @@ import { withPage } from '../src/engine/runner.js';
 import { ListboxOptionMissingError } from '../src/engine/listbox.js';
 import type { AxNode } from '../src/healer/jit-healer.js';
 import type { Page } from 'playwright';
+import type { OnMutation } from '../src/orchestrator/mutation-policy.js';
 
 const TREE = `RootWebArea "Queue" url="http://x.test/en/queue"
 heading "Probation Reviews"
@@ -425,6 +426,8 @@ describe('the agent loop refuses a wasted turn (CDP)', { skip: skipBrowser }, ()
           : path === '/en/rows'
             ? '<h1>Plans</h1><table><tr><td>TH_MED_001</td><td><button onclick="document.title=\'deleted TH_MED_001\'">Delete</button></td></tr>' +
               '<tr><td>PL_03_18</td><td><button onclick="document.title=\'deleted PL_03_18\'">Delete</button></td></tr></table>'
+            : path === '/en/mutations'
+              ? '<title>mutations</title><h1>Order</h1><button onclick="document.title=\'submitted\'">Submit</button><button onclick="document.title=\'next\'">Next</button>'
             : path === '/en/stepper'
               ? // A date-picker year stepper: pressing Enter on it decrements the
                 // shown year, so the tree genuinely changes every time (never
@@ -446,6 +449,53 @@ describe('the agent loop refuses a wasted turn (CDP)', { skip: skipBrowser }, ()
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );
+  });
+
+  it('awaits onMutation before a governed click, but never calls it for an ordinary or held click', async () => {
+    let releaseMutation: (() => void) | undefined;
+    const mutationMayContinue = new Promise<void>((resolve) => { releaseMutation = resolve; });
+    let reportMutation: ((request: Parameters<OnMutation>[0]) => void) | undefined;
+    const mutationReported = new Promise<Parameters<OnMutation>[0]>((resolve) => { reportMutation = resolve; });
+    const submit = scripted([{ action: 'click', selector: 'role=button[name="Submit" i]' }]);
+    const agent = new WorkflowAgent({
+      model: submit.model,
+      maxSteps: 1,
+      onMutation: async (request) => {
+        reportMutation?.(request);
+        await mutationMayContinue;
+      },
+    });
+    await withPage(CDP_URL, async (page) => {
+      await page.goto(`${origin}/en/mutations`, { waitUntil: 'domcontentloaded' });
+      const running = agent.run(page, 'submit the order form');
+      const request = await mutationReported;
+      assert.equal(await page.title(), 'mutations', 'the browser has not been touched while the hook is waiting');
+      assert.equal(request.category, 'submit');
+      assert.equal(request.url, `${origin}/en/mutations`);
+      assert.equal(request.target, 'Submit');
+      releaseMutation?.();
+      await running;
+      assert.equal(await page.title(), 'submitted');
+
+      let ordinaryCalls = 0;
+      const next = scripted([{ action: 'click', selector: 'role=button[name="Next" i]' }]);
+      await new WorkflowAgent({ model: next.model, maxSteps: 1, onMutation: () => { ordinaryCalls += 1; } })
+        .run(page, 'click Next');
+      assert.equal(ordinaryCalls, 0);
+
+      await page.goto(`${origin}/en/mutations`, { waitUntil: 'domcontentloaded' });
+      let heldCalls = 0;
+      const denied = scripted([{ action: 'click', selector: 'role=button[name="Submit" i]' }]);
+      const held = await new WorkflowAgent({
+        model: denied.model,
+        maxSteps: 1,
+        mutationPolicy: { deny: ['submit'] },
+        onMutation: () => { heldCalls += 1; },
+      }).run(page, 'submit the order form');
+      assert.equal(held.blocked?.rule, 'policy-deny');
+      assert.equal(heldCalls, 0);
+      assert.equal(await page.title(), 'mutations');
+    });
   });
 
   it('does not accept a finish that contradicts the goal\'s destination', async () => {
