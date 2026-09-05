@@ -376,3 +376,41 @@ a denied category, a missing approval, the host's yes, an ordinary journey
 under the strictest policy, and a `runFlow` whose held leg is an error with no
 defect and a held report.
 
+## Skills and the contract (Phase C, 2026-09-05)
+
+Phase C of `docs/research/commerce-agents-patterns.md`, items 1 and 2.
+
+- **`agentContract({ dbCount, skills })`** (workflow-agent.ts) is the static
+  half of every turn — the system prompt and the decision schema — memoised
+  per configuration so equal options hand back the same string and schema
+  instances. Every turn is a fresh single-shot call and the only discount is a
+  provider's prompt cache on a byte-identical prefix; the contract is that
+  prefix, so nothing in it may vary turn to turn. `dbCount: false` (a run
+  with no database probe — `RunOptions.dbProbe` absent) withdraws the action
+  from the prompt and the schema's enum together; the dispatch already failed
+  it with advice, and now the model is never offered it. `AGENT_ACTIONS`
+  itself is unchanged. `AgentObservation.dbCount`/`skills` carry the
+  configuration to `LlmAgentModel.decide`; absent means "everything, no
+  skills", so every older caller reads as before.
+- **Skills** (`agent-skills.ts`): the sign-in, forms, tables, date-picker and
+  wizard paragraphs moved out of the base prompt VERBATIM into
+  `AGENT_SKILLS`, and `selectSkills` picks the ones a leg needs from the
+  goal, the first full tree and the first required-fields line — once per
+  leg, in `run()`, at $0 — so the system bytes hold for the leg. Selected
+  bodies are appended under `GUIDANCE FOR THIS GOAL:`; the base prompt keeps
+  the action contract, `DETERMINISM_RULES`, the EACH TURN procedure, WHAT THE
+  LOOP WILL REFUSE and the Rules for every variant. A skill is tactics only
+  and may never weaken the policy layer — `tests/agent-skills.test.ts` pins
+  the policy sentences out of every body. The chosen ids ride
+  `AgentRecord.skills` and the workflow step's `detail.skills`.
+- **Cache telemetry**: `StructuredResponse.cachedInputTokens` (the SDK's
+  `usage.inputTokenDetails.cacheReadTokens`) → `AgentDecision.cachedInputTokens`
+  → summed onto `AgentRecord.cachedInputTokens` and the step's
+  `detail.cachedInputTokens`, so whether the stable-first order is paying is a
+  number in the bundle rather than a belief.
+
+Tests: `tests/agent-contract.test.ts` (memoisation, the dbCount withdrawal,
+the policy blocks in every variant, the stable-prefix invariant of
+`buildUserPrompt`, cache reads reported by a mock model),
+`tests/agent-skills.test.ts` (selection per shape, determinism and order, no
+policy in a body, the base prompt without the moved paragraphs).

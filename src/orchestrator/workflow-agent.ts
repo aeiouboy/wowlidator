@@ -71,6 +71,7 @@ import {
   type ApproveMutation,
   type MutationPolicy,
 } from './mutation-policy.js';
+import { selectSkills, skillBodies, type AgentSkillId } from './agent-skills.js';
 import { normaliseAgentSelector } from '../engine/selector.js';
 import {
   LlmFactory,
@@ -423,39 +424,53 @@ export const AGENT_ACTIONS = [
 export type AgentActionKind = (typeof AGENT_ACTIONS)[number];
 
 /** One further action the model is confident follows — same flat shape, no reasoning. */
-const PlanStepSchema = lenientObject({
-  action: z.enum(AGENT_ACTIONS),
-  selector: z.string().describe('Selector, as for the main action. Empty otherwise.'),
-  value: z.string().describe('Value or key name. Empty otherwise.'),
-  url: z.string().describe('Absolute URL for goto. Empty otherwise.'),
-});
+function planStepSchemaFor(actions: readonly [AgentActionKind, ...AgentActionKind[]]) {
+  return lenientObject({
+    action: z.enum(actions),
+    selector: z.string().describe('Selector, as for the main action. Empty otherwise.'),
+    value: z.string().describe('Value or key name. Empty otherwise.'),
+    url: z.string().describe('Absolute URL for goto. Empty otherwise.'),
+  });
+}
 
 /** How many follow-up actions one decision may carry. Each is re-verified live. */
 export const AGENT_PLAN_AHEAD = 2;
 
-const DecisionSchema = lenientObject({
-  action: z.enum(AGENT_ACTIONS),
-  selector: z
-    .string()
-    .describe(
-      'Playwright selector for click/fill/type/paste/check/uncheck/selectOption/press/hover/read/save, or the element to scroll into view. ' +
-        'For dbCount: the database table name (schema-qualified if shown that way). Empty otherwise.',
-    ),
-  value: z
-    .string()
-    .describe(
-      'Text for fill/type/paste, the option\'s VISIBLE LABEL for selectOption, key name for press (Enter, Escape, Tab, ArrowDown), ' +
-        'the VARIABLE NAME for save. check/uncheck/signOut take no value. ' +
-        'For dbCount: the where clause as "column=value, column2=value2" equality pairs, or empty to count the whole table. Empty otherwise.',
-    ),
-  url: z.string().describe('Absolute URL for goto. Empty otherwise.'),
-  reasoning: z.string().describe('One sentence: why this action moves toward the goal.'),
-  next: z
-    .array(PlanStepSchema)
-    .describe(
-      `Up to ${AGENT_PLAN_AHEAD} further actions you are CERTAIN follow, in order, each naming a control that is in the tree NOW (e.g. fill the email, then click Next). Empty when the next action depends on what appears.`,
-    ),
-});
+/**
+ * The decision schema for one action set. A function of the actions rather
+ * than a constant (Phase C): a run with no database probe must not be
+ * OFFERED `dbCount` in the schema it is asked to fill — the prompt, the
+ * schema and the dispatch withdraw the capability together, or a model
+ * keeps proposing an action the loop will only refuse.
+ */
+function decisionSchemaFor(actions: readonly [AgentActionKind, ...AgentActionKind[]]) {
+  const dbCount = actions.includes('dbCount');
+  return lenientObject({
+    action: z.enum(actions),
+    selector: z
+      .string()
+      .describe(
+        'Playwright selector for click/fill/type/paste/check/uncheck/selectOption/press/hover/read/save, or the element to scroll into view. ' +
+          (dbCount ? 'For dbCount: the database table name (schema-qualified if shown that way). ' : '') +
+          'Empty otherwise.',
+      ),
+    value: z
+      .string()
+      .describe(
+        'Text for fill/type/paste, the option\'s VISIBLE LABEL for selectOption, key name for press (Enter, Escape, Tab, ArrowDown), ' +
+          'the VARIABLE NAME for save. check/uncheck/signOut take no value. ' +
+          (dbCount ? 'For dbCount: the where clause as "column=value, column2=value2" equality pairs, or empty to count the whole table. ' : '') +
+          'Empty otherwise.',
+      ),
+    url: z.string().describe('Absolute URL for goto. Empty otherwise.'),
+    reasoning: z.string().describe('One sentence: why this action moves toward the goal.'),
+    next: z
+      .array(planStepSchemaFor(actions))
+      .describe(
+        `Up to ${AGENT_PLAN_AHEAD} further actions you are CERTAIN follow, in order, each naming a control that is in the tree NOW (e.g. fill the email, then click Next). Empty when the next action depends on what appears.`,
+      ),
+  });
+}
 
 export interface PlanStep {
   action: AgentActionKind;
@@ -541,6 +556,14 @@ export interface AgentObservation {
   ledger?: string | undefined;
   stepsRemaining: number;
   /**
+   * Whether the run has a database probe — absent means yes, for every
+   * caller that predates the field. False withdraws `dbCount` from the
+   * prompt and the schema together (`agentContract`).
+   */
+  dbCount?: boolean | undefined;
+  /** The skills chosen for this leg (`selectSkills`), the same on every turn of it. */
+  skills?: readonly AgentSkillId[] | undefined;
+  /**
    * Why the model's previous answer for THIS turn was refused, when it was —
    * the healer's `rejected` seam applied to the agent. Present only on a
    * re-ask within one turn; the loop never re-asks twice.
@@ -558,6 +581,8 @@ export interface AgentDecision {
   next?: PlanStep[] | undefined;
   inputTokens?: number | undefined;
   outputTokens?: number | undefined;
+  /** Input tokens the provider served from its prompt cache, when it says. */
+  cachedInputTokens?: number | undefined;
 }
 
 /**
@@ -647,7 +672,7 @@ export interface AgentModel {
   decide(observation: AgentObservation): Promise<AgentDecision>;
 }
 
-const SYSTEM_PROMPT = `You are driving a real web browser to reach a stated goal, one action at a time.
+const BASE_SYSTEM_PROMPT = `You are driving a real web browser to reach a stated goal, one action at a time.
 
 Each turn you see the current URL, the page's accessibility tree, and what you have already tried. Choose exactly one action:
 - click  — press a control. Put a Playwright selector in "selector".
@@ -716,19 +741,6 @@ ${procedure('EACH TURN', [
   `Then, in "next", list up to ${AGENT_PLAN_AHEAD} further actions ONLY if you are certain they follow and their controls are in THIS tree already (fill email → click Next; fill password → click Sign in). Each is verified against the live page before it runs and stops at the first that no longer fits. Leave "next" empty when the next step depends on what the page will show.`,
 ])}
 
-SIGN-IN, when the goal asks for it:
-- A sign-in may take two screens: an identity field and a Next / Continue
-  button first, and only THEN a password field. Fill the identity, click Next,
-  wait if needed, fill the password (a nameless textbox on the password screen
-  is the password; input[type="password"] addresses it), click Sign in. Once
-  each — a second fill of the same field with the same value is never right.
-- If the URL leaves the sign-in page after the submit click, the sign-in TOOK.
-  Do not go back and fill anything again. Continue with the next part of the
-  goal, or finish if that was the goal.
-- A consent / terms page after sign-in: click its accept control ONLY if the
-  goal asks you to accept, or the goal cannot be reached without it. Say which
-  in "reasoning".
-
 WHAT THE LOOP WILL REFUSE (so answer the way it accepts, the first time):
 - A destructive click (Delete, Remove…) that does not name the row the goal
   is about. When the goal names an identifier, scope the click to it
@@ -758,41 +770,55 @@ Rules:
 - When the tree says it is TRUNCATED, absence from it is not absence from the
   page: scroll or navigate toward where the goal's control would be before
   concluding it is missing.
-- A dropdown the tree lists as a BUTTON with a value (button "Gender"
-  value="Select Gender") is a custom select: selectOption on
-  role=button[name="Gender" i] — never role=combobox, which is not in the
-  tree. Its value= is the CURRENT selection: when it already shows the option
-  the goal wants, that part of the goal is done — do not select it again.
-- A field the goal names that is NOT in the tree may sit inside a collapsed
-  section: the tree shows the section's header (button "Personal
-  Information*") with an "Expand" button beside it, or an "Expand all". Act on
-  the field by its label anyway (selectOption role=button[name="Gender" i]) —
-  the harness opens the section for you — or click the section's own header
-  first. Never conclude the field is missing while a section is collapsed.
-- A tree line ending in "readonly" is a DISPLAY, not an input: writing into it
-  changes nothing. Its real input is beside it, named by the field's label
-  (textbox "Hire Date" next to textbox "Select date" readonly) — fill or paste
-  into THAT, and give a date input its value as YYYY-MM-DD. A date field shown
-  as a BUTTON (button "Start Date" that opens a calendar dialog) is a picker:
-  click it, then use the dialog's month/year controls and click the day button
-  (its name is the day number); paste YYYY-MM-DD instead only if the dialog
-  offers a textbox.
-- When the goal says every required / mandatory / asterisked field (ครบ,
-  ดอกจัน): work down the REQUIRED AND STILL EMPTY list under the tree, one
-  control per turn, with a plausible value for its label (a name, a phone, a
-  13-digit ID, an amount, the first option of a dropdown). Finish when that
-  list is empty and the values the goal names are shown.
-- To find one row in a long table, use the table's search or filter textbox
-  (fill it, then wait) or the pager BEFORE scrolling. Scroll only when rows
-  render lazily and each scroll shows new rows; the history says when a look
-  rendered more.
-- On a wizard (Step N of M / ขั้นตอนที่ N จาก M), fill the CURRENT step's fields
-  the goal names, then click Next/ถัดไป; do not re-open section headers to
-  find a field that belongs to the next step. A goal that says "stay on
-  /path" is satisfied on any step of that path (?step=2 is the same page).
 - Every "set X = Y" the goal names is checked on the page when you finish: a
   finish is refused naming the pairs the page does not show. Set each one,
   and read a dropdown's value= before you finish.`;
+
+/** What the agent may do and what it is told — the static half of every turn. */
+export interface AgentContract {
+  /** The system prompt: the base contract, plus the leg's skills under `GUIDANCE FOR THIS GOAL:`. */
+  system: string;
+  /** The decision schema for `actions`. */
+  schema: ReturnType<typeof decisionSchemaFor>;
+  /** The action vocabulary this contract offers. */
+  actions: readonly AgentActionKind[];
+}
+
+export interface AgentContractOptions {
+  /** Whether `dbCount` is offered at all — false when the run has no database probe. */
+  dbCount: boolean;
+  /** The skill ids selected for the leg (`selectSkills`), in any order; unknown ids are ignored. */
+  skills: readonly string[];
+}
+
+const contracts = new Map<string, AgentContract>();
+
+/**
+ * The static contract for one configuration, memoised so equal options hand
+ * back the SAME string and schema instances (Phase C). Every turn of a leg
+ * is a fresh single-shot call, and the only discount is a provider's prompt
+ * cache on a byte-identical prefix: the system prompt is that prefix, so it
+ * must not change from turn to turn — which is why skills are chosen once
+ * per leg and the capability is a property of the run, not the turn.
+ */
+export function agentContract(options: AgentContractOptions): AgentContract {
+  const bodies = skillBodies(options.skills);
+  const skillIds = AGENT_SKILL_ORDER.filter((id) => options.skills.includes(id));
+  const key = `${options.dbCount ? 'db' : 'nodb'}|${skillIds.join(',')}`;
+  const cached = contracts.get(key);
+  if (cached !== undefined) return cached;
+  const actions = (options.dbCount ? AGENT_ACTIONS : AGENT_ACTIONS.filter((a) => a !== 'dbCount')) as unknown as readonly [
+    AgentActionKind,
+    ...AgentActionKind[],
+  ];
+  const system = bodies.length === 0 ? BASE_SYSTEM_PROMPT : `${BASE_SYSTEM_PROMPT}\n\nGUIDANCE FOR THIS GOAL:\n\n${bodies.join('\n\n')}`;
+  const contract: AgentContract = { system, schema: decisionSchemaFor(actions), actions };
+  contracts.set(key, contract);
+  return contract;
+}
+
+/** The canonical order skills appear in — `AGENT_SKILLS`'s own. */
+const AGENT_SKILL_ORDER: readonly AgentSkillId[] = ['auth-and-consent', 'forms-and-required-fields', 'tables-and-pagination', 'date-pickers', 'wizards'];
 
 export function buildUserPrompt(observation: AgentObservation): string {
   // The budget is deliberately NOT shown. It is the one input that changes
@@ -900,11 +926,13 @@ export class LlmAgentModel implements AgentModel {
     this.#maxOutputTokens = options.maxOutputTokens ?? 2048;
   }
 
+   * contract, and the id is read only when a leg actually runs.
   async decide(observation: AgentObservation): Promise<AgentDecision> {
-    const { object, inputTokens, outputTokens } = await generateStructuredForModel(this.#source, {
+    const contract = agentContract({ dbCount: observation.dbCount ?? true, skills: observation.skills ?? [] });
+    const { object, inputTokens, outputTokens, cachedInputTokens } = await generateStructuredForModel(this.#source, {
       modelLabel: this.id,
-      schema: DecisionSchema,
-      system: SYSTEM_PROMPT,
+      schema: contract.schema,
+      system: contract.system,
       prompt: buildUserPrompt(observation),
       maxOutputTokens: this.#maxOutputTokens,
       maxRetries: this.#maxRetries,
@@ -928,6 +956,7 @@ export class LlmAgentModel implements AgentModel {
       })),
       inputTokens,
       outputTokens,
+      ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
     };
   }
 }
@@ -1270,6 +1299,10 @@ export class WorkflowAgent {
   #lastBlocked: BlockedOutcome | null = null;
   /** The hold this run ENDED on, read into `WorkflowResult.blocked`. */
   #blocked: BlockedOutcome | null = null;
+  /** The skills chosen for this leg, once, from the goal and the first tree (Phase C). */
+  #skills: AgentSkillId[] | null = null;
+  /** Prompt-cache reads the provider reported across the leg's turns. */
+  #cachedInputTokens = 0;
 
   constructor(options: WorkflowAgentOptions) {
     this.model = options.model;
@@ -1309,6 +1342,8 @@ export class WorkflowAgent {
     this.#provenance.reset();
     this.#blocked = null;
     this.#lastBlocked = null;
+    this.#skills = null;
+    this.#cachedInputTokens = 0;
     this.#policy = runOptions.mutationPolicy === undefined ? this.#defaultPolicy : runOptions.mutationPolicy;
     this.#approve = runOptions.approveMutation ?? this.#defaultApprove;
     const memory = runOptions.memory ?? this.#memory;
@@ -1581,6 +1616,9 @@ export class WorkflowAgent {
       // The required controls still empty (OA-6) — a separate observation
       // field, so settlement and the value hunt never read it as tree text.
       const gapsLine = formatFormGaps(formGaps(all));
+      // The leg's tactics, chosen ONCE from what it is about and the page
+      // it starts on, so the system bytes are the same on every turn.
+      if (this.#skills === null) this.#skills = selectSkills({ goal, axTree: fullTree, formGaps: gapsLine });
       // What has been DONE across the whole leg (OA-7), for the prompt's
       // elision slot — built from the actions, so the history cap cannot
       // hide a filled field from the model.
@@ -1627,6 +1665,8 @@ export class WorkflowAgent {
             history: [...history],
             ...(ledger === null ? {} : { ledger }),
             stepsRemaining: effectiveMaxSteps - turns,
+            dbCount: this.#dbProbe !== null,
+            skills: this.#skills ?? [],
             ...(feedback === undefined ? {} : { feedback }),
           });
         } catch (error) {
@@ -1635,6 +1675,7 @@ export class WorkflowAgent {
         }
         inputTokens += candidate.inputTokens ?? 0;
         outputTokens += candidate.outputTokens ?? 0;
+        this.#cachedInputTokens += candidate.cachedInputTokens ?? 0;
 
         const refusal =
           (allowedActions !== null && !allowedActions.has(candidate.action)
@@ -2411,6 +2452,8 @@ export class WorkflowAgent {
       ...(success && this.#settledBy !== null ? { settledBy: this.#settledBy.rule, settledEvidence: this.#settledBy.evidence } : {}),
       ...(this.#observations.length > 0 ? { observations: [...this.#observations] } : {}),
       ...(!success && this.#blocked !== null ? { blocked: this.#blocked } : {}),
+      ...(this.#skills !== null && this.#skills.length > 0 ? { skills: [...this.#skills] } : {}),
+      ...(this.#cachedInputTokens > 0 ? { cachedInputTokens: this.#cachedInputTokens } : {}),
     };
   }
 

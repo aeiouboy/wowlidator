@@ -18,7 +18,7 @@ import type { LanguageModelV4GenerateResult } from '@ai-sdk/provider';
 export function jsonModel(
   modelId: string,
   payload: unknown,
-  usage: { inputTokens: number; outputTokens: number },
+  usage: { inputTokens: number; outputTokens: number; cacheRead?: number | undefined },
 ): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     provider: 'mock',
@@ -29,8 +29,8 @@ export function jsonModel(
       usage: {
         inputTokens: {
           total: usage.inputTokens,
-          noCache: usage.inputTokens,
-          cacheRead: 0,
+          noCache: usage.inputTokens - (usage.cacheRead ?? 0),
+          cacheRead: usage.cacheRead ?? 0,
           cacheWrite: 0,
         },
         outputTokens: { total: usage.outputTokens, text: usage.outputTokens, reasoning: 0 },

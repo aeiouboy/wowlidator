@@ -558,6 +558,17 @@ export interface AgentRecord {
    */
   blocked?: BlockedOutcome | undefined;
   /**
+   * The tactic skills the loop chose for this leg (Phase C, 2026-09-05 —
+   * `src/orchestrator/agent-skills.ts`), so a report can say which guidance
+   * the model was sent. Absent when none applied or on older records.
+   */
+  skills?: string[] | undefined;
+  /**
+   * Input tokens the provider reported as served from its prompt cache,
+   * summed over the leg's turns — the measure of whether the stable-first
+   * prompt order is paying. Absent when the provider does not say.
+   */
+  cachedInputTokens?: number | undefined;
 }
 
 export type DefectSeverity = 'high' | 'medium' | 'low';

@@ -4908,6 +4908,10 @@ export class SmartRunner {
       detail: {
         goal: safeRecord.goal,
         turns: record.turns,
+        // Phase C telemetry: which tactics the model was sent, and how much
+        // of the prompt the provider served from cache.
+        ...(record.skills === undefined ? {} : { skills: record.skills }),
+        ...(record.cachedInputTokens === undefined || record.cachedInputTokens <= 0 ? {} : { cachedInputTokens: record.cachedInputTokens }),
         ...(safeEvidence === null
           ? {}
           : { settledBy: safeEvidence.rule, evidence: safeEvidence.reason }),

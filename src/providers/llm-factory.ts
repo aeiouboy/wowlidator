@@ -476,6 +476,8 @@ export interface StructuredResponse<T> {
   object: T;
   inputTokens?: number | undefined;
   outputTokens?: number | undefined;
+  /** Input tokens the provider served from its prompt cache, when it reports them (Phase C telemetry). */
+  cachedInputTokens?: number | undefined;
 }
 
 /**
@@ -851,10 +853,12 @@ async function sendStructured<T>(
         : { providerOptions: request.providerOptions as never }),
     });
 
+    const cacheRead = result.usage.inputTokenDetails?.cacheReadTokens;
     return {
       object: result.object,
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
+      ...(typeof cacheRead === 'number' ? { cachedInputTokens: cacheRead } : {}),
     };
   }
 }
