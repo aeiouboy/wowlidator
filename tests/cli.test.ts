@@ -212,8 +212,13 @@ describe('cli — data check (master-data grounding)', () => {
   let server: Server;
   let origin: string;
   const hits: string[] = [];
+  // A scratch cwd, like the keyless suite: the CLI loads `.env` from its cwd,
+  // and a developer's own `WOWLIDATOR_AS` there would hand this command
+  // credentials — and a browser to sign in with — that the test never gave it.
+  let scratch: string;
 
   before(async () => {
+    scratch = await mkdtemp(join(tmpdir(), 'wowlidator-data-check-'));
     server = createServer((req, res) => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       hits.push(url.pathname + url.search);
@@ -242,6 +247,7 @@ describe('cli — data check (master-data grounding)', () => {
   after(async () => {
     server.closeAllConnections();
     await new Promise<void>((r, j) => server.close((e) => (e ? j(e) : r())));
+    await rm(scratch, { recursive: true, force: true });
   });
 
   const args = (...more: string[]): string[] => [
@@ -253,7 +259,7 @@ describe('cli — data check (master-data grounding)', () => {
 
   it('prints one JSON document with per-code rows and the summary counts, exit 0', async () => {
     hits.length = 0;
-    const result = await runCli(args('--json'));
+    const result = await runCli(args('--json'), {}, { cwd: scratch });
     assert.equal(result.code, EXIT.ok, result.stderr);
     const parsed = JSON.parse(result.stdout) as {
       rowsRead: number;
@@ -286,7 +292,7 @@ describe('cli — data check (master-data grounding)', () => {
   });
 
   it('prints the table and the summary line in text mode, exit 0', async () => {
-    const result = await runCli(args());
+    const result = await runCli(args(), {}, { cwd: scratch });
     assert.equal(result.code, EXIT.ok, result.stderr);
     assert.match(result.stdout, /Position \/ Position Code \[Company=ACME\]/);
     assert.match(result.stdout, /P-005\s+1\s+yes\s+Foreman\s+yes\s+1\s+no/);

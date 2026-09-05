@@ -637,7 +637,8 @@ export async function cmdData(
     } else {
       const { prepare, cleanupChrome } = await import('../artifacts.js');
       const { DEFAULT_CDP_URL } = await import('../../engine/runner.js');
-      const { SIGN_IN_URL_PATTERN, acceptConsentGate, performSignIn } = await import('../../engine/sign-in.js');
+      const { SIGN_IN_URL_PATTERN, performSignIn } = await import('../../engine/sign-in.js');
+      const { acceptConsentGate } = await import('../../engine/consent-gate.js');
       const { chromium } = await import('playwright');
       const blocked = await prepare(options, options.url);
       if (blocked !== null) return blocked;
