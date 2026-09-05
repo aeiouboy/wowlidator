@@ -1,0 +1,322 @@
+{
+  "runId": "64bfef1a-f181-438f-8734-265060d47709",
+  "name": "CNS-EC-029 ",
+  "status": "passed",
+  "startedAt": "2026-09-04T17:31:44.955Z",
+  "finishedAt": "2026-09-04T17:32:01.611Z",
+  "durationMs": 16656,
+  "cdpUrl": "http://127.0.0.1:9333",
+  "cachePath": "/Users/tachongrak/Projects/QA Agent/wowlidator/healed-selectors.json",
+  "healerModel": null,
+  "summary": {
+    "totalSteps": 7,
+    "passed": 7,
+    "failed": 0,
+    "frontend": {
+      "steps": 4,
+      "passed": 4,
+      "failed": 0,
+      "defects": 0
+    },
+    "backend": {
+      "steps": 3,
+      "passed": 3,
+      "failed": 0,
+      "defects": 0
+    },
+    "fastPath": 3,
+    "caseRetries": 0,
+    "cacheHits": 0,
+    "jitHeals": 0,
+    "dialogsDismissed": 0,
+    "agentTakeovers": 0,
+    "visualChecks": 0,
+    "visualFailures": 0,
+    "dataRetries": 0,
+    "apiRequests": 2,
+    "apiFailures": 0,
+    "dbChecks": 0,
+    "dbFailures": 0,
+    "networkCalls": 26,
+    "networkFailures": 0,
+    "backendBlocked": 0,
+    "healUnavailable": 0,
+    "networkDropped": 0,
+    "healLatencyMs": 0,
+    "agentLatencyMs": 0,
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "defects": 0
+  },
+  "steps": [
+    {
+      "index": 0,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "signIn",
+      "intent": "Setup: Sign in as employee persona and stop at consent screen",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-04T17:31:46.640Z",
+      "durationMs": 2384,
+      "url": "https://humi-sit-int.central.co.th/humi/th/consent",
+      "detail": {
+        "as": "EMPLOYEE_ACCOUNT",
+        "intent": "Setup: Sign in as employee persona and stop at consent screen",
+        "urlBefore": "about:blank",
+        "persona": "EMPLOYEE_ACCOUNT",
+        "signedInAs": "automate01",
+        "browser": "http://127.0.0.1:9333",
+        "signInUrl": "https://humi-sit-int.central.co.th/humi/th/login",
+        "consentPreserved": true,
+        "urlAfter": "https://humi-sit-int.central.co.th/humi/th/consent"
+      },
+      "videoOffsetMs": 1528
+    },
+    {
+      "index": 1,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectUrl",
+      "intent": "Step 1: ให้พนักงานเข้าสู่ระบบ แล้วหยุดที่หน้าหนังสือให้ความยินยอม",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-04T17:31:50.982Z",
+      "durationMs": 1,
+      "url": "https://humi-sit-int.central.co.th/humi/th/consent",
+      "detail": {
+        "expected": "consent",
+        "intent": "Step 1: ให้พนักงานเข้าสู่ระบบ แล้วหยุดที่หน้าหนังสือให้ความยินยอม",
+        "actual": "https://humi-sit-int.central.co.th/humi/th/consent"
+      },
+      "videoOffsetMs": 5870
+    },
+    {
+      "index": 2,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "goto",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-04T17:31:52.928Z",
+      "durationMs": 712,
+      "url": "https://humi-sit-int.central.co.th/humi/th/consent",
+      "detail": {
+        "url": "https://humi-sit-int.central.co.th/humi/th/profile/me",
+        "consentPreserved": true
+      },
+      "videoOffsetMs": 7816
+    },
+    {
+      "index": 3,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectUrl",
+      "intent": "Expected 2.1: เส้นทางที่ป้องกันไว้ยังคงพากลับมาหน้าหนังสือให้ความยินยอม",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-04T17:31:55.899Z",
+      "durationMs": 1,
+      "url": "https://humi-sit-int.central.co.th/humi/th/consent",
+      "detail": {
+        "expected": "consent",
+        "intent": "Expected 2.1: เส้นทางที่ป้องกันไว้ยังคงพากลับมาหน้าหนังสือให้ความยินยอม",
+        "actual": "https://humi-sit-int.central.co.th/humi/th/consent"
+      },
+      "videoOffsetMs": 10787
+    },
+    {
+      "index": 4,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "request",
+      "intent": "Step 3: เรียกปลายทางอ่านข้อมูลส่วนตัวโดยตรงด้วยข้อมูลระบุตัวผู้ใช้เดิม",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-04T17:31:57.844Z",
+      "durationMs": 383,
+      "url": "https://humi-sit-int.central.co.th/humi/th/consent",
+      "detail": {
+        "method": "GET",
+        "url": "https://humi-sit-int.central.co.th/humi/api/ec-api/me/personal-identity",
+        "status": 200,
+        "intent": "Step 3: เรียกปลายทางอ่านข้อมูลส่วนตัวโดยตรงด้วยข้อมูลระบุตัวผู้ใช้เดิม"
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://humi-sit-int.central.co.th/humi/api/ec-api/me/personal-identity",
+        "status": 200,
+        "statusText": "OK",
+        "durationMs": 381,
+        "sizeBytes": 1087,
+        "requestHeaders": {},
+        "responseHeaders": {
+          "date": "Fri, 04 Sep 2026 17:31:58 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1087",
+          "connection": "keep-alive",
+          "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+          "access-control-allow-origin": "*",
+          "content-security-policy": "default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "etag": "W/\"43f-j8rpKRdGuDq9Z8sL4WK3WNlBEFo\"",
+          "origin-agent-cluster": "?1",
+          "referrer-policy": "no-referrer",
+          "strict-transport-security": "max-age=31536000; includeSubDomains",
+          "x-content-type-options": "nosniff",
+          "x-dns-prefetch-control": "off",
+          "x-download-options": "noopen",
+          "x-frame-options": "SAMEORIGIN",
+          "x-permitted-cross-domain-policies": "none",
+          "x-request-id": "4eQ6sC7nnzuy32Wx2qRSeF",
+          "x-xss-protection": "0"
+        },
+        "responseBody": "{\n  \"errorCode\": \"SUCCESS\",\n  \"message\": \"The request was successful.\",\n  \"successful\": true,\n  \"data\": {\n    \"employeeId\": \"20500960\",\n    \"personId\": \"20500960\",\n    \"employment\": {\n      \"id\": 5199,\n      \"hireDate\": \"2024-10-19 07:00:00\",\n      \"companyCode\": \"C015\",\n      \"companyName\": {\n        \"en_GB\": \"RIS\"\n      },\n      \"dvtPreviousEmployeeId\": null\n    },\n    \"personalInformation\": {\n      \"id\": 5199,\n      \"salutation\": {\n        \"en_GB\": \"Miss\",\n        \"th_TH\": \"นางสาว\"\n      },\n      \"firstName\": {\n        \"en_GB\": \"Suphaphon\",\n        \"th_TH\": \"สุภาพร\"\n      },\n      \"middleName\": null,\n      \"lastName\": {\n        \"en_GB\": \"Thongdee\",\n        \"th_TH\": \"ทองดี\"\n      },\n      \"otherTitle\": null,\n      \"nickname\": \"พลอย\",\n      \"dateOfBirth\": \"1971-05-21 07:00:00\",\n      \"age\": {\n        \"years\": 55,\n        \"months\": 3,\n        \"days\": 14\n      },\n      \"countryOfBirth\": \"THA\",\n      \"regionOfBirth\": null,\n      \"gender\": \"gender_Female\",\n      \"nationality\": \"THA\",\n      \"isForeigner\": false,\n      \"bloodType\": \"A\",\n      \"maritalStatus\": \"S\",\n      \"maritalStatusSince\": null,\n      \"militaryStatus\": null,\n      \"preferredLanguage\": null,\n      \"attachments\": []\n    },\n    \"nationalIds\": [\n      {\n        \"id\": 5199,\n        \"cardType\": \"1\",\n        \"nationalId\": \"4509522876524\",\n        \"country\": \"THA\",\n        \"issueDate\": null,\n        \"expiryDate\": null,\n        \"vnIssuePlace\": null,\n        \"isPrimary\": true,\n        \"note\": null,\n        \"attachments\": []\n      }\n    ]\n  },\n  \"requestId\": \"4eQ6sC7nnzuy32Wx2qRSeF\"\n}"
+      }
+    },
+    {
+      "index": 5,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "request",
+      "intent": "Step 4: เรียกดูสถานะการยินยอมของพนักงานคนนั้น",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-04T17:31:59.731Z",
+      "durationMs": 63,
+      "url": "https://humi-sit-int.central.co.th/humi/th/consent",
+      "detail": {
+        "method": "GET",
+        "url": "https://humi-sit-int.central.co.th/humi/api/consent-api/status",
+        "status": 200,
+        "intent": "Step 4: เรียกดูสถานะการยินยอมของพนักงานคนนั้น"
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://humi-sit-int.central.co.th/humi/api/consent-api/status",
+        "status": 200,
+        "statusText": "OK",
+        "durationMs": 61,
+        "sizeBytes": 1831,
+        "requestHeaders": {},
+        "responseHeaders": {
+          "date": "Fri, 04 Sep 2026 17:31:59 GMT",
+          "content-type": "application/json; charset=utf-8",
+          "content-length": "1831",
+          "connection": "keep-alive",
+          "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+          "access-control-allow-origin": "*",
+          "content-security-policy": "default-src 'self';base-uri 'self';font-src 'self' https: data:;form-action 'self';frame-ancestors 'self';img-src 'self' data:;object-src 'none';script-src 'self';script-src-attr 'none';style-src 'self' https: 'unsafe-inline';upgrade-insecure-requests",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "etag": "W/\"727-f7iL1mYOHpXOSxinbM/rnOYlETA\"",
+          "origin-agent-cluster": "?1",
+          "referrer-policy": "no-referrer",
+          "strict-transport-security": "max-age=31536000; includeSubDomains",
+          "x-content-type-options": "nosniff",
+          "x-dns-prefetch-control": "off",
+          "x-download-options": "noopen",
+          "x-frame-options": "SAMEORIGIN",
+          "x-permitted-cross-domain-policies": "none",
+          "x-request-id": "aniGTd2YFSy97TZq8RtTRp",
+          "x-xss-protection": "0"
+        },
+        "responseBody": "{\n  \"errorCode\": \"SUCCESS\",\n  \"message\": \"The request was successful.\",\n  \"successful\": true,\n  \"data\": {\n    \"status\": \"CONSENT_REQUIRED\",\n    \"pending\": [\n      {\n        \"documentId\": 1,\n        \"code\": \"WORK_RULES\",\n        \"name\": {\n          \"en\": \"Work Rules & Regulations\",\n          \"th\": \"ข้อบังคับการทำงาน\"\n        },\n        \"versionId\": 1,\n        \"version\": \"1.0\",\n        \"statement\": {\n          \"en\": \"I have read and accept the Work Rules & Regulations.\",\n          \"th\": \"ข้าพเจ้าได้อ่านและยอมรับข้อบังคับการทำงาน\"\n        },\n        \"attachmentUrl\": \"https://cghr-bkk-hrsys-cos-01-nonprd-1409492204.cos.ap-bangkok.myqcloud.com/uploads/CNEXT_consent%202%20%281%29%20%281%29.pdf\"\n      },\n      {\n        \"documentId\": 2,\n        \"code\": \"HR_PRIVACY_POLICY\",\n        \"name\": {\n          \"en\": \"HR Privacy Policy\",\n          \"th\": \"นโยบายความเป็นส่วนตัวด้านทรัพยากรบุคคล\"\n        },\n        \"versionId\": 2,\n        \"version\": \"1.0\",\n        \"statement\": {\n          \"en\": \"I have read and accept the HR Privacy Policy.\",\n          \"th\": \"ข้าพเจ้าได้อ่านและยอมรับนโยบายความเป็นส่วนตัวด้านทรัพยากรบุคคล\"\n        },\n        \"attachmentUrl\": \"https://cghr-bkk-hrsys-cos-01-nonprd-1409492204.cos.ap-bangkok.myqcloud.com/uploads/%E0%B8%99%E0%B9%82%E0%B8%A2%E0%B8%9A%E0%B8%B2%E0%B8%A2%E0%B8%84%E0%B8%A7%E0%B8%B2%E0%B8%A1%E0%B8%9B%E0%B9%87%E0%B8%99%E0%B8%AA%E0%B9%88%E0%B8%A7%E0%B8%99%E0%B8%95%E0%B8%B1%E0%B8%A7%28%E0%B8%9E%E0%B8%99%E0%B8%B1%E0%B8%81%E0%B8%87%E0%B8%B2%E0%B8%99%2C%20%E0%B8%9C%E0%B8%B9%E0%B9%89%E0%B8%9A%E0%B8%A3%E0%B8%B4%E0%B8%AB%E0%B8%B2%E0%B8%A3%2C%20%E0%B8%84%E0%B8%99%E0%B8%97%E0%B8%B3%E0%B8%87%E0%B8%B2%E0%B8%99%E0%B8%97%E0%B8%B5%E0%B9%88%E0%B8%A1%E0%B8%B4%E0%B9%83%E0%B8%8A%E0%B9%88%E0%B8%A5%E0%B8%B9%E0%B8%81%E0%B8%88%E0%B9%89%E0%B8%B2%E0%B8%87%29%20%281%29.pdf\"\n      }\n    ]\n  },\n  \"requestId\": \"aniGTd2YFSy97TZq8RtTRp\"\n}",
+        "saved": [
+          "consentStatus"
+        ]
+      }
+    },
+    {
+      "index": 6,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectJson",
+      "intent": "Expected 4.1: สถานะรวมยังเป็น CONSENT_REQUIRED และไม่มีแถวการยินยอมถูกบันทึกจากขั้นตอนที่ 2 และ 3",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-04T17:32:01.297Z",
+      "durationMs": 0,
+      "url": "https://humi-sit-int.central.co.th/humi/th/consent",
+      "detail": {
+        "path": "$.data.status",
+        "expected": "CONSENT_REQUIRED",
+        "intent": "Expected 4.1: สถานะรวมยังเป็น CONSENT_REQUIRED และไม่มีแถวการยินยอมถูกบันทึกจากขั้นตอนที่ 2 และ 3",
+        "actual": "CONSENT_REQUIRED"
+      }
+    }
+  ],
+  "defects": [],
+  "coverage": {
+    "url": "https://humi-sit-int.central.co.th/humi/th/consent",
+    "total": 3,
+    "exercised": 0,
+    "ratio": 0,
+    "untouched": [
+      {
+        "role": "link",
+        "name": "ดูเอกสาร",
+        "selector": "role=link[name=\"ดูเอกสาร\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "ไม่ยอมรับ",
+        "selector": "role=button[name=\"ไม่ยอมรับ\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "ยอมรับ",
+        "selector": "role=button[name=\"ยอมรับ\"]",
+        "disabled": true
+      }
+    ],
+    "unattributed": []
+  },
+  "trend": {
+    "verdict": "newly-fixed",
+    "consecutiveFailures": 3,
+    "brokenSince": "2026-09-04T15:56:36.982Z",
+    "flips": 0,
+    "sampleSize": 3,
+    "newFailures": [],
+    "coverageDelta": 0,
+    "message": "fixed — was failing for 3 run(s)"
+  },
+  "variables": {
+    "consentStatus": "CONSENT_REQUIRED"
+  },
+  "notes": [
+    "session: started from an empty context — the flow signs in itself, so the attached browser's session was deliberately not inherited",
+    "consent gate: preserved the screen that stood in front of https://humi-sit-int.central.co.th/humi/th/profile/me"
+  ],
+  "generatedBy": {
+    "model": "agy-cli:gemini-3.8-flash-low",
+    "generatedAt": "2026-09-04T15:54:33.695Z",
+    "sourceUrl": "https://humi-sit-int.central.co.th/humi/th/login",
+    "kind": "catalog",
+    "rationale": "1 test case(s) across 1 scenario(s)",
+    "source": "ec-cns-ec-029.csv",
+    "runKey": "ec-cns-ec-029-csv@2026-09-04T15:54:33.695Z",
+    "scenario": "E2E-281",
+    "caseTitle": ""
+  },
+  "polarity": "positive",
+  "polaritySource": "inferred"
+}

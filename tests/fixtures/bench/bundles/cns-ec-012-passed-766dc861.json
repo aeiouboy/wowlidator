@@ -1,0 +1,690 @@
+{
+  "runId": "766dc861-2723-438f-8822-6e5bb09dac95",
+  "name": "CNS-EC-012 ",
+  "status": "passed",
+  "startedAt": "2026-09-05T06:47:38.119Z",
+  "finishedAt": "2026-09-05T06:47:50.720Z",
+  "durationMs": 12601,
+  "cdpUrl": "http://127.0.0.1:9333",
+  "cachePath": "/Users/tachongrak/Projects/QA Agent/wowlidator/healed-selectors.json",
+  "healerModel": "claude-cli:opus",
+  "summary": {
+    "session": {
+      "provider": "claude-cli",
+      "calls": 2,
+      "costUsd": 0.5047130000000024,
+      "inputTokens": 10,
+      "cachedInputTokens": 79406,
+      "outputTokens": 6452,
+      "wallMs": 92896,
+      "byRole": {
+        "generator": {
+          "calls": 2,
+          "costUsd": 0.5047130000000024,
+          "inputTokens": 10,
+          "cachedInputTokens": 79406,
+          "outputTokens": 6452
+        }
+      },
+      "quota": {
+        "beforePercent": 45,
+        "afterPercent": 45,
+        "resetsAt": "2026-09-05T07:20:00.327467+00:00"
+      }
+    },
+    "totalSteps": 16,
+    "passed": 16,
+    "failed": 0,
+    "frontend": {
+      "steps": 16,
+      "passed": 16,
+      "failed": 0,
+      "defects": 0
+    },
+    "backend": {
+      "steps": 0,
+      "passed": 0,
+      "failed": 0,
+      "defects": 0
+    },
+    "fastPath": 6,
+    "caseRetries": 0,
+    "cacheHits": 4,
+    "jitHeals": 0,
+    "dialogsDismissed": 0,
+    "agentTakeovers": 0,
+    "visualChecks": 0,
+    "visualFailures": 0,
+    "dataRetries": 0,
+    "apiRequests": 0,
+    "apiFailures": 0,
+    "dbChecks": 0,
+    "dbFailures": 0,
+    "networkCalls": 102,
+    "networkFailures": 10,
+    "backendBlocked": 0,
+    "healUnavailable": 0,
+    "networkDropped": 0,
+    "healLatencyMs": 0,
+    "agentLatencyMs": 0,
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "defects": 0
+  },
+  "steps": [
+    {
+      "index": 0,
+      "browser": "http://127.0.0.1:9333",
+      "action": "goto",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:38.356Z",
+      "durationMs": 433,
+      "url": "https://humi-sit-int.central.co.th/humi/th/login",
+      "detail": {
+        "url": "https://humi-sit-int.central.co.th/humi/th/login"
+      },
+      "videoOffsetMs": 40
+    },
+    {
+      "index": 1,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "signIn",
+      "intent": "Sign in as the admin tester automate02 (HR_ADMIN_ACCOUNT).",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:38.790Z",
+      "durationMs": 1881,
+      "url": "https://humi-sit-int.central.co.th/humi/th/home",
+      "detail": {
+        "as": "HR_ADMIN_ACCOUNT",
+        "intent": "Sign in as the admin tester automate02 (HR_ADMIN_ACCOUNT).",
+        "urlBefore": "https://humi-sit-int.central.co.th/humi/th/login",
+        "persona": "HR_ADMIN_ACCOUNT",
+        "signedInAs": "automate02",
+        "browser": "http://127.0.0.1:9333",
+        "signInUrl": "https://humi-sit-int.central.co.th/humi/th/login",
+        "urlAfter": "https://humi-sit-int.central.co.th/humi/th/home"
+      },
+      "videoOffsetMs": 1922
+    },
+    {
+      "index": 2,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "goto",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:40.673Z",
+      "durationMs": 157,
+      "url": "https://humi-sit-int.central.co.th/humi/th",
+      "detail": {
+        "url": "https://humi-sit-int.central.co.th/humi/th"
+      },
+      "videoOffsetMs": 2081
+    },
+    {
+      "index": 3,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectUrl",
+      "intent": "Confirm the observed sign-in landing path for automate02.",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:40.831Z",
+      "durationMs": 0,
+      "url": "https://humi-sit-int.central.co.th/humi/th",
+      "detail": {
+        "expected": "/humi/th",
+        "intent": "Confirm the observed sign-in landing path for automate02.",
+        "actual": "https://humi-sit-int.central.co.th/humi/th"
+      },
+      "videoOffsetMs": 2082
+    },
+    {
+      "index": 4,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectVisible",
+      "intent": "Confirm the signed-in chrome (account menu) is rendered.",
+      "selector": "role=button[name=\"เมนูบัญชี\" i]",
+      "resolvedSelector": "role=button[name=\"เมนูบัญชี\" i]",
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:40.831Z",
+      "durationMs": 186,
+      "url": "https://humi-sit-int.central.co.th/humi/th/home",
+      "detail": {
+        "expected": "visible",
+        "actual": "visible"
+      },
+      "target": {
+        "selector": "role=button[name=\"เมนูบัญชี\" i]",
+        "tag": "button",
+        "role": "button",
+        "name": "เมนูบัญชี",
+        "text": "A0",
+        "box": {
+          "x": 1844,
+          "y": 17,
+          "width": 41,
+          "height": 41
+        }
+      },
+      "videoOffsetMs": 2268
+    },
+    {
+      "index": 5,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectVisible",
+      "intent": "Step 1: ให้พนักงานในแผนกนั้นเข้าสู่ระบบ — skipped step 1: no employee persona is listed, so only the admin session can be observed.",
+      "selector": "role=button[name=\"เมนูบัญชี\" i]",
+      "resolvedSelector": "role=button[name=\"เมนูบัญชี\" i]",
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:41.018Z",
+      "durationMs": 5,
+      "url": "https://humi-sit-int.central.co.th/humi/th/home",
+      "detail": {
+        "expected": "visible",
+        "actual": "visible"
+      },
+      "target": {
+        "selector": "role=button[name=\"เมนูบัญชี\" i]",
+        "tag": "button",
+        "role": "button",
+        "name": "เมนูบัญชี",
+        "text": "A0",
+        "box": {
+          "x": 1844,
+          "y": 17,
+          "width": 41,
+          "height": 41
+        }
+      },
+      "videoOffsetMs": 2274
+    },
+    {
+      "index": 6,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "goto",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:41.024Z",
+      "durationMs": 221,
+      "url": "https://humi-sit-int.central.co.th/humi/th/hr/approvals/data-change-requests",
+      "detail": {
+        "url": "https://humi-sit-int.central.co.th/humi/th/hr/approvals/data-change-requests"
+      },
+      "videoOffsetMs": 2496
+    },
+    {
+      "index": 7,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectVisible",
+      "intent": "Step 2: confirm the data-change page loaded; skipped the actual department transfer: no control on this page creates an employment data change.",
+      "selector": "role=heading[name=\"คำขอแก้ไขข้อมูล\" i]",
+      "resolvedSelector": "role=heading[name=\"คำขอแก้ไขข้อมูล\" i]",
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:41.245Z",
+      "durationMs": 605,
+      "url": "https://humi-sit-int.central.co.th/humi/th/hr/approvals/data-change-requests",
+      "detail": {
+        "expected": "visible",
+        "actual": "visible"
+      },
+      "target": {
+        "selector": "role=heading[name=\"คำขอแก้ไขข้อมูล\" i]",
+        "tag": "h1",
+        "role": "heading",
+        "name": "คำขอแก้ไขข้อมูล",
+        "box": {
+          "x": 313,
+          "y": 180,
+          "width": 1368,
+          "height": 45
+        }
+      },
+      "videoOffsetMs": 3101
+    },
+    {
+      "index": 8,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectVisible",
+      "intent": "Step 3: ให้พนักงานออกจากระบบแล้วเข้าสู่ระบบใหม่ — skipped step 3: no employee persona to sign out and back in.",
+      "selector": "role=heading[name=\"คำขอแก้ไขข้อมูล\" i]",
+      "resolvedSelector": "role=heading[name=\"คำขอแก้ไขข้อมูล\" i]",
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:41.851Z",
+      "durationMs": 5,
+      "url": "https://humi-sit-int.central.co.th/humi/th/hr/approvals/data-change-requests",
+      "detail": {
+        "expected": "visible",
+        "actual": "visible"
+      },
+      "target": {
+        "selector": "role=heading[name=\"คำขอแก้ไขข้อมูล\" i]",
+        "tag": "h1",
+        "role": "heading",
+        "name": "คำขอแก้ไขข้อมูล",
+        "box": {
+          "x": 313,
+          "y": 180,
+          "width": 1368,
+          "height": 45
+        }
+      },
+      "videoOffsetMs": 3107
+    },
+    {
+      "index": 9,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "goto",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:41.857Z",
+      "durationMs": 184,
+      "url": "https://humi-sit-int.central.co.th/humi/th/admin/system/security/consent",
+      "detail": {
+        "url": "https://humi-sit-int.central.co.th/humi/th/admin/system/security/consent"
+      },
+      "videoOffsetMs": 3292
+    },
+    {
+      "index": 10,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectVisible",
+      "intent": "Step 4: confirm the admin consent register opened.",
+      "selector": "text=รายการ Consent Form",
+      "resolvedSelector": "role=table[name=\"รายการ Consent Form\" i]",
+      "resolution": "cache",
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:42.049Z",
+      "durationMs": 2034,
+      "url": "https://humi-sit-int.central.co.th/humi/th/admin/system/security/consent",
+      "detail": {
+        "expected": "visible",
+        "actual": "visible"
+      },
+      "target": {
+        "selector": "role=table[name=\"รายการ Consent Form\" i]",
+        "tag": "table",
+        "role": "table",
+        "name": "รายการ Consent Form",
+        "text": "รหัสพนักงานชื่อประเภท Consentสถานะวันที่ลงนามหมดอายุEMP001สมชาย รักงานPDPAลงนามแล้ว20/1/256820/1/2570EMP002สมหญิง ขยันด…",
+        "box": {
+          "x": 449,
+          "y": 486,
+          "width": 1096,
+          "height": 595
+        }
+      },
+      "videoOffsetMs": 5334
+    },
+    {
+      "index": 11,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectVisible",
+      "intent": "Step 5: คืนค่าเดิมโดยย้ายพนักงานกลับเข้าแผนกเดิม — skipped step 5: the transfer in step 2 could not be made, so there is nothing to restore.",
+      "selector": "text=รายการ Consent Form",
+      "resolvedSelector": "role=table[name=\"รายการ Consent Form\" i]",
+      "resolution": "cache",
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:44.084Z",
+      "durationMs": 2022,
+      "url": "https://humi-sit-int.central.co.th/humi/th/admin/system/security/consent",
+      "detail": {
+        "expected": "visible",
+        "actual": "visible"
+      },
+      "target": {
+        "selector": "role=table[name=\"รายการ Consent Form\" i]",
+        "tag": "table",
+        "role": "table",
+        "name": "รายการ Consent Form",
+        "text": "รหัสพนักงานชื่อประเภท Consentสถานะวันที่ลงนามหมดอายุEMP001สมชาย รักงานPDPAลงนามแล้ว20/1/256820/1/2570EMP002สมหญิง ขยันด…",
+        "box": {
+          "x": 449,
+          "y": 486,
+          "width": 1096,
+          "height": 595
+        }
+      },
+      "videoOffsetMs": 7357
+    },
+    {
+      "index": 12,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectVisible",
+      "intent": "Line 1.1 พนักงานเห็นเอกสารฉบับนั้นในรายการที่ยังค้าง — not covered: the pending-consent list is the employee's own screen and no employee persona exists; only the admin register can be observed.",
+      "selector": "text=รายการ Consent Form",
+      "resolvedSelector": "role=table[name=\"รายการ Consent Form\" i]",
+      "resolution": "cache",
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:46.107Z",
+      "durationMs": 2014,
+      "url": "https://humi-sit-int.central.co.th/humi/th/admin/system/security/consent",
+      "detail": {
+        "expected": "visible",
+        "actual": "visible"
+      },
+      "target": {
+        "selector": "role=table[name=\"รายการ Consent Form\" i]",
+        "tag": "table",
+        "role": "table",
+        "name": "รายการ Consent Form",
+        "text": "รหัสพนักงานชื่อประเภท Consentสถานะวันที่ลงนามหมดอายุEMP001สมชาย รักงานPDPAลงนามแล้ว20/1/256820/1/2570EMP002สมหญิง ขยันด…",
+        "box": {
+          "x": 449,
+          "y": 486,
+          "width": 1096,
+          "height": 595
+        }
+      },
+      "videoOffsetMs": 9372
+    },
+    {
+      "index": 13,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectVisible",
+      "intent": "Line 3.1 พนักงานไม่เห็นเอกสารฉบับนั้นอีก — not covered: asserts only that the admin register still exposes the รอลงนาม (pending) state, since the employee view is unavailable.",
+      "selector": "text=รอลงนาม",
+      "resolvedSelector": "text=\"รอลงนาม\" >> visible=true >> nth=0",
+      "resolution": "narrow",
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:48.122Z",
+      "durationMs": 26,
+      "url": "https://humi-sit-int.central.co.th/humi/th/admin/system/security/consent",
+      "detail": {
+        "expected": "visible",
+        "actual": "visible"
+      },
+      "target": {
+        "selector": "text=\"รอลงนาม\" >> visible=true >> nth=0",
+        "tag": "p",
+        "name": "รอลงนาม",
+        "box": {
+          "x": 839,
+          "y": 356,
+          "width": 316,
+          "height": 18
+        }
+      },
+      "videoOffsetMs": 9399
+    },
+    {
+      "index": 14,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "saveText",
+      "intent": "Line 4.1: record the admin consent register heading as read after step 4.",
+      "selector": "text=รายการ Consent Form",
+      "resolvedSelector": "role=table[name=\"รายการ Consent Form\" i]",
+      "resolution": "cache",
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:48.148Z",
+      "durationMs": 2025,
+      "url": "https://humi-sit-int.central.co.th/humi/th/admin/system/security/consent",
+      "detail": {
+        "as": "record_4_1_register",
+        "saved": "รหัสพนักงาน\tชื่อ\tประเภท CONSENT\tสถานะ\tวันที่ลงนาม\tหมดอายุ\nEMP001\tสมชาย รักงาน\tPDPA\tลงนามแล้ว\t20/1/2568\t20/1/2570\nEMP002\tสมหญิง ขยันดี\tPDPA\tลงนามแล้ว\t21/1/2568\t21/1/2570\nEMP003\tประสิทธิ์ มั่นคง\tPDPA\tลง"
+      },
+      "target": {
+        "selector": "role=table[name=\"รายการ Consent Form\" i]",
+        "tag": "table",
+        "role": "table",
+        "name": "รายการ Consent Form",
+        "text": "รหัสพนักงานชื่อประเภท Consentสถานะวันที่ลงนามหมดอายุEMP001สมชาย รักงานPDPAลงนามแล้ว20/1/256820/1/2570EMP002สมหญิง ขยันด…",
+        "box": {
+          "x": 449,
+          "y": 486,
+          "width": 1096,
+          "height": 595
+        }
+      },
+      "videoOffsetMs": 11424
+    },
+    {
+      "index": 15,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectVisible",
+      "intent": "Line 4.1 เงื่อนไขกลุ่มเป้าหมายยังเก็บรหัสแผนกเดิม ระบบไม่แก้ค่าให้ ไม่แจ้งเตือน — not covered: the admin page shows no target-condition (department code) field or warning; asserts the register's สถานะ column is rendered without any correction notice.",
+      "selector": "text=สถานะ",
+      "resolvedSelector": "text=\"สถานะ\"",
+      "resolution": "narrow",
+      "status": "passed",
+      "startedAt": "2026-09-05T06:47:50.174Z",
+      "durationMs": 18,
+      "url": "https://humi-sit-int.central.co.th/humi/th/admin/system/security/consent",
+      "detail": {
+        "expected": "visible",
+        "actual": "visible"
+      },
+      "target": {
+        "selector": "text=\"สถานะ\"",
+        "tag": "th",
+        "name": "สถานะ",
+        "box": {
+          "x": 1054,
+          "y": 486,
+          "width": 165,
+          "height": 45
+        }
+      },
+      "videoOffsetMs": 11443
+    }
+  ],
+  "defects": [],
+  "coverage": {
+    "url": "https://humi-sit-int.central.co.th/humi/th/admin/system/security/consent",
+    "total": 21,
+    "exercised": 1,
+    "ratio": 0.047619047619047616,
+    "untouched": [
+      {
+        "role": "button",
+        "name": "ขยายเมนู",
+        "selector": "role=button[name=\"ขยายเมนู\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "สลับโหมดมืด",
+        "selector": "role=button[name=\"สลับโหมดมืด\"]",
+        "disabled": false
+      },
+      {
+        "role": "combobox",
+        "name": "กรองสถานะ:",
+        "selector": "role=combobox[name=\"กรองสถานะ:\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "ส่ง Reminder ให้พนักงาน 2 คนที่รอลงนาม",
+        "selector": "role=button[name=\"ส่ง Reminder ให้พนักงาน 2 คนที่รอลงนาม\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ฉัน",
+        "selector": "role=tab[name=\"ฉัน\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ทีม",
+        "selector": "role=tab[name=\"ทีม\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "บุคคล",
+        "selector": "role=tab[name=\"บุคคล\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ระบบ",
+        "selector": "role=tab[name=\"ระบบ\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "ไทย",
+        "selector": "role=button[name=\"ไทย\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "EN",
+        "selector": "role=button[name=\"EN\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "กล่องข้อความเข้า",
+        "selector": "role=button[name=\"กล่องข้อความเข้า\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "การแจ้งเตือน",
+        "selector": "role=button[name=\"การแจ้งเตือน\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "รายงาน",
+        "selector": "role=tab[name=\"รายงาน\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "การเชื่อมต่อ",
+        "selector": "role=tab[name=\"การเชื่อมต่อ\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ฟีเจอร์ระบบ",
+        "selector": "role=tab[name=\"ฟีเจอร์ระบบ\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ความปลอดภัย",
+        "selector": "role=tab[name=\"ความปลอดภัย\"]",
+        "disabled": false
+      },
+      {
+        "role": "option",
+        "name": "ทั้งหมด (10)",
+        "selector": "role=option[name=\"ทั้งหมด (10)\"]",
+        "disabled": false
+      },
+      {
+        "role": "option",
+        "name": "ลงนามแล้ว (8)",
+        "selector": "role=option[name=\"ลงนามแล้ว (8)\"]",
+        "disabled": false
+      },
+      {
+        "role": "option",
+        "name": "รอลงนาม (2)",
+        "selector": "role=option[name=\"รอลงนาม (2)\"]",
+        "disabled": false
+      },
+      {
+        "role": "option",
+        "name": "หมดอายุ (0)",
+        "selector": "role=option[name=\"หมดอายุ (0)\"]",
+        "disabled": false
+      }
+    ],
+    "unattributed": [
+      "text=\"รอลงนาม\" >> visible=true >> nth=0",
+      "text=\"สถานะ\""
+    ]
+  },
+  "trend": {
+    "verdict": "first-run",
+    "consecutiveFailures": 0,
+    "flips": 0,
+    "sampleSize": 0,
+    "newFailures": [],
+    "message": "first recorded run — nothing to compare against"
+  },
+  "variables": {
+    "record_4_1_register": "รหัสพนักงาน\tชื่อ\tประเภท CONSENT\tสถานะ\tวันที่ลงนาม\tหมดอายุ\nEMP001\tสมชาย รักงาน\tPDPA\tลงนามแล้ว\t20/1/2568\t20/1/2570\nEMP002\tสมหญิง ขยันดี\tPDPA\tลงนามแล้ว\t21/1/2568\t21/1/2570\nEMP003\tประสิทธิ์ มั่นคง\tPDPA\tลงนามแล้ว\t1/2/2568\t1/2/2570\nEMP004\tวิภา สุขสบาย\tPDPA\tลงนามแล้ว\t15/2/2568\t15/2/2570\nEMP005\tกฤษณ์ เก่งกาจ\tPDPA\tลงนามแล้ว\t1/3/2568\t1/3/2570\nEMP006\tนุชนาถ ใจดี\tPDPA\tลงนามแล้ว\t10/3/2568\t10/3/2570\nEMP007\tอรพรรณ ฉลาดเลิศ\tPDPA\tลงนามแล้ว\t1/4/2568\t1/4/2570\nEMP008\tสุภาพ อ่อนโยน\tPDPA\tลงนามแล้ว\t15/4/2568\t15/4/2570\nEMP009\tมานพ รุ่งเรือง\tPDPA\tรอลงนาม\t—\t—\nEMP010\tพิมพ์ชนก สดใส\tPDPA\tรอลงนาม\t—\t—"
+  },
+  "notes": [
+    "session: started from an empty context — the flow signs in itself, so the attached browser's session was deliberately not inherited",
+    "pre-run dead-end risk 18%, expected-fail risk 15% — both ≤ 50%, ran with every retry path on (Step 10-16 target /:locale/admin/system/security/consent, which the repository declares (route src/app/[locale]/admin/system/security/consent/page.tsx) and whose ConsentPage renders the exact literals asserted: 'รายการ Consent Form', 'รอลงนาม', 'สถานะ')"
+  ],
+  "generatedBy": {
+    "model": "claude-cli:opus",
+    "generatedAt": "2026-09-05T06:01:44.783Z",
+    "sourceUrl": "https://humi-sit-int.central.co.th/humi/th/login",
+    "kind": "catalog",
+    "rationale": "272 test case(s) across 269 scenario(s)",
+    "source": "QA_Task_Tracking_Cycle1_SIT_Optimized_EC.csv",
+    "runKey": "qa-task-tracking-cycle1-sit-optimized-ec-csv@2026-09-05T06:01:44.783Z",
+    "scenario": "E2E-262",
+    "caseTitle": ""
+  },
+  "polarity": "positive",
+  "polaritySource": "inferred",
+  "caseStartedAt": "2026-09-05T06:47:38.114Z",
+  "caseDurationMs": 12610,
+  "risk": {
+    "likelihood": 0.18,
+    "failLikelihood": 0.15,
+    "threshold": 0.5,
+    "verdict": "run",
+    "reasons": [
+      "Step 10-16 target /:locale/admin/system/security/consent, which the repository declares (route src/app/[locale]/admin/system/security/consent/page.tsx) and whose ConsentPage renders the exact literals asserted: 'รายการ Consent Form', 'รอลงนาม', 'สถานะ'",
+      "Step 5/6 selector 'เมนูบัญชี' is flagged by a signal as undocumented, but Topbar (src/components/humi/shell/Topbar.tsx) declares 'เมนูบัญชี' / 'Account menu' — the control exists",
+      "Step 7-9 goto /humi/th/hr/approvals/data-change-requests matches declared route /:locale/hr/approvals/data-change-requests, and messages/th.json gives title 'คำขอแก้ไขข้อมูล' exactly as asserted",
+      "The flow explicitly downgrades every unreachable case step (employee persona, department transfer, target-condition field) to visibility assertions on controls that exist, so the run reaches its checks rather than dead-ending"
+    ],
+    "missing": [
+      "No employee persona account for steps 1/3, so the case's core pending-consent visibility claims are never actually exercised",
+      "No admin control that records an EC employment data change / department transfer on the data-change-requests page",
+      "No target-condition (department code) field or warning surface on the admin consent register for line 4.1"
+    ],
+    "signals": [
+      "step 5: the selector asks for \"เมนูบัญชี\" — a label no document, the case, or the repository mentions",
+      "no background document was retrieved for this case"
+    ],
+    "model": "claude-cli:opus",
+    "at": "2026-09-05T06:47:38.111Z",
+    "inputTokens": 19216,
+    "outputTokens": 1098
+  }
+}

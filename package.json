@@ -33,6 +33,7 @@
     "cli": "tsx src/cli.ts",
     "ui": "tsx src/ui/server.ts",
     "mcp": "tsx src/mcp/server.ts",
+    "bench": "tsx src/bench/run.ts",
     "chrome": "/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --user-data-dir=/tmp/wowlidator-chrome-profile"
   },
   "dependencies": {

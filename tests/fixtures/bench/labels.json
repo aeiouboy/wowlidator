@@ -1,0 +1,37 @@
+[
+  {
+    "bundle": "bundles/cns-ec-029-passed-64bfef1a.json",
+    "truth": "pass",
+    "note": "Consent status read back over the API (GET /consent-status → CONSENT_REQUIRED) after signing in; every assertion held and the run says so."
+  },
+  {
+    "bundle": "bundles/cns-ec-012-passed-766dc861.json",
+    "truth": "pass",
+    "note": "A read-only register walk: every expectVisible held on the first rung, no agent leg, no repair. The dead-end-risk judge ran (risk.inputTokens) so the case carries a token cost with no agent turns."
+  },
+  {
+    "bundle": "bundles/hir-ec-001-error-e1af79a3.json",
+    "truth": "harness",
+    "note": "workflow: 'agent gave up after 2 turns without reaching the goal' — maxSteps 2 is the harness's own budget, not an application fact. The defect it filed is what precision must count against. diagnosis.origin = agent (confidence 0.009)."
+  },
+  {
+    "bundle": "bundles/cns-ec-031-error-15e28bd7.json",
+    "truth": "harness",
+    "note": "Same 2-turn agent budget, different case: a create-document journey it never started. diagnosis.origin = agent."
+  },
+  {
+    "bundle": "bundles/cns-ec-016-failed-6fc8db47.json",
+    "truth": "harness",
+    "note": "expectStatus 200 got 404: the authored request resolved an absolute path against the origin and dropped the deployment base path, so the gateway answered instead of the app. Fixed in 6414e6e (generator/api: authored request steps keep the deployment base path). The agent leg before it PASSED and observed the same page calling that path successfully."
+  },
+  {
+    "bundle": "bundles/cns-ec-029-failed-3299844e.json",
+    "truth": "harness",
+    "note": "Same base-path bug as CNS-EC-016 on the consent-status endpoint the passed run of this case (64bfef1a) reached under the right prefix. Two defects filed; both are the harness's. The agent leg here reports cachedInputTokens (1277 of 7795)."
+  },
+  {
+    "bundle": "bundles/prb-ec-062-needs-review-cc891b74.json",
+    "truth": "spec-question",
+    "note": "needs-review, specQuestion=true: the heading the sheet names is rendered as a breadcrumb under other words; a model judge later ruled 'proved' (review.by is a model). The one defect filed is five 500s from the page's own content-management calls while the step waited — backend noise, not the claim."
+  }
+]

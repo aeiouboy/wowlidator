@@ -1,0 +1,523 @@
+{
+  "runId": "6fc8db47-c2a8-47de-b94c-0042b9bffe60",
+  "name": "CNS-EC-016 ",
+  "status": "failed",
+  "startedAt": "2026-09-05T01:11:02.185Z",
+  "finishedAt": "2026-09-05T01:11:26.335Z",
+  "durationMs": 24150,
+  "cdpUrl": "http://127.0.0.1:9334",
+  "cachePath": "/Users/tachongrak/Projects/QA Agent/wowlidator/healed-selectors.json",
+  "healerModel": "agy-cli:gemini-3.8-flash-low",
+  "summary": {
+    "totalSteps": 6,
+    "passed": 5,
+    "failed": 1,
+    "frontend": {
+      "steps": 4,
+      "passed": 4,
+      "failed": 0,
+      "defects": 0
+    },
+    "backend": {
+      "steps": 2,
+      "passed": 1,
+      "failed": 1,
+      "defects": 1
+    },
+    "fastPath": 2,
+    "caseRetries": 0,
+    "cacheHits": 0,
+    "jitHeals": 0,
+    "dialogsDismissed": 0,
+    "agentTakeovers": 1,
+    "visualChecks": 0,
+    "visualFailures": 0,
+    "dataRetries": 0,
+    "apiRequests": 1,
+    "apiFailures": 0,
+    "dbChecks": 0,
+    "dbFailures": 0,
+    "networkCalls": 29,
+    "networkFailures": 5,
+    "backendBlocked": 0,
+    "healUnavailable": 0,
+    "networkDropped": 0,
+    "healLatencyMs": 0,
+    "agentLatencyMs": 17212,
+    "inputTokens": 39012,
+    "outputTokens": 188,
+    "defects": 1
+  },
+  "steps": [
+    {
+      "index": 0,
+      "browser": "http://127.0.0.1:9334",
+      "action": "goto",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-05T01:11:03.396Z",
+      "durationMs": 2985,
+      "url": "https://humi-sit-int.central.co.th/humi/th/login",
+      "detail": {
+        "url": "https://humi-sit-int.central.co.th/humi/th/login"
+      },
+      "videoOffsetMs": 174
+    },
+    {
+      "index": 1,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9334",
+      "action": "signIn",
+      "intent": "Step 1-2: Sign in as employee in company C005",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-05T01:11:06.385Z",
+      "durationMs": 824,
+      "url": "https://humi-sit-int.central.co.th/humi/th",
+      "detail": {
+        "as": "EMPLOYEE_ACCOUNT",
+        "intent": "Step 1-2: Sign in as employee in company C005",
+        "urlBefore": "https://humi-sit-int.central.co.th/humi/th/login",
+        "persona": "EMPLOYEE_ACCOUNT",
+        "signedInAs": "automate01",
+        "browser": "http://127.0.0.1:9334",
+        "signInUrl": "https://humi-sit-int.central.co.th/humi/th/login",
+        "urlAfter": "https://humi-sit-int.central.co.th/humi/th"
+      },
+      "videoOffsetMs": 973
+    },
+    {
+      "index": 2,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9334",
+      "action": "expectUrl",
+      "intent": "Expected 2.1: System navigates directly to landing page without showing consent form",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-05T01:11:07.249Z",
+      "durationMs": 1,
+      "url": "https://humi-sit-int.central.co.th/humi/th",
+      "detail": {
+        "expected": "https://humi-sit-int.central.co.th/humi/th",
+        "intent": "Expected 2.1: System navigates directly to landing page without showing consent form",
+        "actual": "https://humi-sit-int.central.co.th/humi/th"
+      },
+      "videoOffsetMs": 1014
+    },
+    {
+      "index": 3,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9334",
+      "action": "workflow",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-05T01:11:07.257Z",
+      "durationMs": 17376,
+      "url": "https://humi-sit-int.central.co.th/humi/th/home",
+      "detail": {
+        "goal": "Step 2: ให้พนักงานที่อยู่บริษัท C005 เข้าสู่ระบบ",
+        "turns": 2,
+        "settledBy": "agent-claim",
+        "evidence": "The system has navigated to the home page (https://humi-sit-int.central.co.th/humi/th/home) showing 'สวัสดีตอนเช้า คุณAutomate' without presenting any consent form, satisfying Step 2.",
+        "urlBefore": "https://humi-sit-int.central.co.th/humi/th",
+        "urlAfter": "https://humi-sit-int.central.co.th/humi/th/home",
+        "headingsBefore": [],
+        "headingsAfter": [
+          "สวัสดีตอนเช้า คุณAutomate",
+          "สวัสดีตอนเช้า คุณAutomate มี 2 เรื่องที่ต้องดำเนินการวันนี้",
+          "คำขอลางาน",
+          "เอกสารรอลงนาม",
+          "วันเกิด 2 คน · ครบรอบทำงาน 1 คน"
+        ],
+        "appeared": [
+          "สวัสดีตอนเช้า คุณAutomate",
+          "สวัสดีตอนเช้า คุณAutomate มี 2 เรื่องที่ต้องดำเนินการวันนี้",
+          "คำขอลางาน",
+          "เอกสารรอลงนาม",
+          "วันเกิด 2 คน · ครบรอบทำงาน 1 คน"
+        ],
+        "callsMade": 5
+      },
+      "agent": {
+        "goal": "Step 2: ให้พนักงานที่อยู่บริษัท C005 เข้าสู่ระบบ",
+        "model": "agy-cli:gemini-3.8-flash-low",
+        "success": true,
+        "summary": "The system has navigated to the home page (https://humi-sit-int.central.co.th/humi/th/home) showing 'สวัสดีตอนเช้า คุณAutomate' without presenting any consent form, satisfying Step 2.",
+        "actions": [
+          {
+            "index": 0,
+            "action": "wait",
+            "selector": null,
+            "value": null,
+            "url": "https://humi-sit-int.central.co.th/humi/th/home",
+            "reasoning": "The page is currently loading ('กำลังโหลด…'), so waiting for it to settle and load the login form or content.",
+            "ok": true,
+            "durationMs": 1176,
+            "finishedAt": "2026-09-05T01:11:16.313Z"
+          },
+          {
+            "index": 1,
+            "action": "finish",
+            "selector": null,
+            "value": null,
+            "url": "https://humi-sit-int.central.co.th/humi/th/home",
+            "reasoning": "The system has navigated to the home page (https://humi-sit-int.central.co.th/humi/th/home) showing 'สวัสดีตอนเช้า คุณAutomate' without presenting any consent form, satisfying Step 2.",
+            "ok": true,
+            "durationMs": 0,
+            "finishedAt": "2026-09-05T01:11:24.627Z"
+          }
+        ],
+        "turns": 2,
+        "maxSteps": 2,
+        "latencyMs": 17212,
+        "inputTokens": 39012,
+        "outputTokens": 188,
+        "settledBy": "agent-claim",
+        "settledEvidence": "The system has navigated to the home page (https://humi-sit-int.central.co.th/humi/th/home) showing 'สวัสดีตอนเช้า คุณAutomate' without presenting any consent form, satisfying Step 2."
+      },
+      "network": [
+        {
+          "id": "77850.152",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/language",
+          "resourceType": "Fetch",
+          "startedAt": 1788570667805,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 01:11:07 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788570667862,
+          "durationMs": 57
+        },
+        {
+          "id": "77850.153",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/quick-action/visible",
+          "resourceType": "Fetch",
+          "startedAt": 1788570667806,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 01:11:07 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788570667866,
+          "durationMs": 60
+        },
+        {
+          "id": "77850.154",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/menu-item/visible?context=PROFILE_SIDEBAR",
+          "resourceType": "Fetch",
+          "startedAt": 1788570667808,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 01:11:07 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788570667864,
+          "durationMs": 56
+        },
+        {
+          "id": "77850.155",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/menu-item/visible?context=ADMIN_SIDEBAR",
+          "resourceType": "Fetch",
+          "startedAt": 1788570667815,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 01:11:07 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788570667866,
+          "durationMs": 51
+        },
+        {
+          "id": "77850.156",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/news-update?language=th",
+          "resourceType": "Fetch",
+          "startedAt": 1788570667820,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 01:11:07 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788570667873,
+          "durationMs": 53
+        }
+      ],
+      "videoOffsetMs": 3008
+    },
+    {
+      "index": 4,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9334",
+      "action": "request",
+      "intent": "Step 3: Check consent status of the employee",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-05T01:11:25.260Z",
+      "durationMs": 216,
+      "url": "https://humi-sit-int.central.co.th/humi/th/home",
+      "detail": {
+        "method": "GET",
+        "url": "https://humi-sit-int.central.co.th/api/consent-api/status",
+        "status": 404,
+        "intent": "Step 3: Check consent status of the employee"
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://humi-sit-int.central.co.th/api/consent-api/status",
+        "status": 404,
+        "statusText": "Not Found",
+        "durationMs": 216,
+        "sizeBytes": 547,
+        "requestHeaders": {},
+        "responseHeaders": {
+          "server": "stgw",
+          "date": "Sat, 05 Sep 2026 01:11:25 GMT",
+          "content-type": "text/html",
+          "content-length": "547",
+          "connection": "keep-alive"
+        },
+        "responseBody": "[body omitted: 547 bytes, unrecognised format]"
+      }
+    },
+    {
+      "index": 5,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9334",
+      "action": "expectStatus",
+      "intent": "Expected 3.1: Consent status responds with HTTP 200",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "failed",
+      "startedAt": "2026-09-05T01:11:25.477Z",
+      "durationMs": 0,
+      "url": "https://humi-sit-int.central.co.th/humi/th/home",
+      "detail": {
+        "expected": [
+          200
+        ],
+        "intent": "Expected 3.1: Consent status responds with HTTP 200",
+        "actual": "404 Not Found"
+      },
+      "error": "expected status 200, got 404 Not Found"
+    }
+  ],
+  "defects": [
+    {
+      "id": "run-1",
+      "source": "runtime",
+      "category": "backend",
+      "severity": "high",
+      "title": "Assertion failed: expectStatus",
+      "detail": "expected status 200, got 404 Not Found",
+      "stepIndex": 5
+    }
+  ],
+  "coverage": {
+    "url": "https://humi-sit-int.central.co.th/humi/th/home",
+    "total": 18,
+    "exercised": 0,
+    "ratio": 0,
+    "untouched": [
+      {
+        "role": "button",
+        "name": "ขยายเมนู",
+        "selector": "role=button[name=\"ขยายเมนู\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "สลับโหมดมืด",
+        "selector": "role=button[name=\"สลับโหมดมืด\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "สร้างคำขอใหม่",
+        "selector": "role=button[name=\"สร้างคำขอใหม่\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ฉัน",
+        "selector": "role=tab[name=\"ฉัน\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ทีม",
+        "selector": "role=tab[name=\"ทีม\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "บุคคล",
+        "selector": "role=tab[name=\"บุคคล\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ระบบ",
+        "selector": "role=tab[name=\"ระบบ\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "ไทย",
+        "selector": "role=button[name=\"ไทย\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "EN",
+        "selector": "role=button[name=\"EN\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "กล่องข้อความเข้า",
+        "selector": "role=button[name=\"กล่องข้อความเข้า\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "การแจ้งเตือน",
+        "selector": "role=button[name=\"การแจ้งเตือน\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "เมนูบัญชี",
+        "selector": "role=button[name=\"เมนูบัญชี\"]",
+        "disabled": false
+      },
+      {
+        "role": "link",
+        "name": "เอกสารทั้งหมด",
+        "selector": "role=link[name=\"เอกสารทั้งหมด\"]",
+        "disabled": false
+      },
+      {
+        "role": "link",
+        "name": "อนุมัติคำขอลา 2 รายการ",
+        "selector": "role=link[name=\"อนุมัติคำขอลา 2 รายการ\"]",
+        "disabled": false
+      },
+      {
+        "role": "link",
+        "name": "ตรวจสอบร่างประกาศ",
+        "selector": "role=link[name=\"ตรวจสอบร่างประกาศ\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "ส่งข้อความอวยพร",
+        "selector": "role=button[name=\"ส่งข้อความอวยพร\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "ปฏิเสธ",
+        "selector": "role=button[name=\"ปฏิเสธ\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "อนุมัติ",
+        "selector": "role=button[name=\"อนุมัติ\"]",
+        "disabled": false
+      }
+    ],
+    "unattributed": []
+  },
+  "trend": {
+    "verdict": "still-broken",
+    "consecutiveFailures": 3,
+    "brokenSince": "2026-09-04T18:27:36.191Z",
+    "flips": 0,
+    "sampleSize": 3,
+    "newFailures": [],
+    "coverageDelta": 0,
+    "message": "broken for 4 consecutive run(s), since 2026-09-04T18:27:36.191Z"
+  },
+  "notes": [
+    "session: started from an empty context — the flow signs in itself, so the attached browser's session was deliberately not inherited",
+    "possible cross-case interference: CNS-EC-023  wrote an intersecting data section during this run — provisional: re-runs alone after the rest of the plan"
+  ],
+  "generatedBy": {
+    "model": "agy-cli:gemini-3.8-flash-low",
+    "generatedAt": "2026-09-04T17:52:15.013Z",
+    "sourceUrl": "https://humi-sit-int.central.co.th/humi/th/login",
+    "kind": "catalog",
+    "rationale": "272 test case(s) across 269 scenario(s)",
+    "source": "QA_Task_Tracking_Cycle1_SIT_Optimized_EC.csv",
+    "runKey": "qa-task-tracking-cycle1-sit-optimized-ec-csv@2026-09-04T17:52:15.013Z",
+    "scenario": "E2E-266",
+    "caseTitle": ""
+  },
+  "polarity": "positive",
+  "polaritySource": "inferred",
+  "error": "run completed with 1 failed:\n  FAILED: expectStatus — expected status 200, got 404 Not Found",
+  "caseStartedAt": "2026-09-05T01:10:59.468Z",
+  "caseDurationMs": 26874
+}

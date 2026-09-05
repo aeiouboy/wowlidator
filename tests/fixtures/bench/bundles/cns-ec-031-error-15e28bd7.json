@@ -1,0 +1,517 @@
+{
+  "runId": "15e28bd7-b706-4c0f-b427-29c62b408a38",
+  "name": "CNS-EC-031 ",
+  "status": "error",
+  "startedAt": "2026-09-05T01:14:21.812Z",
+  "finishedAt": "2026-09-05T01:16:25.529Z",
+  "durationMs": 123717,
+  "cdpUrl": "http://127.0.0.1:9334",
+  "cachePath": "/Users/tachongrak/Projects/QA Agent/wowlidator/healed-selectors.json",
+  "healerModel": "agy-cli:gemini-3.8-flash-low",
+  "summary": {
+    "totalSteps": 4,
+    "passed": 3,
+    "failed": 1,
+    "frontend": {
+      "steps": 4,
+      "passed": 3,
+      "failed": 1,
+      "defects": 1
+    },
+    "backend": {
+      "steps": 0,
+      "passed": 0,
+      "failed": 0,
+      "defects": 0
+    },
+    "fastPath": 2,
+    "caseRetries": 0,
+    "cacheHits": 0,
+    "jitHeals": 0,
+    "dialogsDismissed": 0,
+    "agentTakeovers": 1,
+    "visualChecks": 0,
+    "visualFailures": 0,
+    "dataRetries": 0,
+    "apiRequests": 0,
+    "apiFailures": 0,
+    "dbChecks": 0,
+    "dbFailures": 0,
+    "networkCalls": 30,
+    "networkFailures": 5,
+    "backendBlocked": 0,
+    "healUnavailable": 0,
+    "networkDropped": 0,
+    "healLatencyMs": 0,
+    "agentLatencyMs": 24041,
+    "inputTokens": 27401,
+    "outputTokens": 231,
+    "defects": 1
+  },
+  "steps": [
+    {
+      "index": 0,
+      "browser": "http://127.0.0.1:9334",
+      "action": "goto",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-05T01:14:22.901Z",
+      "durationMs": 1727,
+      "url": "https://humi-sit-int.central.co.th/humi/th/login",
+      "detail": {
+        "url": "https://humi-sit-int.central.co.th/humi/th/login"
+      },
+      "videoOffsetMs": 180
+    },
+    {
+      "index": 1,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9334",
+      "action": "signIn",
+      "intent": "Setup: Sign in as HR Admin",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-05T01:14:24.641Z",
+      "durationMs": 3438,
+      "url": "https://humi-sit-int.central.co.th/humi/th",
+      "detail": {
+        "as": "HR_ADMIN_ACCOUNT",
+        "intent": "Setup: Sign in as HR Admin",
+        "urlBefore": "https://humi-sit-int.central.co.th/humi/th/login",
+        "persona": "HR_ADMIN_ACCOUNT",
+        "signedInAs": "automate02",
+        "browser": "http://127.0.0.1:9334",
+        "signInUrl": "https://humi-sit-int.central.co.th/humi/th/login",
+        "urlAfter": "https://humi-sit-int.central.co.th/humi/th"
+      },
+      "videoOffsetMs": 2130
+    },
+    {
+      "index": 2,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9334",
+      "action": "expectUrl",
+      "intent": "Setup: Verify landing on home page",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-05T01:14:28.354Z",
+      "durationMs": 2,
+      "url": "https://humi-sit-int.central.co.th/humi/th",
+      "detail": {
+        "expected": "https://humi-sit-int.central.co.th/humi/th",
+        "intent": "Setup: Verify landing on home page",
+        "actual": "https://humi-sit-int.central.co.th/humi/th"
+      },
+      "videoOffsetMs": 2393
+    },
+    {
+      "index": 3,
+      "persona": "HR_ADMIN_ACCOUNT",
+      "browser": "http://127.0.0.1:9334",
+      "action": "workflow",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "error",
+      "startedAt": "2026-09-05T01:15:54.782Z",
+      "durationMs": 24131,
+      "url": "https://humi-sit-int.central.co.th/humi/th/home",
+      "detail": {
+        "goal": "Navigate via EC > Consent to document register, create document SIT_NOVER_DOC with display order 9, activate it without creating any version",
+        "turns": 2,
+        "urlBefore": "https://humi-sit-int.central.co.th/humi/th/home",
+        "urlAfter": "https://humi-sit-int.central.co.th/humi/th/home",
+        "headingsBefore": [
+          "สวัสดีตอนเช้า คุณAutomate",
+          "สวัสดีตอนเช้า คุณAutomate มี 2 เรื่องที่ต้องดำเนินการวันนี้",
+          "คำขอลางาน",
+          "เอกสารรอลงนาม",
+          "วันเกิด 2 คน · ครบรอบทำงาน 1 คน"
+        ],
+        "headingsAfter": [
+          "สวัสดีตอนเช้า คุณAutomate",
+          "สวัสดีตอนเช้า คุณAutomate มี 2 เรื่องที่ต้องดำเนินการวันนี้",
+          "คำขอลางาน",
+          "เอกสารรอลงนาม",
+          "วันเกิด 2 คน · ครบรอบทำงาน 1 คน"
+        ],
+        "appeared": [],
+        "callsMade": 5
+      },
+      "agent": {
+        "goal": "Navigate via EC > Consent to document register, create document SIT_NOVER_DOC with display order 9, activate it without creating any version",
+        "model": "agy-cli:gemini-3.8-flash-low",
+        "success": false,
+        "summary": "agent gave up after 2 turns without reaching the goal",
+        "actions": [
+          {
+            "index": 0,
+            "action": "click",
+            "selector": "role=button[name=\"ขยายเมนู\" i]",
+            "value": null,
+            "url": "https://humi-sit-int.central.co.th/humi/th/home",
+            "reasoning": "Expand the main menu to find EC / Employee Central or navigate to system settings.",
+            "ok": true,
+            "durationMs": 989,
+            "finishedAt": "2026-09-05T01:16:04.325Z"
+          },
+          {
+            "index": 1,
+            "action": "click",
+            "selector": "role=tab[name=\"ระบบ\" i]",
+            "value": null,
+            "url": "https://humi-sit-int.central.co.th/humi/th/home",
+            "reasoning": "Navigate towards EC / Consent settings in system or admin menu by clicking tab 'ระบบ'.",
+            "ok": true,
+            "durationMs": 1822,
+            "finishedAt": "2026-09-05T01:16:18.875Z"
+          }
+        ],
+        "turns": 2,
+        "maxSteps": 2,
+        "latencyMs": 24041,
+        "inputTokens": 27401,
+        "outputTokens": 231
+      },
+      "network": [
+        {
+          "id": "79622.152",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/language",
+          "resourceType": "Fetch",
+          "startedAt": 1788570869678,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 01:14:28 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788570869863,
+          "durationMs": 185
+        },
+        {
+          "id": "79622.153",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/quick-action/visible",
+          "resourceType": "Fetch",
+          "startedAt": 1788570869682,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 01:14:28 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788570870033,
+          "durationMs": 351
+        },
+        {
+          "id": "79622.154",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/menu-item/visible?context=PROFILE_SIDEBAR",
+          "resourceType": "Fetch",
+          "startedAt": 1788570869689,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 01:14:28 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788570870043,
+          "durationMs": 354
+        },
+        {
+          "id": "79622.155",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/menu-item/visible?context=ADMIN_SIDEBAR",
+          "resourceType": "Fetch",
+          "startedAt": 1788570869694,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 01:14:28 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788570870080,
+          "durationMs": 386
+        },
+        {
+          "id": "79622.156",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/news-update?language=th",
+          "resourceType": "Fetch",
+          "startedAt": 1788570869696,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 01:14:28 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788570870068,
+          "durationMs": 372
+        }
+      ],
+      "target": {
+        "selector": "role=tab[name=\"ระบบ\" i]",
+        "tag": "button",
+        "role": "tab",
+        "name": "ตั้งค่าระบบ",
+        "text": "ระบบ",
+        "box": {
+          "x": 6,
+          "y": 292,
+          "width": 62,
+          "height": 62
+        }
+      },
+      "error": "agent gave up after 2 turns without reaching the goal",
+      "videoOffsetMs": 9117
+    }
+  ],
+  "defects": [
+    {
+      "id": "run-1",
+      "source": "runtime",
+      "category": "functional",
+      "severity": "medium",
+      "title": "Workflow goal not reached: Navigate via EC > Consent to document register, create document SIT_NOVER_DOC with display order 9, activate it without creating any version",
+      "detail": "agent gave up after 2 turns without reaching the goal. The 2-turn budget ran out, which is a harness limit rather than an application fact — nothing here says the feature is broken. Narrow the goal, or settle the claim with an assertion after this step.",
+      "stepIndex": 3
+    }
+  ],
+  "coverage": {
+    "url": "https://humi-sit-int.central.co.th/humi/th/home",
+    "total": 23,
+    "exercised": 0,
+    "ratio": 0,
+    "untouched": [
+      {
+        "role": "button",
+        "name": "ย่อเมนู",
+        "selector": "role=button[name=\"ย่อเมนู\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "สลับโหมดมืด",
+        "selector": "role=button[name=\"สลับโหมดมืด\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "สร้างคำขอใหม่",
+        "selector": "role=button[name=\"สร้างคำขอใหม่\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ฉัน",
+        "selector": "role=tab[name=\"ฉัน\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ทีม",
+        "selector": "role=tab[name=\"ทีม\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "บุคคล",
+        "selector": "role=tab[name=\"บุคคล\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ระบบ",
+        "selector": "role=tab[name=\"ระบบ\"]",
+        "disabled": false
+      },
+      {
+        "role": "link",
+        "name": "ผู้ใช้และสิทธิ์",
+        "selector": "role=link[name=\"ผู้ใช้และสิทธิ์\"]",
+        "disabled": false
+      },
+      {
+        "role": "link",
+        "name": "จัดการเนื้อหา",
+        "selector": "role=link[name=\"จัดการเนื้อหา\"]",
+        "disabled": false
+      },
+      {
+        "role": "link",
+        "name": "ฐานข้อมูลกลาง",
+        "selector": "role=link[name=\"ฐานข้อมูลกลาง\"]",
+        "disabled": false
+      },
+      {
+        "role": "link",
+        "name": "คิวตรวจเอกสาร",
+        "selector": "role=link[name=\"คิวตรวจเอกสาร\"]",
+        "disabled": false
+      },
+      {
+        "role": "link",
+        "name": "บันทึก · ระบบ",
+        "selector": "role=link[name=\"บันทึก · ระบบ\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "ไทย",
+        "selector": "role=button[name=\"ไทย\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "EN",
+        "selector": "role=button[name=\"EN\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "กล่องข้อความเข้า",
+        "selector": "role=button[name=\"กล่องข้อความเข้า\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "การแจ้งเตือน",
+        "selector": "role=button[name=\"การแจ้งเตือน\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "เมนูบัญชี",
+        "selector": "role=button[name=\"เมนูบัญชี\"]",
+        "disabled": false
+      },
+      {
+        "role": "link",
+        "name": "เอกสารทั้งหมด",
+        "selector": "role=link[name=\"เอกสารทั้งหมด\"]",
+        "disabled": false
+      },
+      {
+        "role": "link",
+        "name": "อนุมัติคำขอลา 2 รายการ",
+        "selector": "role=link[name=\"อนุมัติคำขอลา 2 รายการ\"]",
+        "disabled": false
+      },
+      {
+        "role": "link",
+        "name": "ตรวจสอบร่างประกาศ",
+        "selector": "role=link[name=\"ตรวจสอบร่างประกาศ\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "ส่งข้อความอวยพร",
+        "selector": "role=button[name=\"ส่งข้อความอวยพร\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "ปฏิเสธ",
+        "selector": "role=button[name=\"ปฏิเสธ\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "อนุมัติ",
+        "selector": "role=button[name=\"อนุมัติ\"]",
+        "disabled": false
+      }
+    ],
+    "unattributed": []
+  },
+  "trend": {
+    "verdict": "still-broken",
+    "consecutiveFailures": 2,
+    "brokenSince": "2026-09-04T18:44:30.918Z",
+    "flips": 0,
+    "sampleSize": 2,
+    "newFailures": [],
+    "coverageDelta": 0,
+    "message": "broken for 3 consecutive run(s), since 2026-09-04T18:44:30.918Z"
+  },
+  "notes": [
+    "session: started from an empty context — the flow signs in itself, so the attached browser's session was deliberately not inherited",
+    "possible cross-case interference: HIR-EC-126 , HIR-EC-139 , HIR-EC-143  wrote an intersecting data section during this run — provisional: re-runs alone after the rest of the plan",
+    "system error diagnosed: the navigation agent (1%) — The navigation agent gave up after only 2 turns while expanding the menu and clicking the 'ระบบ' tab without exhausting navigation attempts or encountering missing test data/declared routes. The failure is an agent stall/early exit reaching the goal.  fix: --repair-investigate"
+  ],
+  "generatedBy": {
+    "model": "agy-cli:gemini-3.8-flash-low",
+    "generatedAt": "2026-09-04T17:52:15.013Z",
+    "sourceUrl": "https://humi-sit-int.central.co.th/humi/th/login",
+    "kind": "catalog",
+    "rationale": "272 test case(s) across 269 scenario(s)",
+    "source": "QA_Task_Tracking_Cycle1_SIT_Optimized_EC.csv",
+    "runKey": "qa-task-tracking-cycle1-sit-optimized-ec-csv@2026-09-04T17:52:15.013Z",
+    "scenario": "E2E-283",
+    "caseTitle": ""
+  },
+  "polarity": "positive",
+  "polaritySource": "inferred",
+  "error": "run completed with 1 error:\n  ERROR: workflow — workflow agent failed: agent gave up after 2 turns without reaching the goal",
+  "caseStartedAt": "2026-09-05T01:14:20.947Z",
+  "caseDurationMs": 124587,
+  "diagnosis": {
+    "origin": "agent",
+    "confidence": 0.0095,
+    "reasoning": "The navigation agent gave up after only 2 turns while expanding the menu and clicking the 'ระบบ' tab without exhausting navigation attempts or encountering missing test data/declared routes. The failure is an agent stall/early exit reaching the goal.",
+    "fix": "--repair-investigate",
+    "actionable": true,
+    "signals": [],
+    "model": "agy-cli:gemini-3.8-flash-low",
+    "at": "2026-09-05T01:16:31.538Z",
+    "inputTokens": 16834,
+    "outputTokens": 108
+  }
+}

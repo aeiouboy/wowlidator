@@ -1,0 +1,703 @@
+{
+  "runId": "3299844e-de69-40b5-b6ac-d64ccf0b1507",
+  "name": "CNS-EC-029 ",
+  "status": "failed",
+  "startedAt": "2026-09-05T06:06:16.151Z",
+  "finishedAt": "2026-09-05T06:06:33.245Z",
+  "durationMs": 17094,
+  "cdpUrl": "http://127.0.0.1:9333",
+  "cachePath": "/Users/tachongrak/Projects/QA Agent/wowlidator/healed-selectors.json",
+  "healerModel": "claude-cli:opus",
+  "summary": {
+    "session": {
+      "provider": "claude-cli",
+      "calls": 1,
+      "costUsd": 0.07080850000000005,
+      "inputTokens": 2,
+      "cachedInputTokens": 1277,
+      "outputTokens": 200,
+      "wallMs": 3452,
+      "byRole": {
+        "agent": {
+          "calls": 1,
+          "costUsd": 0.0708085,
+          "inputTokens": 2,
+          "cachedInputTokens": 1277,
+          "outputTokens": 200
+        }
+      },
+      "quota": {
+        "beforePercent": 21,
+        "afterPercent": 21,
+        "resetsAt": "2026-09-05T07:20:00.059058+00:00"
+      }
+    },
+    "totalSteps": 9,
+    "passed": 6,
+    "failed": 3,
+    "frontend": {
+      "steps": 4,
+      "passed": 4,
+      "failed": 0,
+      "defects": 0
+    },
+    "backend": {
+      "steps": 5,
+      "passed": 2,
+      "failed": 3,
+      "defects": 2
+    },
+    "fastPath": 1,
+    "caseRetries": 0,
+    "cacheHits": 0,
+    "jitHeals": 0,
+    "dialogsDismissed": 0,
+    "agentTakeovers": 1,
+    "visualChecks": 0,
+    "visualFailures": 0,
+    "dataRetries": 0,
+    "apiRequests": 2,
+    "apiFailures": 0,
+    "dbChecks": 0,
+    "dbFailures": 0,
+    "networkCalls": 84,
+    "networkFailures": 10,
+    "backendBlocked": 0,
+    "healUnavailable": 0,
+    "networkDropped": 0,
+    "healLatencyMs": 0,
+    "agentLatencyMs": 8875,
+    "inputTokens": 7795,
+    "outputTokens": 200,
+    "defects": 2
+  },
+  "steps": [
+    {
+      "index": 0,
+      "browser": "http://127.0.0.1:9333",
+      "action": "goto",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-05T06:06:16.287Z",
+      "durationMs": 2843,
+      "url": "https://humi-sit-int.central.co.th/humi/th/login",
+      "detail": {
+        "url": "https://humi-sit-int.central.co.th/humi/th/login"
+      },
+      "videoOffsetMs": 162
+    },
+    {
+      "index": 1,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "signIn",
+      "intent": "Step 1: sign in as the employee automate01 (EMPLOYEE_ACCOUNT). Precondition — the employee must never have accepted and must have at least one pending document; no browser step can create that state, and the harness sign-in may itself pass the consent gate.",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": "fast",
+      "status": "passed",
+      "startedAt": "2026-09-05T06:06:19.140Z",
+      "durationMs": 1674,
+      "url": "https://humi-sit-int.central.co.th/humi/th/home",
+      "detail": {
+        "as": "EMPLOYEE_ACCOUNT",
+        "intent": "Step 1: sign in as the employee automate01 (EMPLOYEE_ACCOUNT). Precondition — the employee must never have accepted and must have at least one pending document; no browser step can create that state, and the harness sign-in may itself pass the consent gate.",
+        "urlBefore": "https://humi-sit-int.central.co.th/humi/th/login",
+        "persona": "EMPLOYEE_ACCOUNT",
+        "signedInAs": "automate01",
+        "browser": "http://127.0.0.1:9333",
+        "signInUrl": "https://humi-sit-int.central.co.th/humi/th/login",
+        "urlAfter": "https://humi-sit-int.central.co.th/humi/th/home"
+      },
+      "videoOffsetMs": 1814
+    },
+    {
+      "index": 2,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "goto",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-05T06:06:20.817Z",
+      "durationMs": 173,
+      "url": "https://humi-sit-int.central.co.th/humi/th/consent",
+      "detail": {
+        "url": "https://humi-sit-int.central.co.th/humi/th/consent"
+      },
+      "videoOffsetMs": 1990
+    },
+    {
+      "index": 3,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "workflow",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-05T06:06:20.997Z",
+      "durationMs": 8900,
+      "url": "https://humi-sit-int.central.co.th/humi/th/profile/me",
+      "detail": {
+        "goal": "Type the address https://humi-sit-int.central.co.th/humi/th/profile/me directly into the browser address bar and press Enter to load it, without using any menu, link or button on the page; then end on /humi/th/consent if the consent gate sends you back there, otherwise stay on whatever page loads.",
+        "turns": 1,
+        "skills": [
+          "auth-and-consent",
+          "forms-and-required-fields",
+          "tables-and-pagination"
+        ],
+        "cachedInputTokens": 1277,
+        "urlBefore": "https://humi-sit-int.central.co.th/humi/th/consent",
+        "urlAfter": "https://humi-sit-int.central.co.th/humi/th/profile/me",
+        "headingsBefore": [],
+        "headingsAfter": [],
+        "appeared": [],
+        "callsMade": 8
+      },
+      "agent": {
+        "goal": "Type the address https://humi-sit-int.central.co.th/humi/th/profile/me directly into the browser address bar and press Enter to load it, without using any menu, link or button on the page; then end on /humi/th/consent if the consent gate sends you back there, otherwise stay on whatever page loads.",
+        "model": "claude-cli:opus",
+        "success": true,
+        "summary": "reached https://humi-sit-int.central.co.th/humi/th/profile/me, the destination the goal names, after 1 turn(s)",
+        "actions": [
+          {
+            "index": 0,
+            "action": "goto",
+            "selector": null,
+            "value": null,
+            "url": "https://humi-sit-int.central.co.th/humi/th/profile/me",
+            "reasoning": "Navigate directly via address bar to the profile URL.",
+            "ok": true,
+            "durationMs": 207,
+            "finishedAt": "2026-09-05T06:06:29.885Z",
+            "outcome": {
+              "kind": "ok"
+            }
+          }
+        ],
+        "turns": 1,
+        "maxSteps": 60,
+        "latencyMs": 8875,
+        "inputTokens": 7795,
+        "outputTokens": 200,
+        "skills": [
+          "auth-and-consent",
+          "forms-and-required-fields",
+          "tables-and-pagination"
+        ],
+        "cachedInputTokens": 1277
+      },
+      "network": [
+        {
+          "id": "18159.242",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/language",
+          "resourceType": "Fetch",
+          "startedAt": 1788588380196,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 06:06:20 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788588380235,
+          "durationMs": 39
+        },
+        {
+          "id": "18159.243",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/quick-action/visible",
+          "resourceType": "Fetch",
+          "startedAt": 1788588380197,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 06:06:20 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788588380247,
+          "durationMs": 50
+        },
+        {
+          "id": "18159.244",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/menu-item/visible?context=PROFILE_SIDEBAR",
+          "resourceType": "Fetch",
+          "startedAt": 1788588380197,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 06:06:20 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788588380257,
+          "durationMs": 60
+        },
+        {
+          "id": "18159.245",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/menu-item/visible?context=ADMIN_SIDEBAR",
+          "resourceType": "Fetch",
+          "startedAt": 1788588380198,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 06:06:20 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788588380246,
+          "durationMs": 48
+        },
+        {
+          "id": "18159.246",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/news-update?language=th",
+          "resourceType": "Fetch",
+          "startedAt": 1788588380198,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 06:06:20 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788588380235,
+          "durationMs": 37
+        },
+        {
+          "id": "18159.354",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/language",
+          "resourceType": "Fetch",
+          "startedAt": 1788588381236,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 06:06:21 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788588381270,
+          "durationMs": 34
+        },
+        {
+          "id": "18159.355",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/quick-action/visible",
+          "resourceType": "Fetch",
+          "startedAt": 1788588381236,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 06:06:21 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788588381274,
+          "durationMs": 38
+        },
+        {
+          "id": "18159.356",
+          "method": "GET",
+          "url": "https://humi-sit-int.central.co.th/humi/api/content-management/menu-item/visible?context=PROFILE_SIDEBAR",
+          "resourceType": "Fetch",
+          "startedAt": 1788588381236,
+          "requestHeaders": {
+            "sec-ch-ua-platform": "\"macOS\"",
+            "Referer": "https://humi-sit-int.central.co.th/humi/th/home",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+            "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+            "Content-Type": "application/json",
+            "sec-ch-ua-mobile": "?0"
+          },
+          "status": 500,
+          "responseHeaders": {
+            "date": "Sat, 05 Sep 2026 06:06:21 GMT",
+            "vary": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch"
+          },
+          "sizeBytes": 106,
+          "endedAt": 1788588381264,
+          "durationMs": 28
+        }
+      ],
+      "videoOffsetMs": 4153
+    },
+    {
+      "index": 4,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "request",
+      "intent": "Step 3: call the personal-info read endpoint directly with the same signed-in identity.",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-05T06:06:32.280Z",
+      "durationMs": 97,
+      "url": "https://humi-sit-int.central.co.th/humi/th/profile/me",
+      "detail": {
+        "method": "GET",
+        "url": "https://humi-sit-int.central.co.th/api/ec-api/detail/personal",
+        "status": 404,
+        "intent": "Step 3: call the personal-info read endpoint directly with the same signed-in identity."
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://humi-sit-int.central.co.th/api/ec-api/detail/personal",
+        "status": 404,
+        "statusText": "Not Found",
+        "durationMs": 97,
+        "sizeBytes": 547,
+        "requestHeaders": {},
+        "responseHeaders": {
+          "server": "stgw",
+          "date": "Sat, 05 Sep 2026 06:06:32 GMT",
+          "content-type": "text/html",
+          "content-length": "547",
+          "connection": "keep-alive"
+        },
+        "responseBody": "[body omitted: 547 bytes, unrecognised format]"
+      }
+    },
+    {
+      "index": 5,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "request",
+      "intent": "Step 4: read the employee's consent status.",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "passed",
+      "startedAt": "2026-09-05T06:06:32.377Z",
+      "durationMs": 24,
+      "url": "https://humi-sit-int.central.co.th/humi/th/profile/me",
+      "detail": {
+        "method": "GET",
+        "url": "https://humi-sit-int.central.co.th/api/consent-api/status",
+        "status": 404,
+        "intent": "Step 4: read the employee's consent status."
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://humi-sit-int.central.co.th/api/consent-api/status",
+        "status": 404,
+        "statusText": "Not Found",
+        "durationMs": 24,
+        "sizeBytes": 547,
+        "requestHeaders": {},
+        "responseHeaders": {
+          "server": "stgw",
+          "date": "Sat, 05 Sep 2026 06:06:32 GMT",
+          "content-type": "text/html",
+          "content-length": "547",
+          "connection": "keep-alive"
+        },
+        "responseBody": "[body omitted: 547 bytes, unrecognised format]"
+      }
+    },
+    {
+      "index": 6,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectStatus",
+      "intent": "Step 4: the consent status read succeeded, so the values below are real.",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "failed",
+      "startedAt": "2026-09-05T06:06:32.401Z",
+      "durationMs": 0,
+      "url": "https://humi-sit-int.central.co.th/humi/th/profile/me",
+      "detail": {
+        "expected": [
+          200
+        ],
+        "intent": "Step 4: the consent status read succeeded, so the values below are real.",
+        "actual": "404 Not Found"
+      },
+      "error": "expected status 200, got 404 Not Found"
+    },
+    {
+      "index": 7,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectJson",
+      "intent": "Expected 4.1: the overall status is still CONSENT_REQUIRED after steps 2 and 3.",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "failed",
+      "startedAt": "2026-09-05T06:06:32.401Z",
+      "durationMs": 1,
+      "url": "https://humi-sit-int.central.co.th/humi/th/profile/me",
+      "detail": {
+        "path": "$.status",
+        "expected": "CONSENT_REQUIRED",
+        "intent": "Expected 4.1: the overall status is still CONSENT_REQUIRED after steps 2 and 3."
+      },
+      "error": "response body is not JSON (status 404)",
+      "downstream": true
+    },
+    {
+      "index": 8,
+      "persona": "EMPLOYEE_ACCOUNT",
+      "browser": "http://127.0.0.1:9333",
+      "action": "expectJson",
+      "intent": "Expected 4.1: no consent row was recorded from steps 2 and 3 — the document is still pending. Consent tables are not among the declared DB tables, so this payload check is the closest observable proof.",
+      "selector": null,
+      "resolvedSelector": null,
+      "resolution": null,
+      "status": "failed",
+      "startedAt": "2026-09-05T06:06:32.402Z",
+      "durationMs": 0,
+      "url": "https://humi-sit-int.central.co.th/humi/th/profile/me",
+      "detail": {
+        "path": "$.pending[0]",
+        "intent": "Expected 4.1: no consent row was recorded from steps 2 and 3 — the document is still pending. Consent tables are not among the declared DB tables, so this payload check is the closest observable proof."
+      },
+      "error": "response body is not JSON (status 404)",
+      "downstream": true
+    }
+  ],
+  "defects": [
+    {
+      "id": "run-1",
+      "source": "runtime",
+      "category": "backend",
+      "severity": "high",
+      "title": "Assertion failed: expectStatus",
+      "detail": "expected status 200, got 404 Not Found",
+      "stepIndex": 6
+    },
+    {
+      "id": "run-2",
+      "source": "runtime",
+      "category": "backend",
+      "severity": "high",
+      "title": "Assertion failed: expectJson",
+      "detail": "response body is not JSON (status 404)",
+      "stepIndex": 7,
+      "occurrences": 2,
+      "stepIndexes": [
+        7,
+        8
+      ]
+    }
+  ],
+  "coverage": {
+    "url": "https://humi-sit-int.central.co.th/humi/th/profile/me",
+    "total": 15,
+    "exercised": 0,
+    "ratio": 0,
+    "untouched": [
+      {
+        "role": "button",
+        "name": "ขยายเมนู",
+        "selector": "role=button[name=\"ขยายเมนู\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "สลับโหมดมืด",
+        "selector": "role=button[name=\"สลับโหมดมืด\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ฉัน",
+        "selector": "role=tab[name=\"ฉัน\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ทีม",
+        "selector": "role=tab[name=\"ทีม\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "บุคคล",
+        "selector": "role=tab[name=\"บุคคล\"]",
+        "disabled": false
+      },
+      {
+        "role": "tab",
+        "name": "ระบบ",
+        "selector": "role=tab[name=\"ระบบ\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "ไทย",
+        "selector": "role=button[name=\"ไทย\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "EN",
+        "selector": "role=button[name=\"EN\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "กล่องข้อความเข้า",
+        "selector": "role=button[name=\"กล่องข้อความเข้า\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "การแจ้งเตือน",
+        "selector": "role=button[name=\"การแจ้งเตือน\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "เมนูบัญชี",
+        "selector": "role=button[name=\"เมนูบัญชี\"]",
+        "disabled": false
+      },
+      {
+        "role": "link",
+        "name": "ดูคำขอลาออก",
+        "selector": "role=link[name=\"ดูคำขอลาออก\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "แก้ไข",
+        "selector": "role=button[name=\"แก้ไข\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "ย่อ",
+        "selector": "role=button[name=\"ย่อ\"]",
+        "disabled": false
+      },
+      {
+        "role": "button",
+        "name": "ขยาย",
+        "selector": "role=button[name=\"ขยาย\"]",
+        "disabled": false
+      }
+    ],
+    "unattributed": []
+  },
+  "trend": {
+    "verdict": "flaky",
+    "consecutiveFailures": 3,
+    "brokenSince": "2026-09-04T17:54:20.115Z",
+    "flips": 2,
+    "sampleSize": 7,
+    "newFailures": [
+      "expectStatus:-",
+      "expectJson:-",
+      "expectJson:-"
+    ],
+    "coverageDelta": 0,
+    "message": "unstable: 2 pass/fail flips across the last 7 runs. Treat this result as unreliable until the flake is fixed."
+  },
+  "notes": [
+    "session: started from an empty context — the flow signs in itself, so the attached browser's session was deliberately not inherited",
+    "pre-run dead-end risk 42%, expected-fail risk 45% — both ≤ 50%, ran with every retry path on (Steps 1–4 target declared pages: route:src/app/[locale]/login/page.tsx, route:src/app/[locale]/consent/page.tsx and route:src/app/[locale]/profile/me/page.tsx all exist, and appshell-consent-gate.test.tsx confirms the gate redirects deep links back to /consent — the flow's navigation goals are reachable.)"
+  ],
+  "generatedBy": {
+    "model": "claude-cli:opus",
+    "generatedAt": "2026-09-05T06:01:44.783Z",
+    "sourceUrl": "https://humi-sit-int.central.co.th/humi/th/login",
+    "kind": "catalog",
+    "rationale": "272 test case(s) across 269 scenario(s)",
+    "source": "QA_Task_Tracking_Cycle1_SIT_Optimized_EC.csv",
+    "runKey": "qa-task-tracking-cycle1-sit-optimized-ec-csv@2026-09-05T06:01:44.783Z",
+    "scenario": "E2E-281",
+    "caseTitle": ""
+  },
+  "polarity": "positive",
+  "polaritySource": "inferred",
+  "error": "run completed with 3 failed:\n  FAILED: expectStatus — expected status 200, got 404 Not Found\n  FAILED: expectJson — response body is not JSON (status 404)\n  FAILED: expectJson — response body is not JSON (status 404)",
+  "caseStartedAt": "2026-09-05T06:06:15.697Z",
+  "caseDurationMs": 17553,
+  "risk": {
+    "likelihood": 0.42,
+    "failLikelihood": 0.45,
+    "threshold": 0.5,
+    "verdict": "run",
+    "reasons": [
+      "Steps 1–4 target declared pages: route:src/app/[locale]/login/page.tsx, route:src/app/[locale]/consent/page.tsx and route:src/app/[locale]/profile/me/page.tsx all exist, and appshell-consent-gate.test.tsx confirms the gate redirects deep links back to /consent — the flow's navigation goals are reachable.",
+      "Step 5 hits route:src/app/api/ec-api/detail/personal (GET declared) and step 6 hits route:src/app/api/consent-api/*path (GET declared), so no request targets an undeclared endpoint.",
+      "Risk at steps 6–7: src/lib/__tests__/consent-api.test.ts states consentApi prefixes requests with NEXT_PUBLIC_BASE_PATH; the app is served under /humi, so the bare '/api/consent-api/status' URL may 404 and the exact sub-path ('status') is nowhere confirmed — expectStatus 200 could break on plumbing rather than product behaviour.",
+      "Steps 8–9 assert $.status = CONSENT_REQUIRED and $.pending[0]; consent-store.test.ts confirms the CONSENT_REQUIRED + pending-docs concept exists but not those JSON key names, and the precondition (never-consented employee with a pending document) is stated as un-creatable by any browser step, so a stale automate01 account would contradict the claim."
+    ],
+    "missing": [
+      "The concrete consent status sub-path and response field names ($.status, $.pending) — only the catch-all /api/consent-api/*path proxy is declared",
+      "Any setup that guarantees automate01 has never consented and still has ≥1 pending document",
+      "Whether API request steps are automatically prefixed with the /humi base path"
+    ],
+    "signals": [
+      "step 4: an agent workflow step (\"Type the address https://humi-sit-int.central.co.th/humi/th/profile/me directly \") — the agent must find its own way",
+      "no background document was retrieved for this case"
+    ],
+    "model": "claude-cli:opus",
+    "at": "2026-09-05T06:06:15.664Z",
+    "inputTokens": 43467,
+    "outputTokens": 2259
+  }
+}
