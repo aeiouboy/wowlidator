@@ -383,7 +383,47 @@ export function buildCaseWorkbook(c: CatalogReportCase): WorkbookBuild {
   return { xlsx: buildZip(workbookParts(build, catalogCaseExportName(c.id).slice(0, 31))), videos, passedCases: 1 };
 }
 
-function workbookParts(build: SheetBuild, sheetName: string): ZipInput[] {
+/** The column widths of the step workbooks — Case, Step, Action, Description, Selector, Target, Result, Duration, Proof, Photo. */
+const STEP_SHEET_WIDTHS = [14, 6, 16, 44, 36, 34, 14, 10, 46, 45] as const;
+
+export interface TextWorkbookInput {
+  sheetName: string;
+  /** One sentence written alone in the first row, above the header — a rule or a headline the reader needs before the columns. */
+  preface?: string | undefined;
+  header: readonly string[];
+  rows: readonly (readonly string[])[];
+  /** Column widths, one per header column; the step sheet's when omitted. */
+  widths?: readonly number[] | undefined;
+}
+
+/**
+ * A plain text sheet through the same writer as the step workbooks — header
+ * row bold, every cell wrapped, no images, no links. What the findings
+ * export (`findings-export.ts`) is built with; at most `COLS.length` columns.
+ */
+export function buildTextWorkbook(input: TextWorkbookInput): Buffer {
+  if (input.header.length > COLS.length) {
+    throw new Error(`buildTextWorkbook: ${input.header.length} columns asked for, ${COLS.length} available`);
+  }
+  const build: SheetBuild = { rows: [], merges: [], images: [], links: [] };
+  let r = 1;
+  if (input.preface !== undefined && input.preface !== '') {
+    build.rows.push(rowXml(r, textCell(`A${r}`, input.preface, S.wrap)));
+    build.merges.push(`A${r}:${COLS[input.header.length - 1]}${r}`);
+    r += 1;
+  }
+  const cells = (values: readonly string[], style: number, row: number): string =>
+    values.map((value, i) => textCell(`${COLS[i]}${row}`, value, style)).join('');
+  build.rows.push(rowXml(r, cells(input.header, S.bold, r)));
+  r += 1;
+  for (const row of input.rows) {
+    build.rows.push(rowXml(r, cells(row.slice(0, input.header.length), S.wrap, r)));
+    r += 1;
+  }
+  return buildZip(workbookParts(build, input.sheetName.slice(0, 31), input.widths ?? STEP_SHEET_WIDTHS.slice(0, input.header.length)));
+}
+
+function workbookParts(build: SheetBuild, sheetName: string, widths: readonly number[] = STEP_SHEET_WIDTHS): ZipInput[] {
   const hasImages = build.images.length > 0;
   const xml = (body: string): Buffer => Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${body}`, 'utf8');
 
@@ -456,7 +496,6 @@ function workbookParts(build: SheetBuild, sheetName: string): ZipInput[] {
     linkXml.push(`<hyperlink ref="${link.ref}" r:id="${id}"/>`);
   }
 
-  const widths = [14, 6, 16, 44, 36, 34, 14, 10, 46, 45];
   const cols = widths
     .map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`)
     .join('');

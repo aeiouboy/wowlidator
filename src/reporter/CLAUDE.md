@@ -235,6 +235,72 @@ everything above, plus one CDP-gated test that the recording ACTUALLY PLAYS
 pass on a report whose every player spins forever, which is the bug this
 exists to fix.
 
+## Findings: the catalog report leads with N root causes (`findings.ts`, `findings-export.ts`, 2026-09-05)
+
+A run whose 70 non-passing cases shared five root causes read as 70
+independent verdicts, and 252 `never ran` rows each rendered a full section.
+`buildFindingsSummary(cases)` is the deterministic projection that leads the
+catalog report instead — under the tally, `N findings account for M of K
+non-passing cases · U unclustered`, one `<details class="finding">` per root
+cause with its title, the member case ids linked to their sections
+(`#case-<slug>`), the statuses AS SEALED counted per status, where/asked/
+offered, and the typed evidence lines of the first member. No model call, no
+I/O, no imports from the control plane; `tests/findings.test.ts` greps the two
+source files for that.
+
+**The signature is computed only from typed fields of the first
+non-superseded failing step** — `firstFailingStep`, then `signatureOf`:
+`api:<METHOD> <pathname> → <status>` from the latest `request` step before a
+failed `expectStatus`/`expectJson` (`step.request.{method,url,status}`,
+`detail.expected/actual`); `url:<expected> → <pathname(actual)>` from a failed
+`expectUrl`; `hold:<reason>/<rule>` from `ProofStep.blocked` (checked first —
+a hold is not a finding about the application); `agent:<endedBy>:<trigger> @
+<pathname(urlAfter ?? step.url)>` for a failed `workflow`, reading the
+OPTIONAL `agent.endedBy` and `agent.actions[i].listbox` fields through a
+local structural type so the module compiles and behaves with or without them
+(no trigger → the coarse `agent:workflow @ <path>`); `control:<selector> @
+<pathname>` for a dead-end or a selector no rung resolved;
+`other:<action> <selector> @ <pathname>` for a resolved control whose claim
+failed; `authoring:<first 60 chars of the reason, attempt counter removed>`
+for a bundle-less case whose reason begins `authoring refused`. **Never from
+`summary`, `error` or `reasoning`** — the same cause is worded in Thai on one
+case and English on the next, and a key built from prose splits one cause into
+as many findings as there are wordings. A case with no signature is
+`unclustered`, counted, never dropped; a case whose reason begins `depends on
+<X>` is listed under X's finding when X (or, through a bounded chain, X's own
+prerequisite) has one, marked `↳ depends on X`, and is unclustered otherwise.
+`never ran` cases are not non-passing: the report folds them into ONE
+`<details class="never-ran">` with the count on its summary line and every id
+as its own `span.nid` carrying the case anchor — nothing leaves the DOM, the
+scenario counts still speak for them, and no full section is rendered for
+them. **No status is rewritten anywhere**: a member sealed `error` reads
+`error` (`<code class="sealed">`), and the projection groups, it never
+relabels.
+
+**The export** (`findings-export.ts`) writes `<base>-findings.md` and
+`<base>-findings.xlsx` beside the HTML from `writeCatalogArtifacts`, so
+`wowlidator report` rebuilds both from the ledgers with no re-run. The
+Markdown states the severity rule at the top (`SEVERITY_RULE`: high when a
+finding covers ≥3 cases or blocks a dependency chain; medium for 1–2; low when
+every member is harness-only — a system error, a hold, an authoring refusal),
+then one section per finding with its members, the sealed statuses, evidence,
+and **steps to reproduce** drawn from the first non-dependent member's own
+flow up to the failing step, through `stepTarget` / `describeTarget` /
+`visibleDetail` so a credential the engine recorded never reaches the file — a
+value typed into a control whose selector or intent names a password is
+withheld outright (and says so) even when its key is an innocent `value`. The
+workbook goes through `buildTextWorkbook` in `excel-export.ts` (the same
+hand-written zip writer as the proof workbooks: a preface row, a bold header,
+wrapped cells) with the columns Finding · Cases · Where · Asked/Offered ·
+Evidence · Status as sealed · Suggested severity, and is read back in tests
+through `catalog/extract.ts`'s independent reader. Tests:
+`tests/findings.test.ts` (hand-built bundles for every kind, the prose-only
+difference that still clusters, the source grep, the credential that never
+appears), `tests/catalog-report.test.ts` ("findings lead the report": the exact
+count line, every member linked, `error` shown as error, 252 never-ran rows as
+one block), `tests/catalog-live-report.test.ts` (the `.md` exists after
+`writeCatalogArtifacts` over a fixture ledger).
+
 ## The target on every step (2026-09-02)
 
 `ProofStep.target` (see `src/engine/CLAUDE.md`, "The step's target") is shown
