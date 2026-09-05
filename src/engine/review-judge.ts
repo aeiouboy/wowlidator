@@ -39,6 +39,7 @@ import {
   type ModelSource,
 } from '../providers/llm-factory.js';
 import { DETERMINISM_RULES, procedure } from '../providers/prompt-discipline.js';
+import { fence, sanitizeInline } from '../providers/model-fence.js';
 import type { ProofBundle } from './proof-bundle.js';
 
 /** The bar a model ruling must clear to stand as `proved`. */
@@ -137,15 +138,21 @@ export class LlmReviewJudge implements ReviewJudge {
   }
 
   async judge(input: ReviewJudgeInput): Promise<ReviewJudgement> {
-    const lines = [`Flow: ${input.flowName}`];
+    // The pairs are page text against sheet text — both third-party, and this
+    // judge can turn a failed comparison into a pass. Fenced and bounded at
+    // assembly (`src/providers/model-fence.ts`); the bundle's own copies of
+    // `expected`/`actual` are untouched, so the verdict still cites what the
+    // page actually held.
+    const lines = [`Flow: ${sanitizeInline(input.flowName)}`];
     if (input.caseContext) {
-      lines.push('', 'THE TEST CASE (the specification\'s own wording):', input.caseContext);
+      lines.push('', 'THE TEST CASE (the specification\'s own wording):', fence('catalog', input.caseContext));
     }
     lines.push('', 'THE PAIRS THAT FAILED EXACT COMPARISON:');
     for (const [index, pair] of input.pairs.entries()) {
       lines.push(
-        `${index + 1}. ${pair.intent ? `${pair.intent} — ` : ''}expected ${JSON.stringify(pair.expected)}, ` +
-          `the page holds ${JSON.stringify(pair.actual)}`,
+        `${index + 1}. ${pair.intent ? `${sanitizeInline(pair.intent)} — ` : ''}` +
+          `expected ${JSON.stringify(sanitizeInline(pair.expected))}, ` +
+          `the page holds ${JSON.stringify(sanitizeInline(pair.actual))}`,
       );
     }
     const { object } = await generateStructuredForModel(this.#source, {

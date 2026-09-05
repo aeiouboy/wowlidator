@@ -16,6 +16,7 @@ import { CacheManager, type HealedSelectorEntry } from '../cache/cache-manager.j
 import type { RejectedHeal } from '../engine/proof-bundle.js';
 import { withQualifiedRole, withRelaxedRoleName } from '../engine/selector.js';
 import { DETERMINISM_RULES, procedure, selfCheck } from '../providers/prompt-discipline.js';
+import { fence, sanitizeInline } from '../providers/model-fence.js';
 import { formatProbeReport, probeInteractions } from '../context/page-probe.js';
 import type { HealHints, HealHintsProvider } from '../context/heal-hints.js';
 import { focusTreeText } from '../context/retriever.js';
@@ -351,15 +352,28 @@ function sameSelector(a: string, b: string): boolean {
 }
 
 export function buildUserPrompt(request: HealRequest, hints?: HealHints): string {
+  // FENCED at assembly, never at the source: the tree, the repository hints
+  // and the background slices are all third-party text, and the one thing a
+  // repair must not do is propose a selector out of a rewritten tree. Only
+  // the prompt string is sanitised — `focusTreeText` below, `selectorGrounded`
+  // and the cache all keep reading the tree as the page wrote it. The failed
+  // selector and the action are the harness's own and go in as they are.
   const lines = [
-    `Page URL: ${request.url}`,
+    `Page URL: ${sanitizeInline(request.url)}`,
     `Attempted action: ${request.action}`,
     `Failed selector: ${request.failedSelector}`,
   ];
-  if (request.failureReason) lines.push(`Why it failed: ${request.failureReason}`);
-  if (request.intent) lines.push(`Author intent: ${request.intent}`);
+  if (request.failureReason) lines.push(`Why it failed: ${sanitizeInline(request.failureReason)}`);
+  if (request.intent) lines.push(`Author intent: ${sanitizeInline(request.intent)}`);
   if (request.caseContext) {
-    lines.push(`The test case this step serves (context, not the thing to repair): ${request.caseContext}`);
+    // A block, not a folded line: this is the same `Flow.caseContext` card the
+    // agent is shown, it runs to many lines, and an inline bound would cut a
+    // long one silently. Same source label as the agent gives it, so the
+    // fencing is one thing across the roles rather than per-prompt taste.
+    lines.push(
+      'The test case this step serves (context, not the thing to repair):',
+      fence('catalog', request.caseContext),
+    );
   }
   // Advisory context, before the tree so every re-ask of this heal keeps a
   // byte-identical prefix (`rejected` alone grows between attempts). Framing
@@ -368,14 +382,14 @@ export function buildUserPrompt(request: HealRequest, hints?: HealHints): string
     lines.push(
       '',
       'What the repository declares about this page (advisory — the accessibility tree below is the page as it stands, and your candidate must come from it):',
-      hints.repoHints,
+      fence('repository', hints.repoHints),
     );
   }
   if (hints?.background) {
     lines.push(
       '',
       'Background documents matching this step (context for intent, never candidate material):',
-      hints.background,
+      fence('repository', hints.background),
     );
   }
   if (request.action === 'expectCount') {
@@ -405,9 +419,9 @@ export function buildUserPrompt(request: HealRequest, hints?: HealHints): string
     focusQuery === ''
       ? request.axTree
       : focusTreeText(request.axTree, focusQuery, HEAL_TREE_MAX_LINES).text;
-  lines.push('', 'Accessibility tree:', tree);
+  lines.push('', 'Accessibility tree:', fence('page', tree));
   if (request.interactions) {
-    lines.push('', 'Controls revealed by opening disclosures on page:', request.interactions);
+    lines.push('', 'Controls revealed by opening disclosures on page:', fence('page', request.interactions));
   }
   // The rejected list is the only part that grows between attempts; keeping it
   // after the tree leaves attempts 1-3 sharing a byte-identical prefix, which a
@@ -416,7 +430,7 @@ export function buildUserPrompt(request: HealRequest, hints?: HealHints): string
     lines.push(
       '',
       'Already tried and rejected — do NOT propose any of these again:',
-      ...request.rejected.map((entry) => `  - ${entry}`),
+      ...request.rejected.map((entry) => `  - ${sanitizeInline(entry)}`),
     );
   }
   return lines.join('\n');

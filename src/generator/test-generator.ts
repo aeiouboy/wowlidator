@@ -19,6 +19,7 @@ import { lenientObject } from '../providers/model-output.js';
 
 import { SELECTOR_SYNTAX_RULES, captureAxTree } from '../healer/jit-healer.js';
 import { DETERMINISM_RULES, procedure, selfCheck } from '../providers/prompt-discipline.js';
+import { fence, sanitizeInline } from '../providers/model-fence.js';
 import {
   LlmFactory,
   generateStructuredForModel,
@@ -325,14 +326,18 @@ control, no label — because the missing thing may simply be past the cut. Only
 report defects you can see positively stated in the nodes shown.`;
 
 function buildUserPrompt(request: GenerateRequest): string {
+  // Fenced at assembly (`src/providers/model-fence.ts`): the tree and the
+  // repository index are third-party text, and this prompt asks the model to
+  // write the tests — the one place a forged instruction would be cheapest to
+  // obey. `request.axTree` itself is untouched; only the prompt string is.
   const lines = [
-    `Page URL: ${request.url}`,
+    `Page URL: ${sanitizeInline(request.url)}`,
     `Generate at most ${request.maxCases} test cases.`,
   ];
-  if (request.focus) lines.push(`Focus area: ${request.focus}`);
-  if (request.projectContext) lines.push('', request.projectContext);
-  lines.push('', 'Accessibility tree:', request.axTree);
-  if (request.interactions) lines.push('', request.interactions);
+  if (request.focus) lines.push(`Focus area: ${sanitizeInline(request.focus)}`);
+  if (request.projectContext) lines.push('', fence('repository', request.projectContext));
+  lines.push('', 'Accessibility tree:', fence('page', request.axTree));
+  if (request.interactions) lines.push('', fence('page', request.interactions));
   // Rejection feedback last — the tree and context above stay a byte-identical
   // prefix across retries, so a provider's implicit prompt cache can bill the
   // resent capture at cache rates.
@@ -340,7 +345,7 @@ function buildUserPrompt(request: GenerateRequest): string {
     lines.push(
       '',
       'Cases from your previous attempt were REJECTED. Do not repeat these mistakes:',
-      ...request.feedback.map((entry) => `  - ${entry}`),
+      ...request.feedback.map((entry) => `  - ${sanitizeInline(entry)}`),
     );
   }
   return lines.join('\n');

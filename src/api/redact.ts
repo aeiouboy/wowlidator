@@ -317,7 +317,7 @@ export interface StepValueContext {
 export function isSecretStepValue(context: StepValueContext): boolean {
   if (context.value === '') return false;
   if (context.secretValues.has(context.value)) return true;
-  if (context.action !== 'fill' && context.action !== 'type') return false;
+  if (context.action !== 'fill' && context.action !== 'type' && context.action !== 'paste') return false;
   return (
     context.fieldIsPassword ?? looksLikeCredentialField(context.selector, context.intent)
   );

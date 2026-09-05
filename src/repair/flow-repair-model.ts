@@ -16,6 +16,7 @@ import { lenientObject } from '../providers/model-output.js';
 import { GENERATOR_ACTIONS, GeneratedStepSchema, toFlowStep } from '../generator/test-generator.js';
 import { SELECTOR_SYNTAX_RULES } from '../healer/jit-healer.js';
 import { DETERMINISM_RULES, procedure, selfCheck } from '../providers/prompt-discipline.js';
+import { fence, sanitizeInline } from '../providers/model-fence.js';
 import { LlmFactory, generateStructuredForModel, type ModelSource } from '../providers/llm-factory.js';
 import type { Flow, FlowStep } from '../engine/runner.js';
 
@@ -172,16 +173,20 @@ ${selfCheck([
 ])}`;
 
 function buildUserPrompt(request: RepairRequest): string {
+  // The tree is fenced and the page-derived one-liners are bounded
+  // (`src/providers/model-fence.ts`). The failed step and the following steps
+  // are the flow's own JSON — the harness wrote them, and rewriting them here
+  // would be rewriting the thing under repair.
   const lines = [
-    `Page URL: ${request.url}`,
+    `Page URL: ${sanitizeInline(request.url)}`,
     `Failed step (${request.section}[${request.index}]): ${JSON.stringify(request.failedStep)}`,
-    `Failure: ${request.error}`,
+    `Failure: ${sanitizeInline(request.error)}`,
     `Repair attempt: ${request.attempt}`,
   ];
   if (request.history.length > 0) {
     lines.push('', 'Earlier attempts on this same failure:');
     for (const h of request.history) {
-      lines.push(`  attempt ${h.attempt}: ${h.summary} — ${h.outcome}`);
+      lines.push(`  attempt ${h.attempt}: ${sanitizeInline(h.summary)} — ${sanitizeInline(h.outcome)}`);
     }
   }
   if (request.investigation) {
@@ -189,11 +194,11 @@ function buildUserPrompt(request: RepairRequest): string {
     lines.push(
       '',
       `Agent reinvestigation of this failure (${inv.succeeded ? 'reached its goal' : 'did not reach its goal'}):`,
-      `  ${inv.summary}`,
+      `  ${sanitizeInline(inv.summary)}`,
     );
     if (inv.actions.length > 0) {
       lines.push('  What the agent did, in order:');
-      for (const action of inv.actions) lines.push(`    - ${action}`);
+      for (const action of inv.actions) lines.push(`    - ${sanitizeInline(action)}`);
     }
   }
   if (request.followingSteps && request.followingSteps.length > 0) {
@@ -205,7 +210,7 @@ function buildUserPrompt(request: RepairRequest): string {
       lines.push(`  ${request.index + 1 + i}. ${JSON.stringify(step)}`);
     });
   }
-  lines.push('', 'Accessibility tree at the moment of failure:', request.axTree);
+  lines.push('', 'Accessibility tree at the moment of failure:', fence('page', request.axTree));
   return lines.join('\n');
 }
 

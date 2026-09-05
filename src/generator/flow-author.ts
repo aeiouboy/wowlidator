@@ -33,6 +33,7 @@ import { BACKEND_TIER_ACTIONS } from '../engine/proof-bundle.js';
 
 import { SELECTOR_SYNTAX_RULES, captureAxTree } from '../healer/jit-healer.js';
 import { DETERMINISM_RULES, procedure } from '../providers/prompt-discipline.js';
+import { fence, sanitizeInline } from '../providers/model-fence.js';
 import { withQualifiedRole, withRelaxedRoleName, withStableGreeting } from '../engine/selector.js';
 import {
   PLACEHOLDER_TOKEN,
@@ -1081,8 +1082,17 @@ Keep "notes", "rationale" and each "intent" to one or two sentences.
 
 
 export function buildUserPrompt(request: AuthorRequest): string {
-  const lines = [`Test request: ${request.prompt}`];
-  if (request.url) lines.push(`Page URL: ${request.url}`);
+  // FENCED at assembly (`src/providers/model-fence.ts`). Everything the model
+  // is shown here is third-party — a workbook row, an accessibility tree, a
+  // static index of somebody's repository — and this is the prompt that WRITES
+  // the tests, so a forged instruction inside a sheet cell would be obeyed
+  // most cheaply of all. Two things deliberately stay outside the fence: the
+  // supplied credentials and the persona lines below, whose whole contract is
+  // "use these characters exactly", and the request objects the harness itself
+  // composed. And nothing here mutates a source: the trees, the case text and
+  // the resolved values keep their own bytes everywhere else in this file.
+  const lines = ['Test request:', fence('catalog', request.prompt)];
+  if (request.url) lines.push(`Page URL: ${sanitizeInline(request.url)}`);
   // One line, next to the request it qualifies. The rules for each scope are
   // in the system prompt; this is only which of them applies to THIS test.
   if (request.scope) {
@@ -1115,7 +1125,7 @@ export function buildUserPrompt(request: AuthorRequest): string {
     lines.push(
       '',
       'DECLARED DATABASE TABLES (from the indexed schema — DB checks may use these and no others):',
-      ...request.tables.map((table) => `  ${table.name} (${table.summary})`),
+      ...request.tables.map((table) => `  ${sanitizeInline(table.name)} (${sanitizeInline(table.summary)})`),
     );
   }
   // Also its own labelled section, and the caveat is part of the label: a
@@ -1125,7 +1135,7 @@ export function buildUserPrompt(request: AuthorRequest): string {
     lines.push(
       '',
       'WHAT THE REPOSITORY DECLARES (a static index of the application code — routes, endpoints, coverage. It may lag the live page; where they disagree, the accessibility tree wins):',
-      request.projectContext,
+      fence('repository', request.projectContext),
     );
   }
   // Its own labelled section for the same reason as the two above: what the
@@ -1163,13 +1173,13 @@ export function buildUserPrompt(request: AuthorRequest): string {
         'one verdict: the sheet counts this row as one test, and so does the report.',
     );
   }
-  if (request.axTree) lines.push('', 'Accessibility tree:', request.axTree);
-  if (request.interactions) lines.push('', request.interactions);
+  if (request.axTree) lines.push('', 'Accessibility tree:', fence('page', request.axTree));
+  if (request.interactions) lines.push('', fence('page', request.interactions));
   // Last, and under a label that says which page it is. The order matters as
   // much as the label: the start page's tree is what the flow's early steps
   // are written against, and burying it under a second tree invites the model
   // to write step 1 for a page it has not navigated to yet.
-  if (request.journeyTree) lines.push('', request.journeyTree);
+  if (request.journeyTree) lines.push('', fence('page', request.journeyTree));
   // Refusal feedback goes LAST, after every byte the retry shares with the
   // first attempt: the trees and context above are then an identical prefix
   // across all three authoring attempts, which is what lets a provider's
@@ -1183,14 +1193,14 @@ export function buildUserPrompt(request: AuthorRequest): string {
       '',
       'MISTAKES ALREADY REFUSED ON OTHER ROWS OF THIS SUITE. They are not about this flow — ' +
         'they are the rules this catalog keeps breaking. Do not make them here:',
-      ...request.commonRefusals.map((entry) => `  - ${entry}`),
+      ...request.commonRefusals.map((entry) => `  - ${sanitizeInline(entry)}`),
     );
   }
   if (request.feedback?.length) {
     lines.push(
       '',
       'Your previous attempt at this flow was REFUSED. Fix exactly this — do not repeat it:',
-      ...request.feedback.map((entry) => `  - ${entry}`),
+      ...request.feedback.map((entry) => `  - ${sanitizeInline(entry)}`),
     );
   }
   if (request.feedback?.length && request.priorCases?.length) {

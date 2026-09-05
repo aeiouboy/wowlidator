@@ -159,6 +159,7 @@ import {
   BROWSER_FREE_ACTIONS,
   DB_STEP_ACTIONS,
   ProofBundleBuilder,
+  type AgentAction,
   type AgentRecord,
   type StepDecision,
   type DataCaseResult,
@@ -1101,6 +1102,89 @@ export function decisionFrom(
     actions: [...record.actions],
     resolved,
     model: record.model,
+  };
+}
+
+export function redactAgentRecord(
+  record: AgentRecord,
+  suppliedSecrets: ReadonlySet<string> = new Set<string>(),
+): AgentRecord {
+  const secrets = new Set([...suppliedSecrets].filter((value) => value !== ''));
+  for (const action of record.actions) {
+    const value = action.value;
+    if (typeof value !== 'string' || value === '') continue;
+    if (
+      isSecretStepValue({
+        action: action.action,
+        selector: action.selector ?? '',
+        value,
+        fieldIsPassword: null,
+        secretValues: suppliedSecrets,
+      })
+    ) {
+      secrets.add(value);
+    }
+  }
+
+  const ordered = [...secrets].sort((a, b) => b.length - a.length);
+  const text = (value: string): string => {
+    let safe = value;
+    for (const secret of ordered) safe = safe.replaceAll(secret, maskSecret(secret));
+    return safe;
+  };
+  const action = (value: AgentAction): AgentAction => ({
+    ...value,
+    value: typeof value.value === 'string' ? text(value.value) : value.value,
+    url: text(value.url),
+    reasoning: text(value.reasoning),
+    ...(value.error === undefined ? {} : { error: text(value.error) }),
+    ...(value.observed === undefined ? {} : { observed: text(value.observed) }),
+  });
+
+  return {
+    ...record,
+    goal: text(record.goal),
+    summary: text(record.summary),
+    actions: record.actions.map(action),
+    ...(record.observations === undefined
+      ? {}
+      : {
+          observations: record.observations.map((observation) => ({
+            ...observation,
+            text: text(observation.text),
+            url: text(observation.url),
+          })),
+        }),
+    ...(record.settledEvidence === undefined
+      ? {}
+      : { settledEvidence: text(record.settledEvidence) }),
+  };
+}
+
+export function redactStepDecision(
+  decision: StepDecision,
+  suppliedSecrets: ReadonlySet<string> = new Set<string>(),
+): StepDecision {
+  const safe = redactAgentRecord(
+    {
+      goal: decision.observed,
+      model: decision.model,
+      success: decision.resolved,
+      summary: decision.decided,
+      actions: decision.actions,
+      turns: 0,
+      maxSteps: null,
+      latencyMs: 0,
+      settledEvidence: decision.because,
+    },
+    suppliedSecrets,
+  );
+  return {
+    ...decision,
+    observed: safe.goal,
+    decided: safe.summary,
+    because: safe.settledEvidence ?? '',
+    actions: safe.actions,
   };
 }
 
@@ -4678,14 +4762,6 @@ export class SmartRunner {
       },
     };
     const record = await this.#agent.run(this.page, goal, runOptions);
-    // What the agent READ (OA-14): the observations an observe-and-record
-    // leg exists for ("บันทึกค่าที่ระบบแสดง", ~250 rows) used to ride one
-    // history line and vanish. Read optionally — the record carries them
-    // once the agent's `AgentRecord.observations` lands.
-    const observations = (
-      record as { observations?: readonly { selector: string; text: string; url: string }[] | undefined }
-    ).observations;
-    const observed = observations !== undefined && observations.length > 0 ? observations.slice(0, 12) : undefined;
     const urlAfter = this.page.url();
     const headingsAfter = await this.#headingsNow();
     const traffic = this.#networkEvidence(netMark);
@@ -4754,6 +4830,21 @@ export class SmartRunner {
     // page, so there is no answer to file against it.
     const authoringRefused = !record.success && evidence === null && personaRefusal(record.summary);
     const failed = !record.success && evidence === null;
+    const safeRecord = redactAgentRecord(record, this.#secretValues);
+    const safeEvidence =
+      evidence === null
+        ? null
+        : {
+            ...evidence,
+            reason:
+              record.summary === ''
+                ? evidence.reason
+                : evidence.reason.replaceAll(record.summary, safeRecord.summary),
+          };
+    const safeObserved =
+      safeRecord.observations !== undefined && safeRecord.observations.length > 0
+        ? safeRecord.observations.slice(0, 12)
+        : undefined;
     // F4 of docs/consent-gate-recovery-spec.md: a failure reported from a
     // page the flow never asked for names the displacement outright. The
     // measured shape: an interstitial dumped the agent elsewhere, it wandered
@@ -4794,9 +4885,10 @@ export class SmartRunner {
       durationMs: Date.now() - started,
       url: urlAfter,
       detail: {
-        goal,
+        goal: safeRecord.goal,
         turns: record.turns,
-        ...(evidence === null ? {} : { settledBy: evidence.rule, evidence: evidence.reason }),
+        ...(safeEvidence === null
+          : { settledBy: safeEvidence.rule, evidence: safeEvidence.reason }),
         // A success settled by the agent itself says how (S1): the live
         // tree's line for `observed-state`, or the bare claim — so a reader
         // can tell a proved leg from a trusted one in the report.
@@ -4804,15 +4896,15 @@ export class SmartRunner {
           ? {
               settledBy: record.settledBy,
               evidence:
-                (record.settledEvidence ?? '') +
-                (observed === undefined
+                (safeRecord.settledEvidence ?? '') +
+                (safeObserved === undefined
                   ? ''
-                  : `${record.settledEvidence ? ' | ' : ''}observed: ${observed
+                  : `${safeRecord.settledEvidence ? ' | ' : ''}observed: ${safeObserved
                       .map((o) => `${o.selector} = ${JSON.stringify(o.text.slice(0, 160))}`)
                       .join(' | ')}`),
             }
           : {}),
-        ...(observed === undefined ? {} : { observed }),
+        ...(safeObserved === undefined ? {} : { observed: safeObserved }),
         // The before/after the agent produced, as data. Headings are what a
         // person reads to know which screen they are on; the diff of them is
         // "what appeared". Capped, like every other evidence list.
@@ -4823,7 +4915,7 @@ export class SmartRunner {
         appeared: headingsAfter.filter((h) => !headingsBefore.includes(h)).slice(0, 8),
         callsMade: traffic.calls.length,
       },
-      agent: record,
+      agent: safeRecord,
       network: traffic.calls.length > 0 ? traffic.calls : undefined,
       target: agentTarget,
       screenshot: await this.#shoot(failed ? 'failure' : 'notable', agentTarget),
@@ -4846,23 +4938,23 @@ export class SmartRunner {
         'usability',
         'low',
         cause === 'wording'
-          ? `Workflow goal asks the agent to verify, which is an assertion's job: ${goal}`
+          ? `Workflow goal asks the agent to verify, which is an assertion's job: ${safeRecord.goal}`
           : cause === 'runtime'
-            ? `Workflow goal had nothing on the page for the agent to act on: ${goal}`
-            : `Workflow agent under-reported its own success: ${goal}`,
+            ? `Workflow goal had nothing on the page for the agent to act on: ${safeRecord.goal}`
+            : `Workflow agent under-reported its own success: ${safeRecord.goal}`,
         cause === 'wording'
-          ? `The agent said "${record.summary}" after ${record.turns} turn(s). ${evidence.reason} ` +
+          ? `The agent said "${safeRecord.summary}" after ${record.turns} turn(s). ${safeEvidence?.reason ?? ''} ` +
             'A workflow leg prepares the page; it cannot be the oracle, because an agent produces an ' +
             'account of itself and never evidence. Write this leg as the assertion it is ' +
             '(expectText / expectVisible on the value), and keep the agent for the navigation that ' +
             'reaches the page.'
           : cause === 'runtime'
-            ? `The agent said "${record.summary}" after ${record.turns} turn(s). ${evidence.reason} ` +
+            ? `The agent said "${safeRecord.summary}" after ${record.turns} turn(s). ${safeEvidence?.reason ?? ''} ` +
               'Confirm this leg is reachable (the right page, the content finished loading) — if it ' +
               'is, the goal likely describes reading a value rather than acting, and reads better as ' +
               'the assertion it is; if it is not, the earlier step that was meant to reach it is ' +
               'the one to fix.'
-            : `The agent said "${record.summary}" after ${record.turns} turn(s), but ${evidence.reason}. ` +
+            : `The agent said "${safeRecord.summary}" after ${record.turns} turn(s), but ${safeEvidence?.reason ?? ''}. ` +
               'The step is judged on that evidence rather than on the agent\'s account of itself. ' +
               'The turns were still paid for: narrow the goal, or replace this leg with ordinary steps.',
         undefined,
@@ -4874,7 +4966,7 @@ export class SmartRunner {
         // No defect at all. Nothing here is a claim about the application —
         // the agent never reached it.
         throw new Error(
-          `workflow agent unavailable: ${record.summary} ` +
+          `workflow agent unavailable: ${safeRecord.summary} ` +
             '(this is a SYSTEM failure — the model, not the application; no defect was filed against the app)',
         );
       }
@@ -4886,7 +4978,7 @@ export class SmartRunner {
         // failed, which is what stops a badly-worded goal being counted as a
         // broken feature.
         throw new Error(
-          `workflow goal refused: ${record.summary} ` +
+          `workflow goal refused: ${safeRecord.summary} ` +
             '(this is an AUTHORING fault — the goal names more than one person; no defect was filed against the app)',
         );
       }
@@ -4897,18 +4989,18 @@ export class SmartRunner {
         // feature: the agent may have been one click away. `high` is reserved
         // for a goal the agent actively determined it could not reach.
         exhausted ? 'medium' : 'high',
-        `Workflow goal not reached: ${goal}`,
+        `Workflow goal not reached: ${safeRecord.goal}`,
         exhausted
-          ? `${record.summary}${displaced}. The ${record.maxSteps}-turn budget ran out, which is a harness limit rather than ` +
+          ? `${safeRecord.summary}${displaced}. The ${record.maxSteps}-turn budget ran out, which is a harness limit rather than ` +
             'an application fact — nothing here says the feature is broken. Narrow the goal, or settle the ' +
             'claim with an assertion after this step.'
-          : `${record.summary}${displaced}`,
+          : `${safeRecord.summary}${displaced}`,
         undefined,
       );
-      throw new Error(`workflow agent failed: ${record.summary}`);
+      throw new Error(`workflow agent failed: ${safeRecord.summary}`);
     }
 
-    return record;
+    return safeRecord;
   }
 
   // --- Escalation ladder ---------------------------------------------------
@@ -5070,8 +5162,14 @@ export class SmartRunner {
         detail: await this.#maskValue(action, selector, intent, detail, result.resolvedSelector),
         heal: result.heal,
         dialog: result.dialog,
-        agent: result.agent,
-        decision: result.decision,
+        agent:
+          result.agent === undefined
+            ? undefined
+            : redactAgentRecord(result.agent, this.#secretValues),
+        decision:
+          result.decision === undefined
+            ? undefined
+            : redactStepDecision(result.decision, this.#secretValues),
         target,
         screenshot: await this.#shoot(
           // A heal, a dismissed dialog or an agent intervention is a passing
