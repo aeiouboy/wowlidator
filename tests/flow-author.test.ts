@@ -75,6 +75,7 @@ import {
   credentialEchoAssertions,
   switchesPersona,
   groundPersonaSwitches,
+  baseUrlOf,
 } from '../src/generator/flow-author.js';
 import { compileAuthoringRules, openQuestionIdsIn, withOverride, DEFAULT_VALUE_RULES } from '../src/generator/value-rules.js';
 import { exclusivityClaimIn, unprovedExclusivity } from '../src/generator/exclusivity.js';
@@ -411,6 +412,18 @@ describe('FlowAuthor', () => {
     // only once a DIFFERENT answer broke the same rule.
     await assert.rejects(() => author.author('another row of the same suite'));
     assert.equal(seen[2]?.commonRefusals, undefined, 'seen once, not twice — the next row starts clean');
+  });
+});
+
+describe('baseUrlOf keeps the deployment path in front of the locale', () => {
+  it('origin plus base path, or the origin alone', () => {
+    assert.equal(baseUrlOf('https://h.example/app/th/login'), 'https://h.example/app');
+    assert.equal(baseUrlOf('https://h.example/a/b/en-GB/login'), 'https://h.example/a/b');
+    assert.equal(baseUrlOf('https://h.example/th/login'), 'https://h.example', 'a locale first means no base path');
+    assert.equal(baseUrlOf('https://h.example/login'), 'https://h.example', 'no locale: nothing to anchor a base path on');
+    assert.equal(baseUrlOf('https://h.example/'), 'https://h.example');
+    assert.equal(baseUrlOf(undefined), undefined);
+    assert.equal(baseUrlOf('not a url'), undefined);
   });
 });
 

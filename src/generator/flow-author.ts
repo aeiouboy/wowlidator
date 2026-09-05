@@ -729,6 +729,11 @@ The author has already decided what to test. Express their intent faithfully as
 steps: do not redesign the test, broaden it, or add cases they did not ask for.
 If the request is narrow, the flow is narrow. Deliver the whole case, through its
 last scripted step; a flow that stops early has tested a form, not the claim.
+
+The evidence you need is in this prompt: the request, its documents, the trees
+and the repository excerpts. If a context-search tool is offered, use it at most
+twice, only for a route, table or label the evidence does not give; never to
+re-read what is already here.
 </role>
 
 ${DETERMINISM_RULES}
@@ -4061,7 +4066,7 @@ export class FlowAuthor {
     const flow: Flow = {
       name: result.name,
       ...(consentPolicy === undefined ? {} : { consentPolicy }),
-      ...(originOf(url) === undefined ? {} : { baseUrl: originOf(url) }),
+      ...(baseUrlOf(url) === undefined ? {} : { baseUrl: baseUrlOf(url) }),
       // A persona-switching flow is an end-to-end journey by construction —
       // the mark travels IN the flow file, like `polarity`, so a re-run or a
       // repair keeps it.
@@ -6947,10 +6952,24 @@ export function caseFlows(authored: AuthoredFlow): { name: string; flow: Flow }[
   }));
 }
 
-function originOf(url: string | undefined): string | undefined {
+/**
+ * The origin plus the deployment's base path — the segments in front of the
+ * locale (`https://h/humi/th/login` → `https://h/humi`). The origin alone
+ * was wrong for a base-pathed app (humi, 2026-09-05): every authored request
+ * step resolved `/api/consent-api/status` against it, hit the gateway's
+ * HTML 404 instead of the application's `/humi/api/...`, and six cases
+ * failed on a path the page itself calls successfully. A URL with no locale
+ * segment keeps the origin, as before.
+ */
+export function baseUrlOf(url: string | undefined): string | undefined {
   if (url === undefined) return undefined;
   try {
-    return new URL(url).origin;
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split('/').filter((p) => p !== '');
+    const LOCALE = /^[a-z]{2}(-[A-Za-z]{2})?$/;
+    const localeAt = parts.findIndex((part) => LOCALE.test(part));
+    const base = localeAt > 0 ? `/${parts.slice(0, localeAt).join('/')}` : '';
+    return `${parsed.origin}${base}`;
   } catch {
     return undefined;
   }

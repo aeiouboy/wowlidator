@@ -583,6 +583,26 @@ describe('browser-free api flows', () => {
     assert.equal(bundle.summary.totalSteps, 4);
   });
 
+  it('an absolute-path request keeps the base URL\'s own path', async () => {
+    // `new URL('/api/x', 'https://h/app')` drops `/app` and asks the gateway
+    // instead of the application — measured live 2026-09-05 as 27 HTML 404s
+    // on paths the page itself called successfully under its base path.
+    const flow: Flow = {
+      name: 'base-path',
+      baseUrl: `${origin}/app`,
+      steps: [
+        { action: 'request', method: 'GET', url: '/api/orders/ord_1' },
+        { action: 'request', method: 'GET', url: '/app/api/orders/ord_1', intent: 'already under the base path' },
+        { action: 'request', method: 'GET', url: `${origin}/api/orders/ord_1`, intent: 'absolute stays absolute' },
+      ],
+    };
+    const bundle = await runFlow(flow, { cdpUrl: 'http://127.0.0.1:1', historyPath: null });
+    const urls = bundle.steps.map((s) => s.request?.url);
+    assert.equal(urls[0], `${origin}/app/api/orders/ord_1`);
+    assert.equal(urls[1], `${origin}/app/api/orders/ord_1`);
+    assert.equal(urls[2], `${origin}/api/orders/ord_1`);
+  });
+
   it('still runs teardown after a failed body', async () => {
     const flow: Flow = {
       name: 'teardown-runs',

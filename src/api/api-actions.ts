@@ -108,6 +108,16 @@ function describe(error: unknown): string {
 function resolveUrl(url: string, baseUrl: string | undefined): string {
   if (!baseUrl) return url;
   try {
+    const base = new URL(baseUrl);
+    const basePath = base.pathname.replace(/\/+$/, '');
+    // A base URL that carries the deployment's path (`https://h/humi`) must
+    // keep it under an absolute-path request (`/api/x` → `/humi/api/x`):
+    // `new URL('/api/x', 'https://h/humi')` would drop it and ask the
+    // gateway instead of the application. A request that already starts
+    // with the base path, or is absolute, is left alone.
+    if (basePath !== '' && url.startsWith('/') && !url.startsWith(`${basePath}/`) && url !== basePath) {
+      return new URL(`${basePath}${url}`, base.origin).toString();
+    }
     return new URL(url, baseUrl).toString();
   } catch {
     return url;
