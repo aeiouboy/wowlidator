@@ -222,11 +222,21 @@ export function stepProof(step: ProofStep): string {
   if (how !== null) lines.push(`resolved via ${step.resolution} — ${how.label}`);
   if (step.resolvedSelector && step.resolvedSelector !== step.selector) lines.push(`resolved as ${step.resolvedSelector}`);
   if (step.heal) lines.push(`healed → ${step.heal.to} (${step.heal.strategy}, ${(step.heal.confidence * 100).toFixed(0)}%)`);
+  if (step.blocked) {
+    // The typed hold (Phase B): the one fact a sheet reader needs from this
+    // step is that it is not a finding.
+    lines.push(`held (${step.blocked.reason}, ${step.blocked.rule}) — no verdict about the application: ${step.blocked.message}`);
+  }
   if (step.agent) {
     lines.push(`agent: ${step.agent.summary ?? ''} (${step.agent.turns} turn(s))`.trim());
     // The turns that carry meaning beyond a click: what was saved for later
-    // steps and where the session ended. Every other turn is in the bundle.
+    // steps, where the session ended, and what the harness withheld. Every
+    // other turn is in the bundle.
     for (const a of step.agent.actions ?? []) {
+      if (a.outcome?.kind === 'blocked') {
+        lines.push(`agent ${a.action} held (${a.outcome.reason}): ${a.outcome.message}`);
+        continue;
+      }
       if (a.action !== 'save' && a.action !== 'signOut') continue;
       const { target: aimed, note } = describeAgentAction(a);
       lines.push(`agent ${a.action}: ${aimed}${note ? ` — ${note}` : ''}`);

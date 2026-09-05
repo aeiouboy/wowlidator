@@ -201,11 +201,17 @@ function stepDetail(step: ProofStep, budget: ShotBudget): string {
     const turns = (a.actions ?? [])
       .map((t) => {
         const { target, note } = describeAgentAction(t);
-        return `<li class="${t.ok ? 'ok' : 'no'}">${esc(t.action)} <code>${esc(target)}</code>${note ? ` <em>${esc(note)}</em>` : ''}${t.error ? ` — ${esc(t.error)}` : ''}</li>`;
+        // A held action is a hold, not a miss: the typed outcome says the
+        // harness withheld it (Phase B), and the line says so first.
+        const held = t.outcome?.kind === 'blocked' ? `<em>held · ${esc(t.outcome.reason)}</em> ` : '';
+        return `<li class="${t.ok ? 'ok' : 'no'}">${held}${esc(t.action)} <code>${esc(target)}</code>${note ? ` <em>${esc(note)}</em>` : ''}${t.error ? ` — ${esc(t.error)}` : ''}</li>`;
       })
       .join('');
     rows.push(
-      `<div class="agent"><div class="kv"><span>agent</span><span>${esc(a.summary ?? '')} (${a.turns} turn(s))</span></div>` +
+      (a.blocked === undefined
+        ? ''
+        : `<div class="kv held"><span>held</span><span>${esc(a.blocked.reason)} · ${esc(a.blocked.rule)} — no verdict about the application</span></div>`) +
+        `<div class="agent"><div class="kv"><span>agent</span><span>${esc(a.summary ?? '')} (${a.turns} turn(s))</span></div>` +
         (turns === '' ? '' : `<ol class="turns">${turns}</ol>`) +
         '</div>',
     );

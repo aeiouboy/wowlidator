@@ -41,6 +41,7 @@ import {
 } from './step-facts.js';
 import type {
   AgentRecord,
+  BlockedOutcome,
   StepDecision,
   DataCaseResult,
   DataRetryRecord,
@@ -417,6 +418,9 @@ function stepBadges(step: ProofStep, afterFailure = false): string {
     );
   }
   if (step.agent) badges.push('<span class="badge res-agent">agent takeover</span>');
+  // The harness withheld this step's mutation (Phase B): not a finding, and
+  // the badge says so before the reader opens the callout.
+  if (step.blocked) badges.push(`<span class="badge held">held · ${esc(step.blocked.reason)}</span>`);
   if (step.backendHint) badges.push('<span class="badge">visual only</span>');
   // Distinct from the takeover badge: that one says a model drove the step,
   // this one says a model was asked to JUDGE something the flow never
@@ -734,17 +738,24 @@ function decisionBlock(decision: StepDecision): string {
  */
 function agentBlock(agent: AgentRecord, stepPassed = agent.success): string {
   const failed = !agent.success && !stepPassed;
+  const held = agent.blocked !== undefined;
   const title = agent.success
     ? 'Workflow agent took over'
     : stepPassed
       ? 'Workflow agent prepared the page — the step then passed on the flow\'s own selector'
-      : 'Workflow agent took over — goal not reached';
+      : held
+        ? 'Workflow agent was held by the run\'s rules — no verdict about the application'
+        : 'Workflow agent took over — goal not reached';
+  // A held action is drawn as a hold, not as a failure: the typed outcome on
+  // the record says the harness withheld it, and the row says the same.
   const rows = agent.actions
     .map(
       (a) => `
-      <tr class="${a.ok ? '' : 'bad'}">
+      <tr class="${a.ok ? '' : a.outcome?.kind === 'blocked' ? 'held' : 'bad'}">
         <td class="num">${a.index + 1}</td>
-        <td><span class="act">${esc(a.action)}</span></td>
+        <td><span class="act">${esc(a.action)}</span>${
+          a.outcome?.kind === 'blocked' ? ` <span class="badge held">held · ${esc(a.outcome.reason)}</span>` : ''
+        }</td>
         <td>${agentTargetCell(a)}</td>
         <td class="reason-cell">${esc(a.reasoning)}${a.error ? `<div class="err">${esc(a.error)}</div>` : ''}</td>
         <td class="num">${ms(a.durationMs)}</td>
@@ -753,7 +764,7 @@ function agentBlock(agent: AgentRecord, stepPassed = agent.success): string {
     .join('');
 
   return `
-    <div class="callout agent ${failed ? 'failed' : ''}">
+    <div class="callout agent ${held ? 'held' : failed ? 'failed' : ''}">
       <div class="callout-title">${title}</div>
       <p class="goal"><span>goal</span> ${esc(agent.goal)}</p>
       <p class="reason">${esc(agent.summary)}</p>
@@ -844,6 +855,36 @@ function pageContextBlock(step: ProofStep): string {
  * "the agent says the status was Active" and "textbox "Status" held Active
  * at /en/employees/42" are different amounts of evidence.
  */
+/**
+ * The hold that ended a `workflow` leg (Phase B, 2026-09-05): which rule,
+ * why, and what the provenance ledger knew. Its own callout, above the
+ * agent trace, because the one thing a reader must take from this step is
+ * that it is NOT a finding — the application was never asked.
+ */
+function heldBlock(blocked: BlockedOutcome): string {
+  const facts = blocked.provenance;
+  return `
+    <div class="callout held">
+      <div class="callout-title">Held by the run's rules — no verdict about the application</div>
+      <p class="reason">${esc(blocked.message)}</p>
+      <dl class="kv">
+        <div><dt>reason</dt><dd>${esc(blocked.reason)}</dd></div>
+        <div><dt>rule</dt><dd><code>${esc(blocked.rule)}</code></dd></div>
+        <div><dt>category</dt><dd>${esc(blocked.category)}</dd></div>
+        ${blocked.target === null ? '' : `<div><dt>target</dt><dd><code>${esc(blocked.target)}</code></dd></div>`}
+        <div><dt>policy</dt><dd>${blocked.policySource === null ? 'none configured' : esc(blocked.policySource)}</dd></div>
+        ${
+          facts === undefined
+            ? ''
+            : `<div><dt>observed this session</dt><dd>${facts.observedThisSession.length === 0 ? 'none of the targets' : esc(facts.observedThisSession.join(', '))}</dd></div>
+        <div><dt>in the latest snapshot</dt><dd>${facts.inLatestSnapshot.length === 0 ? 'none of the targets' : esc(facts.inLatestSnapshot.join(', '))}${
+          facts.latestSnapshotAt === null ? ' (nothing captured yet)' : ` (captured ${esc(facts.latestSnapshotAt)}${facts.latestSnapshotUrl === null ? '' : ` on ${esc(facts.latestSnapshotUrl)}`})`
+        }</dd></div>`
+        }
+      </dl>
+    </div>`;
+}
+
 function observedBlock(step: ProofStep): string {
   const items = observedEvidence(step);
   if (items.length === 0) return '';
@@ -1217,6 +1258,7 @@ function stepRow(
       ${step.db ? dbBlock(step.db) : ''}
       ${step.dialog ? dialogBlock(step.dialog) : ''}
       ${step.decision ? decisionBlock(step.decision) : ''}
+      ${step.blocked ? heldBlock(step.blocked) : ''}
       ${step.agent ? agentBlock(step.agent, step.status === 'passed') : ''}
       ${observedBlock(step)}
       ${step.snapshot ? snapshotBlock(step) : ''}
@@ -1374,6 +1416,10 @@ details.replaced .attempts{margin:10px 0 0;padding:0;list-style:none;display:gri
 .callout.agent.failed .callout-title{color:var(--bad)}
 .callout.data{background:var(--cache-bg);border:1px solid color-mix(in srgb,var(--cache) 30%,transparent)}
 .callout.data .callout-title{color:var(--cache)}
+.callout.held,.callout.agent.held{background:var(--warn-bg,var(--bad-bg));border:1px solid color-mix(in srgb,var(--warn) 40%,transparent)}
+.callout.held .callout-title,.callout.agent.held .callout-title{color:var(--warn)}
+.badge.held{color:var(--warn);background:var(--warn-bg,var(--bad-bg))}
+.agent-trace tr.held td{background:color-mix(in srgb,var(--warn) 10%,transparent)}
 .prov.trend-newly-broken{border-color:var(--bad)}
 .prov.trend-flaky{border-color:var(--jit)}
 .prov.trend-newly-fixed{border-color:var(--ok)}

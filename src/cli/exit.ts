@@ -53,7 +53,10 @@ export function exitCodeFor(bundle: {
   // per-step story outranks the message regex below, which only knows the
   // handful of phrasings that were taught to it (an undeclared table, an
   // unknown variable and a refused provider all exited 1 before this).
-  if (bundle.steps !== undefined && harnessOnly(bundle as ProofBundle) !== null) {
+  if (
+    bundle.steps !== undefined &&
+    harnessOnly({ status: bundle.status, review: bundle.review, steps: bundle.steps }) !== null
+  ) {
     return EXIT.environment;
   }
   // "The browser went away mid-run" joins the attach failures: a run without
@@ -89,11 +92,13 @@ export function classifyError(error: unknown): number {
     return EXIT.usage;
   }
   if (/ENOENT|not valid JSON|Unexpected token/i.test(message)) return EXIT.usage;
+  // A mutation policy that cannot be read is a bad argument, not a bad run.
+  if (/mutation policy \(.*\) is not valid/i.test(message)) return EXIT.usage;
   // A model that cannot produce schema output is the machinery failing, not
   // the application — "regard as system failure" is the contract here: CI
   // must fix the role's routing, not file a bug against the app.
   if (
-    /could not attach to a browser|Browser context management|no API key|ConfigError|failed to produce a valid structured response|could not be asked — the provider refused|structured-output circuit is open|day's request quota|rate-limit headroom|database unavailable|network observation (?:unavailable|truncated)/i.test(
+    /could not attach to a browser|Browser context management|no API key|ConfigError|failed to produce a valid structured response|could not be asked — the provider refused|structured-output circuit is open|day's request quota|rate-limit headroom|database unavailable|network observation (?:unavailable|truncated)|workflow blocked \(/i.test(
       message,
     )
   ) {
@@ -176,7 +181,11 @@ export function neverRan(bundle: ProofBundle): string | null {
  * finding about the application, and an error step beside it must not soften
  * that verdict (`run completed with 1 failed, 2 error` stays failed).
  */
-export function harnessOnly(bundle: ProofBundle): string | null {
+export function harnessOnly(bundle: {
+  status: string;
+  review?: { verdict: 'proved' | 'failed'; at?: string | undefined } | undefined;
+  steps: ProofBundle['steps'];
+}): string | null {
   const status = effectiveStatus(bundle);
   if (isPassing(status) || status === 'needs-review') return null;
   const broken = bundle.steps.filter((step) => !step.superseded && step.status !== 'passed');
@@ -184,6 +193,13 @@ export function harnessOnly(bundle: ProofBundle): string | null {
   if (broken.length === 0) return null;
   if (broken.some((step) => step.status !== 'error')) return null;
   const first = broken[0]!;
+  // A held mutation (Phase B, 2026-09-05) is the same family with a sharper
+  // name: the harness withheld the one action that would have touched the
+  // application, on the run's own policy or provenance rules. Typed on the
+  // step, so this reads the record, never the message.
+  if (first.blocked !== undefined) {
+    return `blocked (${first.blocked.reason}, ${first.blocked.rule}) — the harness withheld the action; the application was never asked: ${first.blocked.message}`;
+  }
   const line = (first.error ?? 'runtime error').split('\n')[0]?.trim() || 'runtime error';
   return `runtime error — the harness ended this case, not the application: ${line}`;
 }

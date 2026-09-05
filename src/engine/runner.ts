@@ -84,7 +84,8 @@ import {
 import { RunHistory, analyseTrend } from '../history/run-history.js';
 import { HealFailedError, HealUnavailableError, JitHealer, captureAxTree } from '../healer/jit-healer.js';
 import type { FlowRepairModel } from '../repair/flow-repair-model.js';
-import { REVEAL_ACTIONS, WorkflowAgent, cacheAgentMemory, type AgentDbProbe, type PlanStep } from '../orchestrator/workflow-agent.js';
+import { MutationBlockedError, REVEAL_ACTIONS, WorkflowAgent, cacheAgentMemory, type AgentDbProbe, type PlanStep } from '../orchestrator/workflow-agent.js';
+import type { MutationPolicy } from '../orchestrator/mutation-policy.js';
 import { nearestRoutes, routeIsDeclared } from '../context/route-match.js';
 import { claudeCliUsage, claudeCliUsageSince, type ClaudeCliUsage } from '../providers/claude-cli.js';
 import { sessionQuotaPoint, type SessionQuotaPoint } from '../providers/claude-quota.js';
@@ -391,6 +392,14 @@ export interface SmartRunnerOptions {
    * one shot, on a shorter leash, rather than an unbounded one.
    */
   agentMaxSteps?: number | undefined;
+  /**
+   * The host's mutation policy for every `workflow` leg of this run — which
+   * categories may change the application, and which irreversible ones are
+   * pre-approved (`src/orchestrator/mutation-policy.ts`). `undefined` leaves
+   * the agent's own default (the `WOWLIDATOR_MUTATION_POLICY` manifest, else
+   * none); `null` says "none" explicitly.
+   */
+  mutationPolicy?: MutationPolicy | null | undefined;
   /**
    * Whether this run may exercise the backend at all. Default `true` — the
    * behaviour every run had before the toggle existed. `false` and no HTTP or
@@ -1731,6 +1740,8 @@ export class SmartRunner {
   readonly #agentAssist: boolean;
   /** See `SmartRunnerOptions.agentMaxSteps`. `undefined` leaves the agent's own budget alone. */
   readonly #agentMaxSteps: number | undefined;
+  /** See `SmartRunnerOptions.mutationPolicy`. `undefined` leaves the agent's own default alone. */
+  readonly #mutationPolicy: MutationPolicy | null | undefined;
   /** Whether this run may exercise the backend at all — see `assertBackendAllowed`. */
   readonly #backend: boolean;
   /** What the application's repository declares — see `RouteNotFoundError`. */
@@ -1922,6 +1933,7 @@ export class SmartRunner {
     if (this.#dbBaselineProbe !== null) this.bundle.setDbBaseline(this.#dbBaselineProbe.summary());
     this.#agentAssist = options.agentAssist ?? false;
     this.#agentMaxSteps = options.agentMaxSteps;
+    this.#mutationPolicy = options.mutationPolicy;
     this.#backend = options.backend ?? true;
     this.#declaredRoutes = options.declaredRoutes ?? [];
     this.#deploymentUrl = options.deploymentUrl;
@@ -4757,6 +4769,7 @@ export class SmartRunner {
       ...(script === undefined ? {} : { script }),
       ...(this.#agentDbProbe() ?? {}),
       ...(this.#agentMaxSteps === undefined ? {} : { maxSteps: this.#agentMaxSteps }),
+      ...(this.#mutationPolicy === undefined ? {} : { mutationPolicy: this.#mutationPolicy }),
       saveVariable: (name: string, value: string): void => {
         this.variables.set(name, value);
         this.bundle.note(`workflow: saved {{${name}}} = ${JSON.stringify(value.slice(0, 120))} from the page`);
@@ -4776,7 +4789,13 @@ export class SmartRunner {
     //
     // The page is asked first. Only when it has nothing to say does the
     // agent's own account stand.
-    let evidence = record.success ? null : goalEvidence(goal, urlBefore, urlAfter);
+    // **A held leg is judged by nobody** (Phase B). The agent ended on a
+    // policy, provenance or approval hold: the application was never asked,
+    // so neither the page's evidence nor the agent's account can settle it.
+    // It is recorded as `error` with the typed hold on the step, files no
+    // defect, and the case scores blocked — no verdict, not a red one.
+    const blocked = !record.success ? (record.blocked ?? null) : null;
+    let evidence = record.success || blocked !== null ? null : goalEvidence(goal, urlBefore, urlAfter);
     // **A goal that only asks to LOOK is the assertion's job, and the agent's
     // failure at it is not a fact about the application.** The agent's
     // contract here is prepare-never-perform; a "verify X shows Y" leg asks
@@ -4801,7 +4820,7 @@ export class SmartRunner {
     // scrolled five times finding nothing to press, and was recorded
     // stalled with a high defect. A stronger model does not fix a goal that
     // was never actionable; only reading the runtime evidence does.
-    const deferred = evidence === null && !record.success && verificationOnlyGoal(goal);
+    const deferred = evidence === null && blocked === null && !record.success && verificationOnlyGoal(goal);
     if (deferred) {
       evidence = {
         rule: 'verification-deferred',
@@ -4810,7 +4829,7 @@ export class SmartRunner {
           `the agent's own account (${record.summary}) is not evidence either way, and the ` +
           'checks that follow this step are what settle the claim',
       };
-    } else if (evidence === null && !record.success && record.lookedOnly === true) {
+    } else if (evidence === null && blocked === null && !record.success && record.lookedOnly === true) {
       evidence = {
         rule: 'verification-deferred',
         reason:
@@ -4859,7 +4878,7 @@ export class SmartRunner {
     // different origin or pathname is displacement; a query or hash change
     // is named neutrally.
     const displaced =
-      failed && !providerFailed && !authoringRefused && differentPage(urlBefore, urlAfter)
+      failed && !providerFailed && !authoringRefused && blocked === null && differentPage(urlBefore, urlAfter)
         ? ` — note: the agent ended on ${urlAfter}, not the page this step began on (${urlBefore}); ` +
           'the control it reported on may exist on the original page'
         : failed && !providerFailed && !authoringRefused && urlAfter !== urlBefore
@@ -4881,7 +4900,8 @@ export class SmartRunner {
       // system-error family — never `failed`, which files the subject.
       // Live (be100 PL_02_08/09, 2026-08-28): an open circuit breaker was
       // scored as two red test failures.
-      status: failed ? (providerFailed || authoringRefused ? 'error' : 'failed') : 'passed',
+      // A held leg is the same family: the harness withheld the action.
+      status: failed ? (providerFailed || authoringRefused || blocked !== null ? 'error' : 'failed') : 'passed',
       startedAt,
       durationMs: Date.now() - started,
       url: urlAfter,
@@ -4889,6 +4909,7 @@ export class SmartRunner {
         goal: safeRecord.goal,
         turns: record.turns,
         ...(safeEvidence === null
+          ? {}
           : { settledBy: safeEvidence.rule, evidence: safeEvidence.reason }),
         // A success settled by the agent itself says how (S1): the live
         // tree's line for `observed-state`, or the bare claim — so a reader
@@ -4917,10 +4938,17 @@ export class SmartRunner {
         callsMade: traffic.calls.length,
       },
       agent: safeRecord,
+      // The typed hold, lifted onto the step so no reader has to open the
+      // agent record to learn that this is not a finding.
+      ...(blocked === null ? {} : { blocked }),
       network: traffic.calls.length > 0 ? traffic.calls : undefined,
       target: agentTarget,
       screenshot: await this.#shoot(failed ? 'failure' : 'notable', agentTarget),
-      error: failed ? `${record.summary}${displaced}` : undefined,
+      error: failed
+        ? blocked === null
+          ? `${safeRecord.summary}${displaced}`
+          : `workflow blocked (${blocked.reason}, ${blocked.rule}): ${blocked.message}`
+        : undefined,
     });
 
     if (evidence !== null) {
@@ -4963,6 +4991,18 @@ export class SmartRunner {
     }
 
     if (failed) {
+      if (blocked !== null) {
+        // No defect, and no application verdict: the harness held the one
+        // action that would have touched the application. The error is
+        // typed (`MutationBlockedError`) so the step loop files it as
+        // `error`, reconstruction does not try to rewrite its way past a
+        // policy, and the suite scores the case blocked.
+        throw new MutationBlockedError(
+          blocked,
+          `workflow blocked (${blocked.reason}, ${blocked.rule}): ${blocked.message} ` +
+            '(the harness withheld this action on its mutation policy or provenance rules — the application was never asked; no defect was filed against the app)',
+        );
+      }
       if (providerFailed) {
         // No defect at all. Nothing here is a claim about the application —
         // the agent never reached it.
@@ -8446,7 +8486,11 @@ function classifyStepFailure(action: string, error: unknown): StepIssue['kind'] 
       error.name === 'FixtureMissingError' ||
       error.name === 'PersonaUnknownError' ||
       // A persona's own Chrome that answers nothing: the machine's problem.
-      error.name === 'PersonaBrowserUnavailableError')
+      error.name === 'PersonaBrowserUnavailableError' ||
+      // A mutation the run's own policy or provenance rules withheld
+      // (2026-09-05): the application was never asked, so nothing about it
+      // is established either way.
+      error.name === 'MutationBlockedError')
   ) {
     return 'error';
   }
@@ -8546,7 +8590,9 @@ function reconstructionFutile(error: unknown): boolean {
       error.name === 'FixtureMissingError' ||
       error.name === 'PersonaUnknownError' ||
       // Nor start a Chrome.
-      error.name === 'PersonaBrowserUnavailableError')
+      error.name === 'PersonaBrowserUnavailableError' ||
+      // Nor grant a run a mutation its policy denies, nor make a row observed.
+      error.name === 'MutationBlockedError')
   ) {
     return true;
   }
@@ -9419,6 +9465,8 @@ export interface RunFlowOptions {
   agentAssist?: boolean | undefined;
   /** See `SmartRunnerOptions.agentMaxSteps`. */
   agentMaxSteps?: number | undefined;
+  /** See `SmartRunnerOptions.mutationPolicy`. */
+  mutationPolicy?: MutationPolicy | null | undefined;
   /**
    * Whether this run may exercise the backend at all. Default `true` — the
    * behaviour every run had before the toggle existed. `false` and no HTTP or
@@ -9949,6 +9997,7 @@ export async function runFlow(
       captureDelayMs: options.captureDelayMs,
       agentAssist: options.agentAssist,
       agentMaxSteps: options.agentMaxSteps,
+      mutationPolicy: options.mutationPolicy,
       // Forwarded explicitly, like everything else here. `connect` takes a
       // fresh object rather than this one, so a field added to
       // `RunFlowOptions` and not listed here reaches the runner as undefined

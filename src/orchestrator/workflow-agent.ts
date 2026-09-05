@@ -60,13 +60,24 @@ import {
   type MenuSegment,
   type Reactivation,
 } from './agent-guards.js';
+import {
+  IRREVERSIBLE_CATEGORIES,
+  TargetProvenance,
+  controlNameFromAriaSnapshot,
+  gateMutation,
+  mutationCategoryFromName,
+  mutationCategoryOf,
+  mutationPolicyFromEnv,
+  type ApproveMutation,
+  type MutationPolicy,
+} from './mutation-policy.js';
 import { normaliseAgentSelector } from '../engine/selector.js';
 import {
   LlmFactory,
   generateStructuredForModel,
   type ModelSource,
 } from '../providers/llm-factory.js';
-import type { AgentAction, AgentRecord } from '../engine/proof-bundle.js';
+import type { ActionOutcome, AgentAction, AgentRecord, BlockedOutcome } from '../engine/proof-bundle.js';
 import {
   anyValueAppears,
   atGoalDestination,
@@ -954,10 +965,24 @@ export interface WorkflowAgentOptions {
   humanize?: boolean | undefined;
   /** Remembered solutions; see `AgentMemory`. A run passes the cache-backed one per call. */
   memory?: AgentMemory | undefined;
+  /**
+   * The host's mutation policy for every run of this instance (Phase B, see
+   * `src/orchestrator/mutation-policy.ts`). Defaults to what
+   * `WOWLIDATOR_MUTATION_POLICY` names, else none. Without a manifest,
+   * capability is unrestricted but an irreversible action still requires
+   * the host's explicit approval hook.
+   */
+  mutationPolicy?: MutationPolicy | null | undefined;
+  /** The host's explicit approval for an irreversible action a policy does not pre-approve. */
+  approveMutation?: ApproveMutation | undefined;
 }
 
 export interface RunOptions {
   memory?: AgentMemory | undefined;
+  /** A per-run mutation policy; wins over the instance's. `null` means "none" explicitly. */
+  mutationPolicy?: MutationPolicy | null | undefined;
+  /** A per-run approval hook; wins over the instance's. */
+  approveMutation?: ApproveMutation | undefined;
   /**
    * A per-call turn ceiling, tighter than the instance's own `maxSteps`
    * (`WorkflowAgentOptions.maxSteps` / `DEFAULT_AGENT_MAX_STEPS`) — never
@@ -1230,6 +1255,21 @@ export class WorkflowAgent {
   readonly #allowedOrigins: string[] | undefined;
   readonly #onAction: ((page: Page, action: AgentAction) => Promise<void>) | undefined;
   readonly #memory: AgentMemory | undefined;
+  /** The instance-wide policy and approval hook; a run may override either. */
+  readonly #defaultPolicy: MutationPolicy | null;
+  readonly #defaultApprove: ApproveMutation | undefined;
+  /** This run's policy and hook — set at the top of `run()`. */
+  #policy: MutationPolicy | null = null;
+  #approve: ApproveMutation | undefined = undefined;
+  /**
+   * What this run has observed, fed only from the accessibility captures the
+   * loop itself makes (`#captureTree`). Reset at the top of `run()`.
+   */
+  readonly #provenance = new TargetProvenance();
+  /** The hold `#act` last raised, consumed once into the next record (like `#lastObserved`). */
+  #lastBlocked: BlockedOutcome | null = null;
+  /** The hold this run ENDED on, read into `WorkflowResult.blocked`. */
+  #blocked: BlockedOutcome | null = null;
 
   constructor(options: WorkflowAgentOptions) {
     this.model = options.model;
@@ -1244,6 +1284,10 @@ export class WorkflowAgent {
     this.#onAction = options.onAction;
     this.#memory = options.memory;
     this.#humanize = options.humanize ?? false;
+    // `null` given explicitly means "no manifest, and do not read the env".
+    // Irreversible actions still require the explicit approval hook.
+    this.#defaultPolicy = options.mutationPolicy === undefined ? mutationPolicyFromEnv() : options.mutationPolicy;
+    this.#defaultApprove = options.approveMutation;
   }
 
   /**
@@ -1260,6 +1304,13 @@ export class WorkflowAgent {
     // whether or not it was.
     this.#lookedOnly = false;
     this.#settledBy = null;
+    // A new leg has seen nothing yet. The previous leg's rows, and the
+    // previous case's, are not this one's provenance.
+    this.#provenance.reset();
+    this.#blocked = null;
+    this.#lastBlocked = null;
+    this.#policy = runOptions.mutationPolicy === undefined ? this.#defaultPolicy : runOptions.mutationPolicy;
+    this.#approve = runOptions.approveMutation ?? this.#defaultApprove;
     const memory = runOptions.memory ?? this.#memory;
     // What this run may do at all: `readOnly` is the strictest form, an
     // explicit set is the middle ground (the reveal pass), absent is the full
@@ -1424,7 +1475,7 @@ export class WorkflowAgent {
     // turns having found the dialog the goal asked for already open — the
     // authored step before them had opened it. Asking the tree first turns
     // that whole leg into a lookup.
-    const showing = goalAlreadyShowing(goal, await captureAxNodes(page, Number.MAX_SAFE_INTEGER));
+    const showing = goalAlreadyShowing(goal, await this.#captureTree(page));
     if (showing !== null) {
       history.push(`(the goal's own surface "${showing}" is already showing; nothing to do)`);
       return this.#result(
@@ -1520,7 +1571,7 @@ export class WorkflowAgent {
       // Goal-focused: the nodes the goal names survive the budget cut. The
       // FULL tree is rendered too (bytes, never tokens — it is not sent to
       // the model): the judges and the wizard hint read it (OA-3, OA-11).
-      const all = await captureAxNodes(page, Number.MAX_SAFE_INTEGER);
+      const all = await this.#captureTree(page);
       const fullTree = renderTree(all, all.length);
       this.#lastTree = fullTree;
       treeKey = createHash('sha1').update(fullTree).digest('hex');
@@ -1610,15 +1661,27 @@ export class WorkflowAgent {
           if (refusal.startsWith('destructive') || refusal.startsWith('circling')) {
             // Never acted on, however the model insists: recorded as a
             // failed action so the report shows what was refused and why,
-            // and the turn counts as no progress — the run goes on, because
-            // the right row may still be found (or `fail` said honestly).
+            // then ended as a hold rather than a product verdict.
             // `circling` (the same selector clicked or pressed past
             // TOGGLE_CLICK_LIMIT) shares the shape: acting would spend the
             // turn re-learning what three earlier activations already proved.
-            actions.push(this.#record(actions.length, candidate, page.url(), false, 0, refusal));
+            // Typed as a `guardrail` hold (Phase B): the harness withheld
+            // it, the application was never touched, and a reader of the
+            // record must not have to parse the prefix to learn that.
+            const blocked: BlockedOutcome = {
+              kind: 'blocked',
+              reason: 'guardrail',
+              rule: refusal.startsWith('destructive') ? 'destructive-unscoped' : 'circling',
+              message: refusal,
+              category: refusal.startsWith('destructive') ? 'delete' : 'ordinary',
+              target: null,
+              policySource: this.#policy?.source ?? null,
+            };
+            actions.push(this.#record(actions.length, candidate, page.url(), false, 0, refusal, undefined, blocked));
             history.push(`${candidate.action} ${candidate.selector} — REFUSED: ${refusal}`);
-            refusedTurn = true;
-            break;
+            this.#blocked = blocked;
+            summary = `agent blocked (${blocked.reason}): ${blocked.message}`;
+            return this.#result(goal, false, summary, actions, turns, startedMs, inputTokens, outputTokens, effectiveMaxSteps);
           }
           if (candidate.action === 'finish') {
             // An unverified finish is recorded as one — never as success.
@@ -1731,7 +1794,7 @@ export class WorkflowAgent {
         if (q > 0) {
           if (current.action === 'finish' || current.action === 'fail') break;
           const liveTree = renderTree(
-            focusTree(await captureAxNodes(page, Number.MAX_SAFE_INTEGER), goal, this.#maxAxNodes),
+            focusTree(await this.#captureTree(page), goal, this.#maxAxNodes),
             0,
           );
           if (current.selector !== '' && selectorGrounded(current.selector, liveTree) === false) {
@@ -1912,6 +1975,17 @@ export class WorkflowAgent {
             `enumerated twice, ${WAIT_SETTLE_MS} ms apart, so the page cannot satisfy this pair`;
           stopped = true;
         }
+        // **A held mutation ends the leg, as a hold.** The policy does not
+        // change with another model turn, an unobserved row is not made
+        // observed by insisting, and an approval cannot be talked into
+        // existence — so the loop stops here and the record says why. The
+        // step then scores as no verdict (the runner's `blocked` branch),
+        // never as the application failing.
+        if (record.outcome?.kind === 'blocked') {
+          this.#blocked = record.outcome;
+          summary = `agent blocked (${record.outcome.reason}): ${record.outcome.message}`;
+          stopped = true;
+        }
         if (!ok) break;
       }
       if (arrived || stopped) break;
@@ -1952,7 +2026,7 @@ export class WorkflowAgent {
       });
       if (!advanced && repeatedActivation && treeKey !== null && treeChangeCredits < AGENT_TREE_CHANGE_CREDITS) {
         await page.waitForLoadState('networkidle', { timeout: NETWORK_SETTLE_MS }).catch(() => undefined);
-        if (treeKeyOf(await captureAxNodes(page, Number.MAX_SAFE_INTEGER)) !== treeKey) {
+        if (treeKeyOf(await this.#captureTree(page)) !== treeKey) {
           advanced = true;
           treeChangeCredits += 1;
         }
@@ -2006,7 +2080,7 @@ export class WorkflowAgent {
           // returned, past an immediate capture. One settle and one beat.
           await page.waitForLoadState('networkidle', { timeout: NETWORK_SETTLE_MS }).catch(() => undefined);
           await page.waitForTimeout(LOOK_SETTLE_MS).catch(() => undefined);
-          if (treeKeyOf(await captureAxNodes(page, Number.MAX_SAFE_INTEGER)) !== treeKey) {
+          if (treeKeyOf(await this.#captureTree(page)) !== treeKey) {
             advanced = true;
             treeChangeCredits += 1;
             history.push('(the page rendered more after that look — keep looking only while each look shows more)');
@@ -2104,7 +2178,7 @@ export class WorkflowAgent {
       const step = steps[i]!;
       const decision: AgentDecision = { ...step, reasoning: 'replayed from an earlier run that reached this goal' };
       if (step.selector !== '') {
-        const tree = renderTree(focusTree(await captureAxNodes(page, Number.MAX_SAFE_INTEGER), goal, this.#maxAxNodes), 0);
+        const tree = renderTree(focusTree(await this.#captureTree(page), goal, this.#maxAxNodes), 0);
         if (selectorGrounded(step.selector, tree) === false) {
           actions.push(this.#record(actions.length, decision, page.url(), false, 0, 'not in the tree on this run'));
           return i;
@@ -2228,7 +2302,7 @@ export class WorkflowAgent {
     // A link in the tree that points exactly where the goal ends IS the
     // route the goal describes, so it is clicked as written — the one thing
     // the tree says with no judgment involved.
-    const nodes = destination === null ? [] : await captureAxNodes(page, Number.MAX_SAFE_INTEGER);
+    const nodes = destination === null ? [] : await this.#captureTree(page);
     const link =
       destination === null
         ? undefined
@@ -2336,12 +2410,32 @@ export class WorkflowAgent {
       ...(this.#lookedOnly ? { lookedOnly: true } : {}),
       ...(success && this.#settledBy !== null ? { settledBy: this.#settledBy.rule, settledEvidence: this.#settledBy.evidence } : {}),
       ...(this.#observations.length > 0 ? { observations: [...this.#observations] } : {}),
+      ...(!success && this.#blocked !== null ? { blocked: this.#blocked } : {}),
     };
+  }
+
+  /**
+   * Capture the page's accessibility nodes AND tell the provenance ledger (`#captureTree`).
+   * The one way the class reads the tree, so every judge, every grounding
+   * check and the mutation gate see the same capture — and the ledger is
+   * fed by harness observation alone.
+   */
+  async #captureTree(page: Page): Promise<AxNode[]> {
+    const nodes = await captureAxNodes(page, Number.MAX_SAFE_INTEGER);
+    this.#provenance.observe(nodes, page.url());
+    return nodes;
+  }
+
+  /** The hold the last `#act` raised, consumed once into its record. */
+  #takeBlocked(): BlockedOutcome | undefined {
+    const blocked = this.#lastBlocked;
+    this.#lastBlocked = null;
+    return blocked ?? undefined;
   }
 
   /** The whole live tree, rendered with no truncation marker — for the judges, never the model. */
   async #fullTree(page: Page): Promise<string> {
-    const nodes = await captureAxNodes(page, Number.MAX_SAFE_INTEGER);
+    const nodes = await this.#captureTree(page);
     return renderTree(nodes, nodes.length);
   }
 
@@ -2376,7 +2470,7 @@ export class WorkflowAgent {
     const MENU_ROLES = new Set(['tab', 'button', 'link', 'menuitem', 'treeitem']);
     for (let i = 0; i < path.length; i += 1) {
       const segment = path[i]!;
-      const nodes = await captureAxNodes(page, Number.MAX_SAFE_INTEGER);
+      const nodes = await this.#captureTree(page);
       let best: { node: AxNode; score: 1 | 2 } | null = null;
       for (const node of nodes) {
         if (!MENU_ROLES.has(node.role) || node.name === '') continue;
@@ -2505,6 +2599,34 @@ export class WorkflowAgent {
   }
 
   async #act(page: Page, decision: AgentDecision, allowed: string[]): Promise<void> {
+    // **Every mutation passes the gate before the browser is touched.** This
+    // is the one choke point every path shares — the model's decision, its
+    // planned follow-ups, a replayed script, the menu walker — so a policy,
+    // provenance or approval rule cannot be bypassed by arriving from a
+    // different rung. Only a click or a targeted press can be a governed
+    // mutation; everything else returns from the gate at once. For an
+    // irreversible category the tree is re-read HERE, so "the latest
+    // snapshot" is the page as it is at the moment of the click, not as it
+    // was when the turn began.
+    if ((decision.action === 'click' || decision.action === 'press') && decision.selector !== '') {
+      const observedControlName = await page.locator(decision.selector).first()
+        .ariaSnapshot({ timeout: Math.min(TARGET_ATTACH_MS, this.#actionTimeoutMs) })
+        .then(controlNameFromAriaSnapshot)
+        .catch(() => null);
+      const held = await gateMutation({
+        decision,
+        goal: this.#goal,
+        url: page.url(),
+        policy: this.#policy,
+        provenance: await this.#provenanceForGate(page, decision, observedControlName),
+        observedControlName,
+        approve: this.#approve,
+      });
+      if (held !== null) {
+        this.#lastBlocked = held;
+        throw new MutationBlockedError(held);
+      }
+    }
     switch (decision.action) {
       case 'click':
         if (!decision.selector) throw new Error('click decision carried no selector');
@@ -3088,7 +3210,13 @@ export class WorkflowAgent {
     durationMs: number,
     error?: string,
     observed?: string,
+    blocked?: BlockedOutcome,
   ): ObservedAgentAction {
+    // The typed outcome beside the boolean: a hold raised by `#act` (consumed
+    // here, once), or one the caller names (a guardrail refusal that never
+    // reached `#act`); else ok / failed.
+    const hold = blocked ?? this.#takeBlocked();
+    const outcome: ActionOutcome = ok ? { kind: 'ok' } : hold !== undefined ? hold : { kind: 'failed', message: error ?? '' };
     return {
       index,
       action: decision.action,
@@ -3103,7 +3231,34 @@ export class WorkflowAgent {
       // it once the idle around it is dropped (`ProofBundleBuilder.videoMoments`).
       finishedAt: new Date().toISOString(),
       ...(observed === undefined ? {} : { observed }),
+      outcome,
     };
+  }
+
+  /**
+   * The ledger as it must be read by the gate: refreshed from the live page
+   * when the decision is an irreversible mutation, because the turn's own
+   * capture may predate a planned follow-up or a replayed step. Ordinary
+   * clicks pay nothing — the gate returns before it reads the ledger.
+   */
+  async #provenanceForGate(page: Page, decision: AgentDecision, observedControlName: string | null): Promise<TargetProvenance> {
+    const category = mutationCategoryFromName(observedControlName ?? '') ?? mutationCategoryOf(decision);
+    if (category !== null && IRREVERSIBLE_CATEGORIES.has(category)) await this.#captureTree(page);
+    return this.#provenance;
+  }
+}
+
+/**
+ * Thrown by `#act` when the mutation gate holds an action. Carries the typed
+ * outcome so the record — and the runner, which re-throws its own with the
+ * same name — never has to reconstruct it from the message.
+ */
+export class MutationBlockedError extends Error {
+  readonly blocked: BlockedOutcome;
+  constructor(blocked: BlockedOutcome, message = `blocked (${blocked.reason}): ${blocked.message}`) {
+    super(message);
+    this.name = 'MutationBlockedError';
+    this.blocked = blocked;
   }
 }
 

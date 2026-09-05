@@ -322,3 +322,57 @@ branches on it beside the provider refusal, records the step `error`, files **no
 defect**, and throws a message naming the fix. Like `agentModelUnavailable`, it
 can only be true of a summary produced by a return that happens before turn 1,
 so it can never change the outcome of a leg that actually ran.
+
+## Action authority: the mutation gate, the provenance ledger, and `blocked` (Phase B, 2026-09-05)
+
+Phase B of `docs/research/commerce-agents-patterns.md`. The loop refused an
+unscoped destructive click since PL_03_18, but three things were still missing:
+an identifier in the goal was taken as proof the session had seen the row; a
+batch had no way to say which categories of change it permits; and a refusal
+was an `ok: false` with a prefix in `error`, which every reader had to parse to
+learn that the application was never touched. All three live in
+`mutation-policy.ts` (pure) and one choke point in the loop.
+
+- **`ActionOutcome` on every `AgentAction`** (`engine/proof-bundle.ts`): `ok`,
+  `failed`, or `blocked` with a machine-readable `reason`
+  (`capability | provenance | approval | guardrail`), `rule`, `category`,
+  `target`, `policySource` and, for a provenance hold, the ledger's facts. The
+  boolean `ok` and the `error` string stay for every reader that predates it.
+  The existing destructive-scope and circling refusals are typed `guardrail`
+  and end the leg as blocked.
+- **`TargetProvenance`** is fed by `#captureTree` — the ONE way the class reads
+  the accessibility tree — and by nothing else: not the goal, not the model's
+  reasoning, not the selector it emitted. Reset at the top of every `run()`. A
+  `delete`/`approve` click must scope to identifiers that were observed this
+  session AND are in the latest capture, which the gate re-reads at the moment
+  of the click (`#provenanceForGate`), so a row that scrolled away, was
+  filtered out, or was already deleted is never acted on because it was once
+  on screen.
+- **`MutationPolicy`** is the host's manifest (`WOWLIDATOR_MUTATION_POLICY`,
+  `WorkflowAgentOptions.mutationPolicy`, `RunOptions.mutationPolicy`,
+  `SmartRunnerOptions.mutationPolicy`): `allow` (exhaustive when present),
+  `deny` (wins), `approved` entries for the irreversible categories, and an
+  `approveMutation` hook for the host's explicit yes. Categories are read off
+  the accessible name of the control the click lands on (`mutationCategoryOf`:
+  `delete`, `approve`, `submit`); everything else is ordinary and never gated.
+  Without a policy manifest, provenance is enforced, capability is
+  unrestricted, and an irreversible action still requires the host's explicit
+  approval hook. Goal text and model output can never supply that approval.
+- **The gate runs inside `#act`**, before the browser is touched, so a planned
+  follow-up, a replayed script and the menu walker all pass it. A held
+  mutation is terminal for the leg (`WorkflowResult.blocked`): another model
+  turn does not change a policy, insisting does not make a row observed, and
+  an approval cannot be talked into existence. The runner records the step
+  `error` with `ProofStep.blocked`, files **no defect**, throws
+  `MutationBlockedError` (an `error` in `classifyStepFailure`, futile for
+  reconstruction), `harnessOnly` names it `blocked (reason, rule)`, and the
+  case scores blocked — exit 3, never 1. The report shows a "Held by the
+  run's rules" callout, the panel a `HELD (…)` line.
+
+Tests: `tests/mutation-policy.test.ts` — the gate, the ledger and the manifest
+parser (pure), and the loop under a scripted model on a real page (CDP): an
+unobserved id, a row that vanished, an observed row under an approving policy,
+a denied category, a missing approval, the host's yes, an ordinary journey
+under the strictest policy, and a `runFlow` whose held leg is an error with no
+defect and a held report.
+

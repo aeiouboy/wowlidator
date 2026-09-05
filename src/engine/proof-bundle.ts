@@ -392,7 +392,83 @@ export interface AgentAction {
    * and without this the observation existed only inside the turn that made it.
    */
   observed?: string | undefined;
+  /**
+   * The typed outcome (2026-09-05, Phase B of the commerce-agents research):
+   * `ok`, `failed`, or `blocked` — an action the HARNESS withheld on a
+   * policy, provenance or approval rule, never acted on. `ok`/`error` stay as
+   * they were for every reader that predates this; a blocked action is
+   * `ok: false` with the reason in `error` AND this record, so nothing has
+   * to parse a message to learn that no verdict about the application was
+   * produced. Absent on records written before the field existed.
+   */
+  outcome?: ActionOutcome | undefined;
 }
+
+/**
+ * The categories of page mutation a run's policy governs. Read off the
+ * accessible name of the control a click lands on (`mutationCategoryOf` in
+ * `src/orchestrator/mutation-policy.ts`): `delete` for the destructive
+ * verbs, `approve` for approve/reject, `submit` for a form's commit. Every
+ * other action is ordinary and is never gated.
+ */
+export type MutationCategory = 'submit' | 'delete' | 'approve';
+
+/**
+ * Why the harness held an action.
+ *  - `capability` — the run's mutation policy denies (or does not allow) the category;
+ *  - `provenance` — the target was never observed in this session, or is not in the latest snapshot;
+ *  - `approval` — an irreversible action with no host approval and no pre-approved manifest entry;
+ *  - `guardrail` — a deterministic loop guard (an unscoped destructive click, a circling control).
+ */
+export type BlockedReason = 'capability' | 'provenance' | 'approval' | 'guardrail';
+
+/** The machine-readable rule behind a `blocked` outcome. */
+export type BlockedRule =
+  | 'policy-deny'
+  | 'policy-allow-list'
+  | 'target-never-observed'
+  | 'target-not-in-latest-snapshot'
+  | 'approval-missing'
+  | 'approval-refused'
+  | 'destructive-unscoped'
+  | 'circling';
+
+/** What the provenance ledger knew when a mutation was gated. */
+export interface ProvenanceFacts {
+  /** The identifiers the gate looked for — the row/record the selector scopes to. */
+  targets: string[];
+  /** Those observed at some point this session, from harness-captured page state. */
+  observedThisSession: string[];
+  /** Those present in the latest observed snapshot. */
+  inLatestSnapshot: string[];
+  /** When and where the latest snapshot was taken; null when nothing was observed yet. */
+  latestSnapshotAt: string | null;
+  latestSnapshotUrl: string | null;
+}
+
+export interface BlockedOutcome {
+  kind: 'blocked';
+  reason: BlockedReason;
+  rule: BlockedRule;
+  message: string;
+  category: MutationCategory | 'ordinary';
+  /** The identifier the gate was about, when it was about one. */
+  target: string | null;
+  /** Where the run's mutation policy came from (`env`, `cli`, `panel`, …), or null when none was configured. */
+  policySource: string | null;
+  provenance?: ProvenanceFacts | undefined;
+}
+
+/**
+ * One action's outcome as a discriminated union. `blocked` is the lane the
+ * research asked for: a held call is neither an application failure nor a
+ * harness crash, and every consumer that scores a run must be able to tell
+ * it apart without reading prose.
+ */
+export type ActionOutcome =
+  | { kind: 'ok' }
+  | BlockedOutcome
+  | { kind: 'failed'; message: string };
 
 /**
  * What the agent judged, chose, and did when a step met something the flow
@@ -472,6 +548,16 @@ export interface AgentRecord {
    */
   settledBy?: 'observed-state' | 'agent-claim' | undefined;
   settledEvidence?: string | undefined;
+  /**
+   * Set when the leg ENDED on a held action: the mutation policy denied the
+   * category, the target's provenance could not be established, or an
+   * irreversible action had no approval. The run's verdict treats it as
+   * "no application verdict" — the page was never asked — and files no
+   * defect. Guardrail holds are terminal for the same reason: the withheld
+   * action established nothing about the application.
+   */
+  blocked?: BlockedOutcome | undefined;
+  /**
 }
 
 export type DefectSeverity = 'high' | 'medium' | 'low';
@@ -563,6 +649,14 @@ export interface ProofStep {
   /** Populated when an unexpected dialog was dismissed before this step could retry. */
   dialog?: DialogRecord | undefined;
   agent?: AgentRecord | undefined;
+  /**
+   * The step was held by the harness before any mutation: its `workflow`
+   * leg ended on a policy, provenance or approval rule (`AgentRecord.blocked`,
+   * lifted here so a reader of the step never has to open the agent record).
+   * Status is `error` — the system family — and no defect is filed: nothing
+   * about the application was established either way.
+   */
+  blocked?: BlockedOutcome | undefined;
   /**
    * What the agent decided when this step met an interaction the flow does not
    * describe — recorded whether it acted, acted in vain, or declined. A

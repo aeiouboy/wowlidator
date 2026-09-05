@@ -1273,11 +1273,17 @@ function agentActionLog(acts) {
       value = '';
     }
     var observed = typeof a.observed === 'string' && a.observed !== '' ? '\n     observed ' + JSON.stringify(a.observed) : '';
-    return (a.ok ? '\u2713' : '\u2717') + ' ' + (i + 1) + '. ' + a.action + ' ' + target + value +
+    /* A held action (the typed "outcome", Phase B) is drawn as a hold: the
+       harness withheld it on a policy, provenance or approval rule, and the
+       line must not read as the application failing. */
+    var held = a.outcome && a.outcome.kind === 'blocked' ? a.outcome : null;
+    return (a.ok ? '\u2713' : held ? '\u25a1' : '\u2717') + ' ' + (i + 1) + '. ' + a.action + ' ' + target + value +
       (a.durationMs !== undefined && a.durationMs !== null ? ' (' + fmtMs(a.durationMs) + ')' : '') +
       observed +
       (a.reasoning ? '\n     ' + a.reasoning : '') +
-      (a.error ? '\n     FAILED: ' + String(a.error).split('\n')[0] : '');
+      (held
+        ? '\n     HELD (' + held.reason + ', ' + held.rule + '): ' + String(held.message).split('\n')[0]
+        : a.error ? '\n     FAILED: ' + String(a.error).split('\n')[0] : '');
   }).join('\n');
 }
 
@@ -3763,6 +3769,13 @@ function evidenceFix(panel, bundle, step) {
     }
   }
 
+  if (step.blocked) {
+    /* The typed hold that ended the leg (Phase B): named before the agent's
+       account, because it is the one fact this step carries — the harness
+       withheld the action, and nothing about the application was proved. */
+    panel.appendChild(el('div', { class: 'cap', text: 'Held by the run’s rules — no verdict about the application' }));
+    panel.appendChild(el('div', { class: 'repro', text: step.blocked.reason + ' · ' + step.blocked.rule + '\n' + step.blocked.message }));
+  }
   if (step.agent) {
     panel.appendChild(el('div', { class: 'cap', text: 'The navigation agent' }));
     panel.appendChild(el('div', { class: 'repro', text: step.agent.goal + '\n\n' + step.agent.summary }));

@@ -202,7 +202,7 @@ export function goalIdentifiers(goal: string): string[] {
  * scopes "Medical Reimbursement (ICU)" even though it does not spell the
  * whole identifier; `role=button[name="Delete" i]` scopes nothing.
  */
-function selectorCarries(selector: string, id: string): boolean {
+export function selectorCarries(selector: string, id: string): boolean {
   const needle = id.toLowerCase();
   if (selector.toLowerCase().includes(needle)) return true;
   for (const m of selector.matchAll(/\[name=(?:"([^"]+)"|'([^']+)')|text="?([^">]+?)"?(?=\s*>>|\s*$)/g)) {
@@ -213,7 +213,7 @@ function selectorCarries(selector: string, id: string): boolean {
 }
 
 /** The accessible name of the LAST role segment — the control the click lands on. */
-function targetName(selector: string): string | null {
+export function targetName(selector: string): string | null {
   const segments = selector.split('>>').map((seg) => seg.trim());
   for (let i = segments.length - 1; i >= 0; i -= 1) {
     const name = selectorName(segments[i] ?? '');

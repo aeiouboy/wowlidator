@@ -643,13 +643,27 @@ describe('the agent loop refuses a wasted turn (CDP)', { skip: skipBrowser }, ()
       { action: 'click', selector: 'text=PL_03_18 >> xpath=.. >> role=button[name="Delete" i]' },
       { action: 'finish', reasoning: 'deleted' },
     ]);
-    const agent = new WorkflowAgent({ model, maxSteps: 4 });
+    // A delete is irreversible, so the mutation gate (Phase B, 2026-09-05)
+    // asks the host even when no manifest is configured. This test is about
+    // the scope guard, so the host says yes — and only for the row the goal
+    // names, which the gate must have observed on the page first.
+    const approvals: string[][] = [];
+    const agent = new WorkflowAgent({
+      model,
+      maxSteps: 4,
+      mutationPolicy: null,
+      approveMutation: (request) => {
+        approvals.push([...request.targets]);
+        return request.category === 'delete' && request.targets.includes('PL_03_18');
+      },
+    });
     const { result, title } = await withPage(CDP_URL, async (page) => {
       await page.goto(`${origin}/en/rows`, { waitUntil: 'domcontentloaded' });
       const result = await agent.run(page, 'delete the plan PL_03_18');
       return { result, title: await page.title() };
     });
     assert.equal(title, 'deleted PL_03_18', 'only the row the goal named was deleted');
+    assert.deepEqual(approvals, [['PL_03_18']], 'the host was asked once, for the scoped row only — never for the unscoped click');
     assert.equal(result.success, true, result.summary);
     const refused = result.actions[0];
     assert.equal(refused?.ok, false);
