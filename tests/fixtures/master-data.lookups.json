@@ -1,0 +1,20 @@
+[
+  {
+    "field": ["Position", "Position Code"],
+    "url": "/api/positions?company={Company}&page={page}",
+    "rows": "data.rows",
+    "next": "data.hasNextPage",
+    "code": "positionCode",
+    "label": "name.en",
+    "facts": ["vacant", "headcount"],
+    "consumable": "vacant",
+    "uiPageSize": 4
+  },
+  {
+    "field": ["Cost Center"],
+    "url": "/api/cost-centers",
+    "rows": "",
+    "code": "code",
+    "label": "title"
+  }
+]
