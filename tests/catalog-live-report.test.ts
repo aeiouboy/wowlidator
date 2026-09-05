@@ -200,7 +200,8 @@ describe('concurrency', () => {
 describe('the rows', () => {
   it('scenario falls back to the id prefix, and the order is the plan order', async () => {
     assert.equal(scenarioFromId('PL_06_05'), 'PL_06');
-    assert.equal(scenarioFromId('HIR-EC-010'), 'ungrouped');
+    assert.equal(scenarioFromId('HIR-EC-010'), 'HIR-EC', 'a dashed id groups by its family, not under "ungrouped"');
+    assert.equal(scenarioFromId('42'), 'ungrouped');
     const ledger = newLedger('t', ['B_01_01', 'A_01_01']);
     const cases = await buildCatalogReportCases(ledger, async () => null);
     assert.deepEqual(cases.map((c) => c.id), ['B_01_01', 'A_01_01']);

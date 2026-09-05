@@ -37,9 +37,16 @@ import {
 import { writePassedCasesExcel, type ExcelExportResult } from '../reporter/excel-export.js';
 import { caseIdOf, type SuiteLedger } from './suite-progress.js';
 
-/** The `PL_06` a planned id `PL_06_05` belongs to, when nothing better is known. */
+/**
+ * The `PL_06` a planned id `PL_06_05` belongs to, when nothing better is
+ * known — or the `HIR-EC` family of a dashed id `HIR-EC-006`. Only a
+ * fallback: a case that ran carries the sheet's own scenario in its bundle
+ * (`generatedBy.scenario`), and `buildCatalogReportCases` prefers that.
+ * Before the dashed form was read (2026-09-05), a 269-scenario catalog
+ * rebuilt with `wowlidator report` showed every case under "ungrouped".
+ */
 export function scenarioFromId(id: string): string {
-  return id.match(/^([A-Za-z]+_\d+)/)?.[1] ?? 'ungrouped';
+  return id.match(/^([A-Za-z]+_\d+)/)?.[1] ?? id.match(/^([A-Za-z]+(?:-[A-Za-z]+)+)-\d+/)?.[1] ?? 'ungrouped';
 }
 
 /**
@@ -57,10 +64,14 @@ export async function buildCatalogReportCases(
   for (const id of ledger.planned) {
     const outcome = ledger.outcomes[id];
     const bundle = outcome === undefined ? null : await bundleOf(id);
+    // The sheet's scenario travels in the bundle; the id-shape guess is for a
+    // case that never ran (no bundle) and for a caller with no plan in hand.
+    const named = scenarioOf(id);
+    const fromBundle = bundle?.generatedBy?.scenario;
     cases.push({
       id,
       name: outcome?.name ?? id,
-      scenario: scenarioOf(id),
+      scenario: named !== 'ungrouped' ? named : (fromBundle ?? named),
       verdict: outcome === undefined ? 'never-ran' : outcome.verdict,
       status: outcome?.status ?? null,
       reason: outcome?.reason ?? null,
