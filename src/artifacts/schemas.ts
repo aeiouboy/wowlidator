@@ -77,6 +77,17 @@ export const LedgerOutcomeSchema = z.looseObject({
   at: z.string(),
 });
 
+/**
+ * One authored-but-not-yet-proved flow (`SuiteLedger.authored`): a resume
+ * REPLAYS the file this names instead of authoring the row again, so the
+ * path is the shape that carries authority. The stamp is descriptive; the
+ * risk and scenario ride through loose.
+ */
+export const LedgerAuthoredSchema = z.looseObject({
+  flowPath: z.string().min(1),
+  authoredAt: z.string(),
+});
+
 export const SuiteLedgerSchema = z.looseObject({
   version: z.number(),
   title: z.string(),
@@ -86,6 +97,24 @@ export const SuiteLedgerSchema = z.looseObject({
   generatedAt: z.string().nullable(),
   runKey: z.string().nullable().optional(),
   outcomes: z.record(z.string(), LedgerOutcomeSchema),
+  authored: z.record(z.string(), LedgerAuthoredSchema).optional(),
+});
+
+// --- flow file ---------------------------------------------------------------
+
+const FlowFileStepSchema = z.looseObject({ action: z.string().min(1) });
+
+/**
+ * A flow file a run will REPLAY (a resume reusing an authored flow): the
+ * shape the runner dispatches on — a name and step lists whose every entry
+ * names an action — is required; every descriptive field (`authoredBy`,
+ * `caseContext`, `polarity`, a step's own fields) passes through loose.
+ */
+export const FlowFileSchema = z.looseObject({
+  name: z.string(),
+  steps: z.array(FlowFileStepSchema),
+  setup: z.array(FlowFileStepSchema).optional(),
+  teardown: z.array(FlowFileStepSchema).optional(),
 });
 
 // --- context graph -----------------------------------------------------------

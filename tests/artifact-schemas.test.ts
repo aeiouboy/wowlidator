@@ -17,6 +17,7 @@ import { join } from 'node:path';
 
 import {
   BaselineSchema,
+  FlowFileSchema,
   HealedSelectorEntrySchema,
   HistoryEntrySchema,
   ProofBundleSchema,
@@ -27,7 +28,7 @@ import {
   parseProofBundle,
 } from '../src/artifacts/schemas.js';
 import { CacheManager } from '../src/cache/cache-manager.js';
-import { readLedger, LEDGER_VERSION } from '../src/cli/suite-progress.js';
+import { loadAuthoredFlow, readLedger, LEDGER_VERSION } from '../src/cli/suite-progress.js';
 import { ContextEngine } from '../src/context/context-engine.js';
 import { readBaseline } from '../src/db/baseline.js';
 import { RunHistory } from '../src/history/run-history.js';
@@ -214,5 +215,63 @@ describe('run history skips a line whose status is not one the engine writes', (
     assert.deepEqual(entries.map((e) => e.runId), ['r1', 'r3']);
     assert.deepEqual(entries[1]?.failedSteps, ['click:#x']);
     assert.equal(parseArtifact(HistoryEntrySchema, HISTORY_LINE).ok, true);
+  });
+});
+
+// --- flow file (a resume replays it) -----------------------------------------
+
+describe('a flow file is parsed before a resume replays it', () => {
+  it('accepts a hand-written flow whose steps each name an action, and keeps every other field', async () => {
+    const flow = {
+      name: 'C_1 opens the page',
+      steps: [{ action: 'goto', url: '/x' }, { action: 'expectVisible', selector: 'role=heading', note: 'from a newer build' }],
+      authoredBy: { model: 'm', generatedAt: 'x', sourceUrl: 'http://x.test/', kind: 'catalog', rationale: 'r' },
+      caseContext: 'the card',
+    };
+    assert.equal(parseArtifact(FlowFileSchema, flow).ok, true);
+    const loaded = await loadAuthoredFlow(await file('c1.flow.json', flow));
+    assert.equal(loaded.ok, true);
+    if (loaded.ok) {
+      assert.equal(loaded.flow.steps.length, 2);
+      assert.equal(loaded.flow.caseContext, 'the card');
+      assert.equal((loaded.flow.steps[1] as unknown as { note: string }).note, 'from a newer build');
+    }
+  });
+
+  it('rejects steps that are not a list, a step without an action, and a missing name — by path', async () => {
+    const nope = parseArtifact(FlowFileSchema, { name: 'C_2', steps: 'nope' });
+    assert.equal(nope.ok, false);
+    if (!nope.ok) assert.match(nope.issue, /^steps: /);
+    const noAction = parseArtifact(FlowFileSchema, { name: 'C_2', steps: [{ url: '/x' }] });
+    assert.equal(noAction.ok, false);
+    if (!noAction.ok) assert.match(noAction.issue, /^steps\.0\.action: /);
+    assert.equal(parseArtifact(FlowFileSchema, { steps: [] }).ok, false);
+    assert.equal(parseArtifact(FlowFileSchema, { name: 'C_2', steps: [], setup: 'nope' }).ok, false);
+    // Through the reader: a typed refusal naming what was wrong, never a throw.
+    const bad = await loadAuthoredFlow(await file('c2.flow.json', { name: 'C_2', steps: 'nope' }));
+    assert.equal(bad.ok, false);
+    if (!bad.ok) assert.match(bad.reason, /not a flow file \(steps: /);
+    const missing = await loadAuthoredFlow(join(dir, 'never-written.flow.json'));
+    assert.equal(missing.ok, false);
+    if (!missing.ok) assert.match(missing.reason, /missing/);
+    const text = await loadAuthoredFlow(await file('c3.flow.json', '{not json'));
+    assert.equal(text.ok, false);
+    if (!text.ok) assert.match(text.reason, /not valid JSON/);
+  });
+});
+
+describe('the suite ledger carries the flows a stopped pass authored', () => {
+  it('accepts an `authored` map and refuses an entry without its flowPath', async () => {
+    const withAuthored = {
+      ...LEDGER,
+      authored: { B: { flowPath: '/flows/b.flow.json', authoredAt: '2026-09-05T09:00:00.500Z', scenarioId: 'S', risk: { likelihood: 0.2 } } },
+    };
+    assert.equal(parseArtifact(SuiteLedgerSchema, withAuthored).ok, true);
+    const ledger = await readLedger(await file('authored.progress.json', withAuthored));
+    assert.equal(ledger?.authored?.['B']?.flowPath, '/flows/b.flow.json');
+    const noPath = parseArtifact(SuiteLedgerSchema, { ...LEDGER, authored: { B: { authoredAt: 'x' } } });
+    assert.equal(noPath.ok, false);
+    if (!noPath.ok) assert.match(noPath.issue, /^authored\.B\.flowPath: /);
+    assert.equal(await readLedger(await file('authored-nopath.progress.json', { ...LEDGER, authored: { B: { authoredAt: 'x' } } })), null);
   });
 });

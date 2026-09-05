@@ -19,6 +19,11 @@
  *   and a process that caught a signal both write `ended.cause`; a process
  *   killed outright cannot, and the reader then sees `ended: null` with the
  *   last recorded case as the high-water mark — honest about what is known.
+ * - **An authored flow is remembered before it runs** (2026-09-05). Each
+ *   case's flow path goes on the ledger the moment the case is queued
+ *   (`authored`), so a resume replays it instead of paying the model again
+ *   for a row the stopped pass had already written; a row with a verdict, a
+ *   refusal, a vacuous flow or an explicit re-run is never replayed.
  */
 
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
@@ -26,7 +31,9 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 import type { CaseOutcome } from './exit.js';
-import { SuiteLedgerSchema, parseArtifact } from '../artifacts/schemas.js';
+import type { DeadEndRisk } from '../engine/proof-bundle.js';
+import type { Flow } from '../engine/runner.js';
+import { FlowFileSchema, SuiteLedgerSchema, parseArtifact } from '../artifacts/schemas.js';
 
 export const LEDGER_VERSION = 1;
 
@@ -87,6 +94,25 @@ export interface LedgerOutcome {
 
 /** Refusals after which a resume stops re-authoring a row (an explicit rerun resets it). */
 export const AUTHORING_REFUSAL_CAP = 2;
+
+/**
+ * A flow the pass authored and queued, before its case has an outcome.
+ *
+ * Measured 2026-09-05: a stopped catalog run (pause, SIGTERM, quota hold)
+ * had authored 17 — then 11 — flows that never ran, and the resume authored
+ * every one again, ~190 s and ~$1 of model time each. The flow file already
+ * exists on disk the moment a case is queued (`writeFlowFile` runs first),
+ * so the ledger only needs to remember WHERE it is: a resume reads it back
+ * through the zod seam and pushes the case straight into the run queue.
+ */
+export interface LedgerAuthored {
+  /** The flow on disk — the same path the case's outcome records later. */
+  flowPath: string;
+  authoredAt: string;
+  /** The pre-run dead-end risk judged after authoring, when there was one — kept so a fail-fast case stays fail-fast. */
+  risk?: DeadEndRisk | undefined;
+  scenarioId?: string | undefined;
+}
 
 export interface SuiteLedger {
   version: number;
@@ -170,6 +196,13 @@ export interface SuiteLedger {
       }
     | undefined;
   outcomes: Record<string, LedgerOutcome>;
+  /**
+   * The flows authored this run, by case id, from the moment each is queued
+   * (`recordAuthored`, via the runner's `noteAuthored` hook). A resume reuses
+   * an entry whose case still has no verdict — see `resumeAuthored`. Absent
+   * in ledgers written before 2026-09-05.
+   */
+  authored?: Record<string, LedgerAuthored> | undefined;
   /** Set when the run ended — cleanly or not. Null while it is (or was last seen) running. */
   ended: { at: string; cause: string | null; complete: boolean } | null;
 }
@@ -266,6 +299,130 @@ export function recordOutcome(
     proofPath: extra.proofPath ?? null,
     at: new Date().toISOString(),
   };
+}
+
+/**
+ * Remember where a queued case's flow was written, so a resume can run it
+ * without authoring the row again. Called the moment the case is queued —
+ * the file is already on disk by then — and overwritten by a re-authoring.
+ */
+export function recordAuthored(
+  ledger: SuiteLedger,
+  caseName: string,
+  entry: { flowPath: string; risk?: DeadEndRisk | undefined; scenarioId?: string | undefined; authoredAt?: string | undefined },
+): void {
+  ledger.authored ??= {};
+  ledger.authored[caseIdOf(caseName)] = {
+    flowPath: entry.flowPath,
+    authoredAt: entry.authoredAt ?? new Date().toISOString(),
+    ...(entry.risk === undefined ? {} : { risk: entry.risk }),
+    ...(entry.scenarioId === undefined ? {} : { scenarioId: entry.scenarioId }),
+  };
+}
+
+/**
+ * Drop the authored flows of the given cases: what every EXPLICIT re-run
+ * (`--rerun-case`, `--rerun-errors`, `--resume-from`, …) does beside
+ * `markForRerun`, because the ask is "author it again from the sheet row",
+ * and a resume that stopped before the re-authoring must not replay the
+ * flow the ask rejected.
+ */
+export function forgetAuthored(ledger: SuiteLedger, ids: readonly string[]): void {
+  if (ledger.authored === undefined) return;
+  for (const id of ids) delete ledger.authored[id];
+  if (Object.keys(ledger.authored).length === 0) delete ledger.authored;
+}
+
+/**
+ * Which of `rows` a resume may run from their recorded flow, and which it
+ * must author. Pure — the file itself is judged by `resumeAuthored`.
+ *
+ * `reuse`: the row still counts as remaining (no verdict), authoring never
+ * refused it, its flow was never judged vacuous, and the ledger holds an
+ * authored entry for it. `author`: remaining, and any of those fails.
+ * `settled`: rows with a verdict already — a resume touches neither list
+ * for them (the caller normally filtered them out first). Each list keeps
+ * `rows`' own order, the order everything downstream keeps.
+ */
+export function reusableAuthored<R extends { caseId: string }>(
+  ledger: SuiteLedger,
+  rows: readonly R[],
+): { reuse: { row: R; entry: LedgerAuthored }[]; author: R[]; settled: R[] } {
+  const left = new Set(remaining(ledger, rows.map((row) => row.caseId)));
+  const reuse: { row: R; entry: LedgerAuthored }[] = [];
+  const author: R[] = [];
+  const settled: R[] = [];
+  for (const row of rows) {
+    if (!left.has(row.caseId)) {
+      settled.push(row);
+      continue;
+    }
+    const outcome = ledger.outcomes[row.caseId];
+    const entry = ledger.authored?.[row.caseId];
+    const refused = (outcome?.authoringRefused ?? 0) > 0;
+    const vacuous = outcome?.vacuous === true;
+    if (entry === undefined || typeof entry.flowPath !== 'string' || entry.flowPath === '' || refused || vacuous) {
+      author.push(row);
+      continue;
+    }
+    reuse.push({ row, entry });
+  }
+  return { reuse, author, settled };
+}
+
+/**
+ * Read an authored flow back through the zod seam (`FlowFileSchema`). The
+ * shape the runner replays — a name, step lists whose entries name an
+ * action — must hold; a missing file, bad JSON or a wrong shape is a typed
+ * refusal naming what was wrong, never a throw and never a partial flow.
+ */
+export async function loadAuthoredFlow(flowPath: string): Promise<{ ok: true; flow: Flow } | { ok: false; reason: string }> {
+  let raw: string;
+  try {
+    raw = await readFile(flowPath, 'utf8');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return { ok: false, reason: code === 'ENOENT' ? 'file is missing' : `unreadable (${code ?? (error instanceof Error ? error.message : String(error))})` };
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch (error) {
+    return { ok: false, reason: `not valid JSON — ${error instanceof Error ? error.message : String(error)}` };
+  }
+  const parsed = parseArtifact<Flow>(FlowFileSchema, value);
+  return parsed.ok ? { ok: true, flow: parsed.value } : { ok: false, reason: `not a flow file (${parsed.issue})` };
+}
+
+/**
+ * The resume's split of the rows still to run: the flows it can REUSE — read
+ * from disk and parsed — and the rows it must AUTHOR. A reusable entry whose
+ * file is missing or fails the schema falls back to authoring, with the
+ * reason logged against the file; one line per reused flow and one summary
+ * line say what the resume saved. Never throws on a bad file.
+ */
+export async function resumeAuthored<R extends { caseId: string }>(
+  ledger: SuiteLedger,
+  rows: readonly R[],
+  options: { log?: ((line: string) => void) | undefined } = {},
+): Promise<{ reuse: { row: R; entry: LedgerAuthored; flow: Flow }[]; author: R[] }> {
+  const split = reusableAuthored(ledger, rows);
+  const reuse: { row: R; entry: LedgerAuthored; flow: Flow }[] = [];
+  const fallen = new Set<string>();
+  for (const { row, entry } of split.reuse) {
+    const loaded = await loadAuthoredFlow(entry.flowPath);
+    if (!loaded.ok) {
+      options.log?.(`resume: ${row.caseId} — recorded flow ${entry.flowPath} cannot be reused (${loaded.reason}); authoring it again`);
+      fallen.add(row.caseId);
+      continue;
+    }
+    options.log?.(`resume: ${row.caseId} — flow reused from ${entry.flowPath}, authored ${entry.authoredAt}`);
+    reuse.push({ row, entry, flow: loaded.flow });
+  }
+  // Rows' own order for the author list, fallen rows included.
+  const author = rows.filter((row) => fallen.has(row.caseId) || split.author.includes(row));
+  options.log?.(`resume: ${reuse.length} flows reused, ${author.length} rows to author`);
+  return { reuse, author };
 }
 
 /**

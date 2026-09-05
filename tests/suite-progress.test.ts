@@ -5,16 +5,19 @@
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  LEDGER_VERSION,
   carriedOutcomes,
   caseIdOf,
+  forgetAuthored,
   ledgerPathFor,
   newLedger,
   readLedger,
+  recordAuthored,
   recordOutcome,
   remaining,
   sortByPlan,
@@ -172,5 +175,89 @@ describe('authoring refusals', () => {
     assert.deepEqual(markForRerun(ledger, isErrorOutcome, 'rerun after error'), ['A_1']);
     assert.equal(ledger.outcomes['A_1']?.authoringRefused, undefined);
     assert.deepEqual(remaining(ledger), ['A_1']);
+  });
+});
+
+describe('authored flows on the ledger', () => {
+  it('records {flowPath, authoredAt} for a case id the moment it is queued, and reads it back', async () => {
+    const ledger = newLedger('t', ['A_1', 'A_2']);
+    assert.equal(Object.keys(ledger).includes('authored'), false, 'a fresh ledger has no map until something is authored');
+    recordAuthored(ledger, 'A_1 login works', {
+      flowPath: '/flows/a1.flow.json',
+      scenarioId: 'A',
+      risk: { likelihood: 0.9, verdict: 'fail-fast', reasons: ['x'] } as never,
+    });
+    assert.equal(ledger.authored?.['A_1']?.flowPath, '/flows/a1.flow.json');
+    assert.match(ledger.authored?.['A_1']?.authoredAt ?? '', /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(ledger.authored?.['A_1']?.scenarioId, 'A');
+    assert.equal((ledger.authored?.['A_1']?.risk as { verdict?: string } | undefined)?.verdict, 'fail-fast');
+    // Written with the outcomes, through the same temp-file + rename write.
+    const dir = await mkdtemp(join(tmpdir(), 'wow-ledger-'));
+    const path = join(dir, 'x.claims.progress.json');
+    await writeLedger(path, ledger);
+    const back = await readLedger(path);
+    assert.deepEqual(Object.keys(back?.authored ?? {}), ['A_1']);
+    assert.equal(back?.authored?.['A_1']?.flowPath, '/flows/a1.flow.json');
+    assert.equal(back?.authored?.['A_1']?.authoredAt, ledger.authored?.['A_1']?.authoredAt);
+    // An explicit rerun forgets the flow so the row is authored again.
+    forgetAuthored(back!, ['A_1']);
+    assert.equal(back!.authored, undefined);
+  });
+
+  it('reads a HAND-WRITTEN ledger carrying `authored` and hands the map back untouched', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wow-ledger-'));
+    const path = join(dir, 'hand.progress.json');
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: LEDGER_VERSION,
+        title: 'hand',
+        planned: ['B_1', 'B_2'],
+        startedAt: '2026-09-05T08:00:00.000Z',
+        updatedAt: '2026-09-05T08:10:00.000Z',
+        generatedAt: '2026-09-05T08:00:00.000Z',
+        runKey: 'hand@2026-09-05T08:00:00.000Z',
+        outcomes: {},
+        authored: {
+          B_1: { flowPath: '/flows/b1.flow.json', authoredAt: '2026-09-05T08:05:00.000Z', scenarioId: 'B' },
+          B_2: { flowPath: '/flows/b2.flow.json', authoredAt: '2026-09-05T08:09:00.000Z', someNewerField: true },
+        },
+        ended: { at: '2026-09-05T08:10:00.000Z', cause: 'stopped by SIGTERM with 2 case(s) still to run', complete: false },
+      }),
+      'utf8',
+    );
+    const back = await readLedger(path);
+    assert.ok(back);
+    assert.deepEqual(back.authored?.['B_1'], { flowPath: '/flows/b1.flow.json', authoredAt: '2026-09-05T08:05:00.000Z', scenarioId: 'B' });
+    assert.equal(back.authored?.['B_2']?.flowPath, '/flows/b2.flow.json');
+    assert.equal((back.authored?.['B_2'] as { someNewerField?: boolean } | undefined)?.someNewerField, true, 'descriptive fields pass through');
+    assert.deepEqual(remaining(back), ['B_1', 'B_2']);
+  });
+
+  it('rejects a whole ledger whose `authored` entry lacks its flowPath — null, never a partial read', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wow-ledger-'));
+    const base = {
+      version: LEDGER_VERSION,
+      title: 'hand',
+      planned: ['B_1'],
+      startedAt: '2026-09-05T08:00:00.000Z',
+      updatedAt: '2026-09-05T08:10:00.000Z',
+      generatedAt: null,
+      outcomes: { B_0: { verdict: 'passed', status: 'passed', reason: null, reportPath: null, at: 'x' } },
+      ended: null,
+    };
+    const noPath = join(dir, 'nopath.progress.json');
+    await writeFile(noPath, JSON.stringify({ ...base, authored: { B_1: { authoredAt: '2026-09-05T08:05:00.000Z' } } }), 'utf8');
+    assert.equal(await readLedger(noPath), null);
+    const emptyPath = join(dir, 'emptypath.progress.json');
+    await writeFile(emptyPath, JSON.stringify({ ...base, authored: { B_1: { flowPath: '', authoredAt: 'x' } } }), 'utf8');
+    assert.equal(await readLedger(emptyPath), null);
+    const notAMap = join(dir, 'list.progress.json');
+    await writeFile(notAMap, JSON.stringify({ ...base, authored: ['/flows/b1.flow.json'] }), 'utf8');
+    assert.equal(await readLedger(notAMap), null);
+    // The same ledger without the bad map reads — the map was the only fault.
+    const fine = join(dir, 'fine.progress.json');
+    await writeFile(fine, JSON.stringify(base), 'utf8');
+    assert.equal((await readLedger(fine))?.outcomes['B_0']?.verdict, 'passed');
   });
 });
