@@ -494,9 +494,22 @@ export async function askWarm(
   let session = pool.find((candidate) => candidate.usableFor(maxTurns));
   if (session === undefined) {
     if (pool.length >= currentSessionCap()) {
-      throw new Error(
-        `all ${currentSessionCap()} warm claude sessions for this key are busy`,
-      );
+      // The pool is full of processes this ask cannot reuse. One that is
+      // idle and merely over THIS ask's budget (a one-turn authoring session
+      // that has answered, waiting out its 90 s idle timer) is a slot, not a
+      // worker: close it and take its place. Measured live (2026-09-05,
+      // eight authors on a cap of nine): 91 of 407 authoring asks fell to
+      // the cold one-shot path — +24 s and a full prompt re-sent each — while
+      // the pool held finished sessions that no ask could use. A busy one is
+      // still never touched.
+      const stale = pool.findIndex((candidate) => !candidate.busy && !candidate.usableFor(maxTurns));
+      if (stale < 0) {
+        throw new Error(
+          `all ${currentSessionCap()} warm claude sessions for this key are busy`,
+        );
+      }
+      (pool[stale] as ClaudeSession).close();
+      pool.splice(stale, 1);
     }
     session = new ClaudeSession(key);
     pool.push(session);

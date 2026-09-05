@@ -46,10 +46,18 @@ export const RETRIEVAL_SERVER_NAME = 'wow-context';
 export const RETRIEVAL_TOOL = 'search_context';
 /** The name the claude CLI knows the tool by — what `--allowed-tools` must say. */
 export const RETRIEVAL_TOOL_FULL = `mcp__${RETRIEVAL_SERVER_NAME}__${RETRIEVAL_TOOL}`;
-export const RETRIEVAL_DEFAULT_LIMIT = 8;
+/**
+ * Hits per search and characters per hit. Measured 2026-09-05 (opus, 407
+ * authoring asks): the tool was called in 95% of asks, ~2 times each, and
+ * one answer of 8 × 1,600 Thai characters weighed about as much as the
+ * whole row's prompt — each search cost ≈ +6k cache-write, +20-30k
+ * cache-read tokens and 10-15 s. Half the hits at half the length keeps
+ * the answer to the question asked; a caller that wants more says so.
+ */
+export const RETRIEVAL_DEFAULT_LIMIT = 4;
 export const RETRIEVAL_MAX_LIMIT = 20;
 /** A hit longer than this is cut — the tool answers questions, it does not re-send documents. */
-export const RETRIEVAL_HIT_MAX_CHARS = 1_600;
+export const RETRIEVAL_HIT_MAX_CHARS = 800;
 
 const retriever = new Bm25Retriever();
 let corpus: RetrievalItem[] = [];
