@@ -82,8 +82,14 @@ export function routeSectionOf(url: string): string | null {
     return null;
   }
   const parts = path.split('/').filter((p) => p !== '');
-  // A leading two-letter (or xx-XX) segment is a locale, not a place.
-  if (parts.length > 0 && /^[a-z]{2}(-[A-Za-z]{2})?$/.test(parts[0]!)) parts.shift();
+  // A leading two-letter (or xx-XX) segment is a locale, not a place — and so
+  // is one sitting right behind a single base-path segment. Measured live
+  // (humi, 2026-09-05): every page of `/humi/th/...` folded into one section
+  // `route:humi/th`, the sign-in page included, so every writer in the suite
+  // queued behind every other for 20-26% of its lane time.
+  const LOCALE = /^[a-z]{2}(-[A-Za-z]{2})?$/;
+  if (parts.length > 0 && LOCALE.test(parts[0]!)) parts.shift();
+  else if (parts.length > 1 && LOCALE.test(parts[1]!)) parts.splice(0, 2);
   const head = (parts[0] ?? '').toLowerCase();
   if (GLOBAL_ROUTE_HEADS.has(head)) return GLOBAL_SECTION;
   // Login pages are preparation, not a data section — every case visits one.

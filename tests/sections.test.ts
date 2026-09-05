@@ -52,6 +52,19 @@ describe('section derivation', () => {
     assert.equal(routeSectionOf('http://x/th/admin/benefits/plans'), 'route:admin/benefits');
   });
 
+  it('a base path in front of the locale is not a place either', () => {
+    // An app served under one path segment: every page used to share one
+    // section (`route:app/th`), the sign-in page included — so every writer
+    // in a parallel suite queued behind every other.
+    assert.equal(routeSectionOf('http://x/app/th/admin/hire'), 'route:admin/hire');
+    assert.equal(routeSectionOf('http://x/app/en-GB/admin/hire?step=2'), 'route:admin/hire');
+    assert.equal(routeSectionOf('http://x/app/th/login'), null, 'sign-in is preparation, not a section');
+    assert.equal(routeSectionOf('http://x/app/th/home'), GLOBAL_SECTION);
+    assert.notEqual(routeSectionOf('http://x/app/th/admin/hire'), routeSectionOf('http://x/app/th/consent'));
+    // No locale at all: the first two segments are the place, as before.
+    assert.equal(routeSectionOf('http://x/admin/benefits/plans'), 'route:admin/benefits');
+  });
+
   it('deletes are read from request verbs and workflow goals', () => {
     assert.equal(
       caseScheduleMeta(flow([{ action: 'request', method: 'DELETE', url: '/api/plans/1' } as FlowStep])).deletes,
