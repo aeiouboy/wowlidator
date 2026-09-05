@@ -46,6 +46,7 @@ import {
   type GovernorObservation,
 } from '../orchestrator/queue-governor.js';
 import { raiseSessionCapFor } from '../providers/claude-cli-session.js';
+import { ensureQuotaHold, quotaHolding, stopQuotaHold } from './quota-hold.js';
 import { describeDiagnosis, diagnoseError } from '../generator/error-diagnosis.js';
 import type { HealHintsProvider } from '../context/heal-hints.js';
 import { growPool, laneBrowsers, writeFlowFile } from './artifacts.js';
@@ -700,6 +701,10 @@ export async function runCases(
   /** Governor pool override; null = the ordinary sizing. Never above ceiling. */
   let poolOverride: number | null = null;
   let governorHold = false;
+  // The account's session window: stop dispatching before it is full and
+  // resume when it reopens (`quota-hold.ts`). Idempotent — the authoring
+  // pool may already have armed it.
+  ensureQuotaHold(options.config, (line) => process.stderr.write(`${line}\n`));
   /**
    * Cases whose non-pass was stamped as possible cross-case interference.
    * Each re-runs ALONE — but after the plan, not in the middle of it: the
@@ -1349,7 +1354,7 @@ export async function runCases(
     }),
     () => pauseRequested(pauseFile),
     canRunWith,
-    () => governorHold,
+    () => governorHold || quotaHolding(),
   ).catch(async (error: unknown) => {
     if (ledger !== null && where.ledger !== undefined) {
       ledger.ended = {
@@ -1367,6 +1372,7 @@ export async function runCases(
   }
   if (process.platform !== 'win32') process.off('SIGUSR2', onPause);
   if (pausePoll !== null) clearInterval(pausePoll);
+  stopQuotaHold();
 
   // **Interference re-runs, alone, after the plan.** Nothing is in flight now,
   // so each re-run is the clean proof the stamp asked for — one at a time, in

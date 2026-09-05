@@ -141,6 +141,7 @@ import { CaseQueue, DEFAULT_CONCURRENCY, ScenarioGate, authorWorkers, dependency
 import { healHintsFrom } from '../../context/heal-hints.js';
 import { lookupPersona, personaEmails, personaLabelOf, type CliOptions } from '../options.js';
 import { pauseRequested } from '../pause.js';
+import { awaitQuotaRelease, ensureQuotaHold } from '../quota-hold.js';
 import {
   assertRolesResolvable,
   buildAgent,
@@ -990,6 +991,10 @@ async function authorEachRow(
   // judge). The warm claude pool must fit them, or worker N+1 falls to a
   // cold one-shot at full price — the run-pool already does this for lanes.
   raiseSessionCapFor(workers);
+  // Authoring spends the same session window the lanes do — arm the hold
+  // here too, because on the pipelined path the first row is authored before
+  // the run loop exists. Idempotent with the runner's own call.
+  ensureQuotaHold(options.config, (line) => process.stderr.write(`${line}\n`));
   if (workers === 1 && options.authorConcurrency === undefined && rows.length > 1) {
     context.log?.(
       `authoring rows one at a time: the generator role is on ${options.config.roles.generator.provider}, ` +
@@ -1084,6 +1089,10 @@ async function authorEachRow(
       await context.gate.waitFor(scenarioKey, () => pauseRequested());
       if (pauseRequested()) return;
     }
+    // The account's session window is nearly spent: a row authored now would
+    // be refused mid-answer and recorded as never ran. Wait for the window.
+    await awaitQuotaRelease(() => pauseRequested());
+    if (pauseRequested()) return;
     // Per row, not once for the loop. Every row is authored in its own call
     // against the same open page, so whole context documents were multiplied
     // by the row count — a twelve-row sheet with one 120,000-character spec
@@ -1300,7 +1309,14 @@ async function authorEachRow(
           // reasons as feedback; the better flow wins. be100: "the search
           // box starts disabled" (0.78), "no Start-date filter exists"
           // (0.88) — each right, each spent on a full dead-ended run.
-          if (risk.verdict === 'fail-fast' && risk.reasons.length > 0 && !riskRetried.has(row.caseId)) {
+          // Only the DEAD-END dimension is worth a re-ask: a flow can be
+          // rewritten around a control that does not exist, but not around a
+          // sheet that already says the case fails — an expected-fail verdict
+          // is a fact about the application, and re-authoring cannot author
+          // it away. Measured live (2026-09-05): 29 of 59 risk re-asks were
+          // expected-fail, each a full authoring call that changed nothing.
+          const deadEndTripped = risk.likelihood > risk.threshold;
+          if (risk.verdict === 'fail-fast' && deadEndTripped && risk.reasons.length > 0 && !riskRetried.has(row.caseId)) {
             riskRetried.add(row.caseId);
             log?.(`  ${row.caseId}: re-authoring once against the risk judge's ${risk.reasons.length} reason(s)…`);
             try {
