@@ -45,6 +45,7 @@ import {
   ListboxOptionDisabledError,
   ListboxOptionMissingError,
   optionCandidates,
+  uniquePrefixMatch,
   selectFromListbox,
   splitMultiValue,
 } from '../src/engine/listbox.js';
@@ -235,6 +236,22 @@ describe('variables: {{date:…}} builtins and {{x+N}} arithmetic', () => {
     assert.throws(() => store.interpolate('{{missing+1}}'), UnknownVariableError);
     assert.deepEqual(firstInteger('-3 left'), { start: 0, end: 2, n: -3, grouped: false });
     assert.equal(firstInteger('none'), null);
+  });
+});
+
+describe('listbox: uniquePrefixMatch is the one option that starts with the value', () => {
+  it('picks the single prefix match, in either half of a code - label name', () => {
+    assert.equal(uniquePrefixMatch(['Thailand - Thailand', 'Taiwan - Taiwan'], 'Thai'), 'Thailand - Thailand');
+    assert.equal(uniquePrefixMatch(['TH - Thailand', 'TW - Taiwan'], 'thai'), 'TH - Thailand');
+    assert.equal(uniquePrefixMatch(['  New  Hire  '], 'new hire'), null, 'a whole match is the rung above, not a prefix');
+  });
+
+  it('never a substring and never one of several', () => {
+    assert.equal(uniquePrefixMatch(['Male', 'Female'], 'Male'), null, '"Male" is whole, "Female" is not a prefix match');
+    assert.equal(uniquePrefixMatch(['Female'], 'Male'), null, 'a substring is not a prefix');
+    assert.equal(uniquePrefixMatch(['New Hire — A', 'New Hire — B'], 'New Hire'), null, 'two prefix matches decide nothing');
+    assert.equal(uniquePrefixMatch(['Assistant Store Manager'], 'A'), null, 'one character is not a value');
+    assert.equal(uniquePrefixMatch([], 'Thai'), null);
   });
 });
 

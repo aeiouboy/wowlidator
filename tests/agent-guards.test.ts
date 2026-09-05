@@ -35,6 +35,7 @@ import {
   multiPersonaSummary,
   formGaps,
   formatFormGaps,
+  listboxCannotOffer,
 } from '../src/orchestrator/agent-guards.js';
 import {
   AGENT_ACTIONS,
@@ -130,6 +131,32 @@ describe('goalAlreadyShowing', () => {
       'a different dialog is not this one');
     assert.equal(goalAlreadyShowing('reach the reporting screen', [node('dialog', 'Anything')]), null,
       'a goal that names no surface never fires');
+  });
+});
+
+describe('listboxCannotOffer names the control across languages', () => {
+  const goal = 'Fill the job section with exactly these values: Position = 40106337, Gender = Male';
+  const decision = { action: 'selectOption', selector: 'role=button[name="ตำแหน่ง" i]', value: '40106337', url: '' };
+  const shown = ['Store Manager', 'Cashier', 'Sales Staff'];
+
+  it('the goal in one language and the selector in another do not meet on their own', () => {
+    assert.equal(listboxCannotOffer(decision, shown, goal), null);
+  });
+
+  it('the trigger label the page printed carries both names, and the judge fires', () => {
+    const verdict = listboxCannotOffer(decision, shown, goal, 'เลือกตำแหน่ง (Select Position)');
+    assert.deepEqual(verdict, { control: 'Position', value: '40106337', shown });
+  });
+
+  it('a trigger that names a different control is not evidence about this one', () => {
+    assert.equal(listboxCannotOffer(decision, shown, goal, 'เลือกบริษัท (Select Company)'), null);
+  });
+
+  it('a value the list does show is never a cannot-offer', () => {
+    assert.equal(
+      listboxCannotOffer(decision, ['40106337 - Studio Traffic Staff'], goal, 'เลือกตำแหน่ง (Select Position)'),
+      null,
+    );
   });
 });
 

@@ -181,6 +181,12 @@ export const AGENT_VALUE_HUNT_TURNS = 8;
  */
 export const AGENT_FAIL_FAST_MAX_STEPS = 15;
 /**
+ * Turns a form leg gets on top of one per named value, under a fail-fast
+ * ceiling: opening a collapsed section, a Next between wizard steps, a
+ * scroll, one miss retried. See the floor in `run()`.
+ */
+export const FORM_LEG_TURN_SLACK = 6;
+/**
  * The no-progress ceiling when the early-give-up toggle is OFF
  * (`WOWLIDATOR_AGENT_EARLY_STOP=off` / `--no-agent-early-stop`). "Off" must
  * not mean "loop forever" — with `maxSteps` unbounded by default, a leg that
@@ -1374,18 +1380,30 @@ export class WorkflowAgent {
     // the larger one, because the focused tree was cutting the very controls
     // it named. The full tree is captured every turn regardless; only what
     // the model is SHOWN is budgeted.
-    const maxNodes =
-      goalOutcomes(goal).length >= 3 || FORM_GOAL.test(goal)
-        ? Math.max(this.#maxAxNodes, FORM_AGENT_MAX_NODES)
-        : this.#maxAxNodes;
+    const outcomesAsked = goalOutcomes(goal).length;
+    const formLeg = outcomesAsked >= 3 || FORM_GOAL.test(goal);
+    const maxNodes = formLeg ? Math.max(this.#maxAxNodes, FORM_AGENT_MAX_NODES) : this.#maxAxNodes;
     // A per-call ceiling can only LOWER the instance's own budget, never
     // raise it — `runOptions.maxSteps` exists for a caller that knows this
     // particular leg has already spent its retry budget (a fail-fast risk
     // verdict, `run-cases.ts`'s `failFastRunOptions`) and wants a tighter
     // leash on the one shot it still gets, not for widening a leash someone
     // else set deliberately.
+    //
+    // One floor under that leash: a FORM leg needs at least one turn per
+    // value the goal names, plus the section-opening / Next / scroll turns
+    // around them. Measured live (humi New Hire wizard, 2026-09-05): five
+    // fail-fast legs whose goals named 20-26 values hit the flat ceiling of
+    // 15 with 14-17 of their actions already ok (HIR-EC-021: 17/17) — a leg
+    // that was filling the form correctly, ended by arithmetic. The floor is
+    // sized by the goal, never by the agent's own sense of progress (the
+    // 101-turn HIR-EC-010 runaway progressed by that rule every turn), and
+    // the instance's own ceiling still wins.
+    const formFloor = formLeg ? outcomesAsked + FORM_LEG_TURN_SLACK : 0;
     const effectiveMaxSteps =
-      runOptions.maxSteps !== undefined ? Math.min(this.#maxSteps, runOptions.maxSteps) : this.#maxSteps;
+      runOptions.maxSteps !== undefined
+        ? Math.min(this.#maxSteps, Math.max(runOptions.maxSteps, formFloor))
+        : this.#maxSteps;
     const actions: AgentAction[] = [];
     const history: string[] = [];
     // The origins the agent may navigate to: the caller's list, else the page
@@ -1883,7 +1901,7 @@ export class WorkflowAgent {
           error = describe(caught);
           const missing =
             caught instanceof ListboxOptionMissingError && !caught.filtered
-              ? listboxCannotOffer(current, caught.shown, goal)
+              ? listboxCannotOffer(current, caught.shown, goal, caught.trigger)
               : null;
           if (missing !== null) {
             await page.waitForLoadState('networkidle', { timeout: NETWORK_SETTLE_MS }).catch(() => undefined);

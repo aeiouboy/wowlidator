@@ -805,16 +805,32 @@ export function listboxCannotOffer(
   decision: DecisionLike,
   shown: readonly string[],
   goal: string,
+  /**
+   * The label the page itself printed on the trigger when the list opened
+   * (`ListboxOptionMissingError.trigger`, e.g. "เลือกตำแหน่ง (Select Position)").
+   * A bilingual page names the control in one language in the goal and
+   * another in the selector — measured live (humi, 2026-09-05): the goal said
+   * "Position", the selector `name="ตำแหน่ง"`, and the judge never fired, so a
+   * picker that demonstrably could not offer the value ended the leg as a
+   * bare "gave up" instead. The trigger's own text usually carries both.
+   */
+  triggerName?: string | undefined,
 ): { control: string; value: string; shown: string[] } | null {
   if (decision.action !== 'selectOption' || shown.length === 0 || decision.value.trim() === '') return null;
   const asked = foldValue(decision.value);
   const name = selectorName(decision.selector);
   if (name === null) return null;
   const nameKey = foldValue(name.replace(/\*+\s*$/u, ''));
+  const triggerKey = triggerName === undefined ? '' : foldValue(triggerName);
+  const namesControl = (ctl: string): boolean =>
+    ctl === nameKey ||
+    nameKey.includes(ctl) ||
+    ctl.includes(nameKey) ||
+    (triggerKey !== '' && ctl !== '' && triggerKey.includes(ctl));
   for (const outcome of goalOutcomes(goal)) {
     if (foldValue(outcome.value) !== asked) continue;
     const ctl = foldValue(outcome.control);
-    if (ctl !== nameKey && !nameKey.includes(ctl) && !ctl.includes(nameKey)) continue;
+    if (!namesControl(ctl)) continue;
     if (shown.some((option) => valueShownIn(option, outcome.value))) return null;
     return { control: outcome.control, value: outcome.value, shown: [...shown] };
   }

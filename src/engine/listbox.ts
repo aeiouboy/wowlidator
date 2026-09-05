@@ -64,13 +64,37 @@ export interface ListboxSelection {
   via: 'option' | 'checkbox';
   /** What was typed into the search box, when one was used. */
   typed?: string | undefined;
-  /** Which candidate found the option: the whole value, its code half, or its label half. */
-  matchedBy: 'whole' | 'code' | 'label';
+  /**
+   * Which candidate found the option: the whole value, its code half, its
+   * label half — or `prefix`, the one option in the list that starts with
+   * the value when nothing matched whole ("Thai" → "Thailand - Thailand").
+   */
+  matchedBy: 'whole' | 'code' | 'label' | 'prefix';
   /** What the trigger showed afterwards, and whether that holds the pick. */
   readBack: string | null;
   confirmed: boolean;
   /** How long the list took to hold anything after opening. */
   waitedMs: number;
+}
+
+/**
+ * The one option name that begins with `value` (case-folded, whitespace
+ * collapsed, a code-half `X - ` prefix on the option tolerated), or null when
+ * none or several do. Pure; the pick rung's last resort before a miss.
+ */
+export function uniquePrefixMatch(options: readonly string[], value: string): string | null {
+  const fold = (text: string): string => text.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+  const wanted = fold(value);
+  if (wanted.length < 2) return null;
+  const hits = options.filter((option) => {
+    const name = fold(option);
+    if (name === wanted) return false; // a whole match belongs to the rung above
+    if (name.startsWith(wanted)) return true;
+    // "TH - Thailand": the label half after a code dash may carry the prefix.
+    const dash = name.indexOf(' - ');
+    return dash > 0 && name.slice(dash + 3).startsWith(wanted);
+  });
+  return hits.length === 1 ? hits[0]! : null;
 }
 
 /** The list opened but never held the option — closed again; wording is a parsed contract. */
@@ -90,6 +114,8 @@ export class ListboxOptionMissingError extends Error {
    * null when no search was typed or every head returned options.
    */
   readonly searchedEmpty: string | null;
+  /** The trigger's own label when the list opened — the page's name for the control, in its language. */
+  readonly trigger: string;
   constructor(
     trigger: string,
     value: string,
@@ -106,6 +132,7 @@ export class ListboxOptionMissingError extends Error {
     this.shown = shown;
     this.filtered = evidence.filtered ?? false;
     this.searchedEmpty = evidence.searchedEmpty ?? null;
+    this.trigger = trigger;
   }
 }
 
@@ -332,7 +359,7 @@ export async function selectFromListbox(
 
   const picked: string[] = [];
   let typed: string | undefined;
-  let matchedBy: 'whole' | 'code' | 'label' = 'whole';
+  let matchedBy: 'whole' | 'code' | 'label' | 'prefix' = 'whole';
   for (const part of parts) {
     const candidates = optionCandidates(part);
     // 3. Type-to-filter, the stable head first.
@@ -377,6 +404,24 @@ export async function selectFromListbox(
       if (hit !== null && !hit.disabled) {
         matchedBy = candidate.by;
         break;
+      }
+    }
+    // Last resort before a miss: the ONE option that starts with the value.
+    // Never a substring ("Male" is not "Female") and never one of several
+    // ("New Hire" is not every "New Hire — …"): exactly one option, or
+    // nothing. The read-back below records what the control shows, so a
+    // wrong guess is visible in the proof rather than silent. Measured live
+    // (humi, 2026-09-05): "Thai" against a list whose only match was
+    // "Thailand - Thailand" cost the agent a miss, a settle, and a turn.
+    if (hit === null || hit.disabled) {
+      const unique = uniquePrefixMatch(state.options, part);
+      if (unique !== null) {
+        const [exact] = optionNamePatterns(unique);
+        const byPrefix = (await findOption(container, exact)) ?? (await findOption(page.locator('body'), exact));
+        if (byPrefix !== null && !byPrefix.disabled) {
+          hit = byPrefix;
+          matchedBy = 'prefix';
+        }
       }
     }
     if (hit === null) {
