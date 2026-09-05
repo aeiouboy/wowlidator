@@ -16,10 +16,11 @@ import { join } from 'node:path';
 
 import type { ProofBundle, ProofStep } from '../src/engine/proof-bundle.js';
 import type { CatalogReportCase, CatalogReportInput } from '../src/reporter/catalog-report.js';
-import { readZip } from '../src/catalog/extract.js';
+import { extractWorkbookSheets, readZip } from '../src/catalog/extract.js';
 import {
   buildCaseWorkbook,
   buildPassedCasesWorkbook,
+  buildTextWorkbook,
   buildZip,
   excelExportNames,
   passedCases,
@@ -251,6 +252,31 @@ describe('the container', () => {
     const { sheet } = sheetOf(buildPassedCasesWorkbook(input([c]), 'm').xlsx);
     assert.ok(!sheet.includes('<script>'));
     assert.ok(sheet.includes('&lt;script&gt;'));
+  });
+});
+
+describe('a text sheet through the same writer', () => {
+  it('round-trips a preface, a bold header and wrapped rows through the independent xlsx reader', () => {
+    const xlsx = buildTextWorkbook({
+      sheetName: 'Findings',
+      preface: 'Suggested severity is a stated rule.',
+      header: ['Finding', 'Cases', 'Status as sealed'],
+      rows: [['POST /v1/plans answered 500', 'EC_01_01 (failed)\nEC_01_02 (error)', 'failed: 1\nerror: 1'], ['<b>escaped</b>', '', 'x']],
+      widths: [40, 20, 12],
+    });
+    const [sheet] = extractWorkbookSheets(xlsx);
+    assert.equal(sheet!.name, 'Findings');
+    assert.deepEqual(sheet!.rows[0], ['Suggested severity is a stated rule.']);
+    assert.deepEqual(sheet!.rows[1], ['Finding', 'Cases', 'Status as sealed']);
+    assert.deepEqual(sheet!.rows[2], ['POST /v1/plans answered 500', 'EC_01_01 (failed)\nEC_01_02 (error)', 'failed: 1\nerror: 1']);
+    assert.deepEqual(sheet!.rows[3], ['<b>escaped</b>', '', 'x'], 'markup is data in the cell, not markup in the XML');
+    const raw = new Map(readZip(xlsx).map((e) => [e.name, e.data])).get('xl/worksheets/sheet1.xml')!.toString('utf8');
+    assert.ok(!raw.includes('<b>escaped'));
+    assert.ok(raw.includes('<mergeCell ref="A1:C1"/>'), 'the preface spans the header columns');
+  });
+
+  it('refuses more columns than the writer has letters for', () => {
+    assert.throws(() => buildTextWorkbook({ sheetName: 's', header: Array.from({ length: 11 }, (_, i) => `c${i}`), rows: [] }), /11 columns asked for/);
   });
 });
 

@@ -35,6 +35,7 @@ import {
   type CatalogReportInput,
 } from '../reporter/catalog-report.js';
 import { writePassedCasesExcel, type ExcelExportResult } from '../reporter/excel-export.js';
+import { writeFindingsExports, type FindingsExportResult } from '../reporter/findings-export.js';
 import { caseIdOf, type SuiteLedger } from './suite-progress.js';
 
 /**
@@ -85,14 +86,21 @@ export async function buildCatalogReportCases(
 export interface CatalogArtifacts {
   htmlPath: string;
   excel: ExcelExportResult;
+  /** `<base>-findings.md` and `<base>-findings.xlsx` — the root causes, model-free (`reporter/findings-export.ts`). */
+  findings: FindingsExportResult;
 }
 
-/** Render and write the report and its workbooks — the one place both happen. */
+/**
+ * Render and write the report, its workbooks and the findings export — the
+ * one place all of them happen, so `wowlidator report` rebuilds every file
+ * from the ledgers on disk without a re-run.
+ */
 export async function writeCatalogArtifacts(input: CatalogReportInput, cwd?: string): Promise<CatalogArtifacts> {
   const htmlPath = catalogReportPath(input.runKey, input.title, cwd);
   await writeCatalogReport(htmlPath, renderCatalogReport(input));
   const excel = await writePassedCasesExcel(htmlPath, input);
-  return { htmlPath, excel };
+  const findings = await writeFindingsExports(htmlPath, input);
+  return { htmlPath, excel, findings };
 }
 
 /** The history lines the report explains a case with, from the run log. */

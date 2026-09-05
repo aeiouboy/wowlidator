@@ -40,6 +40,14 @@
  *   planned case a `never ran` row — before the first case has a verdict,
  *   and each finished case replaces its row in place. A rerun of the same
  *   catalog run (same run key) updates the same file, never a new one.
+ * - **It leads with FINDINGS** (2026-09-05, `findings.ts`): under the tally,
+ *   "N findings account for M of K non-passing cases · U unclustered", one
+ *   `<details>` per root cause listing its member cases (linked to their
+ *   sections) with the statuses AS SEALED, counted and never changed. The
+ *   signature is a pure function of the failing step's typed fields — never
+ *   of a message — so seventy cases that met one 500 read as one finding.
+ *   `never ran` cases fold into ONE list with the count on its summary line
+ *   instead of a full section each; every id is still in the DOM.
  *
  * Pure render (`renderCatalogReport`) + one writer (`writeCatalogReport`), the
  * `html-reporter.ts` split, so `tests/catalog-report.test.ts` runs at the
@@ -53,6 +61,7 @@ import type { ProofBundle, ProofStep } from '../engine/proof-bundle.js';
 import { describeDbChanges, describeTarget, describeValueSource, verdictFamily } from '../engine/proof-bundle.js';
 import { grimTheme } from './theme.js';
 import { slugify } from './html-reporter.js';
+import { buildFindingsSummary, findingsHeadline, statusCounts, type Finding, type FindingCase, type FindingsSummary } from './findings.js';
 import {
   countVerdicts,
   describeAgentAction,
@@ -355,7 +364,7 @@ function exportControl(c: CatalogReportCase, input: CatalogReportInput): string 
 
 function caseSection(c: CatalogReportCase, input: CatalogReportInput, budget: ShotBudget): string {
   const chip = verdictChipOf(c);
-  const anchor = `case-${slugify(c.id)}`;
+  const anchor = caseAnchor(c.id);
   const bundle = c.bundle;
   const steps = bundle?.steps ?? [];
   const film = videoBlock(c);
@@ -413,6 +422,81 @@ function caseSection(c: CatalogReportCase, input: CatalogReportInput, budget: Sh
     (notes === '' ? '' : `<div class="history"><div class="cap">Run notes</div>${notes}</div>`) +
     `</div><div class="time-pane">${steps.length === 0 ? '<div class="muted">no timing — the case never ran</div>' : timePane(steps)}</div></div>` +
     '</details>'
+  );
+}
+
+/* ------------------------------------------------------------- findings */
+
+/** The anchor a case's section carries — what the findings block links to. */
+function caseAnchor(id: string): string {
+  return `case-${slugify(id)}`;
+}
+
+function memberChip(m: FindingCase): string {
+  // The status exactly as the ledger sealed it — `error` reads `error`.
+  const sealed = m.status ?? m.verdict;
+  const via = m.dependsOn === undefined ? '' : ` <em title="listed here because it depends on ${esc(m.dependsOn)}">↳ depends on ${esc(m.dependsOn)}</em>`;
+  return `<span class="fcase"><a href="#${esc(caseAnchor(m.id))}">${esc(m.id)}</a> <code class="sealed">${esc(sealed)}</code>${via}</span>`;
+}
+
+function findingBlock(f: Finding): string {
+  const counts = statusCounts(f.cases)
+    .map((s) => `${esc(s.status)}: ${s.count}`)
+    .join(' · ');
+  const kv = (label: string, value: string | undefined): string =>
+    value === undefined || value === '' ? '' : `<div class="kv"><span>${esc(label)}</span><code>${esc(value)}</code></div>`;
+  return (
+    `<details class="finding" data-key="${esc(f.key)}"><summary>` +
+    `<span class="fkind">${esc(f.kind)}</span><span class="ftitle">${esc(f.title)}</span>` +
+    `<span class="fcount">${f.cases.length} case${f.cases.length === 1 ? '' : 's'} · ${counts}</span></summary>` +
+    `<div class="fbody">` +
+    `<div class="kv"><span>cases</span><span class="fcases">${f.cases.map(memberChip).join('')}</span></div>` +
+    kv('where', f.where) +
+    kv('asked', f.asked) +
+    kv('offered', f.offered) +
+    (f.evidence.length === 0
+      ? ''
+      : `<div class="kv"><span>evidence</span><ul class="turns">${f.evidence.map((e) => `<li><em>${esc(e.label)}</em> <code>${esc(e.value)}</code></li>`).join('')}</ul></div>`) +
+    `</div></details>`
+  );
+}
+
+/**
+ * The block under the tally: the headline, one `<details>` per finding, the
+ * unclustered remainder. Absent only when nothing failed — a run with no
+ * non-passing case has no findings to lead with.
+ */
+function findingsSection(summary: FindingsSummary): string {
+  if (summary.nonPassing === 0) return '';
+  const headline = findingsHeadline(summary);
+  const unclustered =
+    summary.unclustered.length === 0
+      ? ''
+      : `<details class="finding unclustered"><summary><span class="fkind">—</span><span class="ftitle">unclustered — no shared cause in the typed fields; each keeps its own section below</span>` +
+        `<span class="fcount">${summary.unclustered.length} case${summary.unclustered.length === 1 ? '' : 's'}</span></summary>` +
+        `<div class="fbody"><div class="kv"><span>cases</span><span class="fcases">${summary.unclustered.map(memberChip).join('')}</span></div></div></details>`;
+  return (
+    `<section class="findings" id="findings"><div class="shead">Findings<span class="scount">${esc(headline)}</span></div>` +
+    `<div class="fnote">Grouped by the failing step's typed fields — request, URL, control, hold, agent end — never by its message. Statuses are shown as the run sealed them.</div>` +
+    summary.findings.map(findingBlock).join('') +
+    unclustered +
+    '</section>'
+  );
+}
+
+/**
+ * Every `never ran` case in ONE list, the count on the summary line. A
+ * 252-row remainder used to render 252 full sections a reader had to scroll
+ * past; the ids are all still here, each in its own `<span>`.
+ */
+function neverRanSection(cases: readonly CatalogReportCase[]): string {
+  if (cases.length === 0) return '';
+  return (
+    `<details class="never-ran" id="never-ran"><summary><span class="chip never">never ran</span>` +
+    `<span class="cname">${cases.length} case${cases.length === 1 ? '' : 's'} never ran — listed here, not as a section each</span></summary>` +
+    `<div class="fbody nlist">${cases
+      .map((c) => `<span class="nid" id="${esc(caseAnchor(c.id))}" title="${esc(c.scenario)}${c.reason ? ` — ${esc(c.reason)}` : ''}">${esc(c.id)}</span>`)
+      .join('')}</div></details>`
   );
 }
 
@@ -568,10 +652,30 @@ body.single .split { grid-template-columns: minmax(0, 1fr) 340px; }
 .seek { font: inherit; font-size: 11px; cursor: pointer; padding: 2px 8px; border-radius: 999px;
   border: 1px solid var(--line); background: transparent; color: var(--muted); white-space: nowrap; margin-left: 8px; }
 .seek:hover { border-color: var(--fg); color: var(--fg); }
+.findings { margin: 4px 0 18px; }
+.findings > .shead { font-weight: 600; font-size: 15px; padding: 6px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: baseline; }
+.findings > .shead .scount { color: var(--muted); font-weight: 400; font-size: 12px; }
+.fnote { font-size: 11px; color: var(--muted); margin: 6px 0 8px; }
+details.finding { border: 1px solid var(--line); border-left: 3px solid #c0392b; border-radius: 8px; margin: 6px 0; background: var(--panel, transparent); }
+details.finding.unclustered { border-left-color: var(--muted); }
+details.finding > summary { display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; cursor: pointer; list-style: none; }
+.fkind { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; flex: none; }
+.ftitle { flex: 1; min-width: 0; }
+.fcount { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.fbody { padding: 4px 14px 12px; }
+.fcases { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.fcase a { font-family: ui-monospace, monospace; }
+.fcase .sealed { font-size: 11px; color: var(--muted); }
+.fcase em { font-size: 11px; color: var(--muted); font-style: normal; }
+details.never-ran { border: 1px dashed var(--line); border-radius: 10px; margin: 8px 0 18px; }
+details.never-ran > summary { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; list-style: none; }
+.nlist { display: flex; flex-wrap: wrap; gap: 4px 12px; font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
 `;
 
 export function renderCatalogReport(input: CatalogReportInput): string {
   const budget: ShotBudget = { left: SCREENSHOT_BUDGET_BYTES, omitted: 0 };
+  const findings = buildFindingsSummary(input.cases);
+  const neverRan = input.cases.filter((c) => c.verdict === 'never-ran');
   const byScenario = new Map<string, CatalogReportCase[]>();
   for (const c of input.cases) {
     const key = c.scenario || 'ungrouped';
@@ -591,10 +695,15 @@ export function renderCatalogReport(input: CatalogReportInput): string {
       const counts = describeVerdictCounts(countVerdicts(cases), {
         review: cases.filter((c) => c.verdict === 'review').every((c) => recordOnlyCase(c)) ? 'recorded only' : 'awaiting review',
       });
+      // The counts still speak for every planned row; the sections are the
+      // cases that ran — a `never ran` row lives in the fold above.
       return (
         `<section class="scenario"><div class="shead">${esc(scenario)}` +
         `<span class="scount">${esc(counts)}</span></div>` +
-        cases.map((c) => caseSection(c, input, budget)).join('') +
+        cases
+          .filter((c) => c.verdict !== 'never-ran')
+          .map((c) => caseSection(c, input, budget))
+          .join('') +
         '</section>'
       );
     })
@@ -626,6 +735,8 @@ export function renderCatalogReport(input: CatalogReportInput): string {
     ` title="Written beside this report: passed cases only, one step per row, photos embedded, video linked under every step">Passed cases (Excel)</a></div>` +
     liveNote +
     `<div class="tally">${[...tally.entries()].map(([label, n]) => `<span>${esc(label)}: <b>${n}</b></span>`).join('')}</div>` +
+    findingsSection(findings) +
+    neverRanSection(neverRan) +
     omittedNote +
     sections +
     // The player source is also a VALUE in the page so a copy of it can carry

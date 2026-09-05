@@ -60,20 +60,23 @@ function kase(over: Partial<CatalogReportCase>): CatalogReportCase {
 }
 
 describe('grouping and coverage', () => {
-  it('groups by scenario with a passed-count, and a never-ran case is a row too', () => {
+  it('groups by scenario with a passed-count; a never-ran case is counted and folded, a blocked one with no bundle is a row', () => {
     const html = renderCatalogReport({
       title: 'be100', runKey: 'be100-csv@2026', generatedAt: null,
       cases: [
         kase({}),
         kase({ id: 'PL_02_02', name: 'PL_02_02 second', verdict: 'never-ran', status: null, bundle: null }),
+        kase({ id: 'PL_02_03', name: 'PL_02_03 third', verdict: 'blocked', status: null, bundle: null, reason: 'the run was paused' }),
         kase({ id: 'PL_06_01', name: 'PL_06_01 other', scenario: 'PL_06' }),
       ],
     });
     assert.match(html, /<section class="scenario"><div class="shead">PL_02/);
     assert.match(html, /PL_06/);
-    assert.match(html, /1 of 2 passed/);
+    assert.match(html, /1 of 3 passed/);
     assert.match(html, />never ran</);
-    assert.match(html, /No steps were recorded/);
+    // The never-ran row lives in the fold (its id still in the DOM), the blocked row is a section of its own.
+    assert.match(html, /<details class="never-ran"[^>]*>[\s\S]*PL_02_02/);
+    assert.match(html, /No steps were recorded — the run was paused/);
   });
 
   it('the chip follows the two-family taxonomy', () => {
@@ -140,14 +143,18 @@ describe('export', () => {
   });
 
   it('a case that did not pass has the button DISABLED — there is no proof to hand over', () => {
-    for (const verdict of ['failed', 'blocked', 'review', 'never-ran'] as const) {
+    for (const verdict of ['failed', 'blocked', 'review'] as const) {
       const html = renderCatalogReport({
         title: 't', runKey: null, generatedAt: null,
-        cases: [kase({ verdict, status: verdict === 'never-ran' ? null : 'failed', bundle: verdict === 'never-ran' ? null : bundle([step({ status: 'failed' })]) })],
+        cases: [kase({ verdict, status: 'failed', bundle: bundle([step({ status: 'failed' })]) })],
       });
       assert.match(html, /<button class="btn export-case" type="button" disabled/, verdict);
       assert.ok(!html.includes('pl-02-01.xlsx'), `${verdict} must not link a workbook`);
     }
+    // A never-ran case has no section at all, so no button either — and no workbook link.
+    const folded = renderCatalogReport({ title: 't', runKey: null, generatedAt: null, cases: [kase({ verdict: 'never-ran', status: null, bundle: null })] });
+    assert.ok(!folded.includes('export-case'));
+    assert.ok(!folded.includes('pl-02-01.xlsx'));
   });
 
   it('the header links the run workbook and still exports the whole catalog client-side', () => {
@@ -182,6 +189,96 @@ describe('safety and paths', () => {
     const p = catalogReportPath('be100-csv@2026-08-31T03:33:23.997Z', 'be100', '/tmp/x');
     assert.match(p, /^\/tmp\/x\/reports\/be100-csv-2026-08-31t03-33-23-997z\.html$/);
     assert.equal(catalogReportPath(null, 'My Catalog', '/tmp/x'), '/tmp/x/reports/my-catalog.html');
+  });
+});
+
+/* -------------------------------------------------------------- findings */
+
+/**
+ * The block under the tally (2026-09-05, `findings.ts`): root causes first,
+ * every member linked to its section, statuses exactly as sealed, and the
+ * never-ran remainder as ONE list rather than a section each.
+ */
+describe('findings lead the report', () => {
+  const apiFailure = (id: string, status: string, path: string): CatalogReportCase =>
+    kase({
+      id, name: `${id} api`, scenario: 'BE_01', verdict: 'failed', status,
+      bundle: bundle(
+        [
+          step({ index: 0, action: 'request', url: null, request: { method: 'POST', url: `http://api.test${path}`, status: 500, durationMs: 80 } } as Partial<ProofStep>),
+          step({ index: 1, action: 'expectStatus', url: null, status: status === 'error' ? 'error' : 'failed', detail: { expected: [201], actual: '500 Internal Server Error' } }),
+        ],
+        { status: status as ProofBundle['status'] },
+      ),
+    });
+  const urlFailure = (id: string): CatalogReportCase =>
+    kase({
+      id, name: `${id} url`, scenario: 'UI_01', verdict: 'failed', status: 'failed',
+      bundle: bundle([step({ index: 0, action: 'expectUrl', status: 'failed', url: 'http://app.test/en/login', detail: { expected: '/plans', actual: 'http://app.test/en/login' } })], { status: 'failed' }),
+    });
+  const anchorOf = (id: string): string => id.toLowerCase().replace(/_/g, '-');
+
+  it('states the exact count line, links every member to its section, and shows statuses as the ledger sealed them', () => {
+    const html = renderCatalogReport({
+      title: 't', runKey: null, generatedAt: null,
+      cases: [
+        apiFailure('BE_01_01', 'failed', '/v1/plans'),
+        apiFailure('BE_01_02', 'error', '/v1/plans'),
+        urlFailure('UI_01_01'),
+        kase({ id: 'UI_01_02', name: 'UI_01_02 lone', scenario: 'UI_01', verdict: 'failed', status: 'failed', bundle: bundle([step({ status: 'failed' })], { status: 'failed' }) }),
+        kase({}),
+      ],
+    });
+    const block = html.match(/<section class="findings" id="findings">[\s\S]*?<\/section>/)?.[0] ?? '';
+    assert.ok(block !== '', 'the block exists');
+    assert.ok(block.includes('2 findings account for 3 of 4 non-passing cases · 1 unclustered'), block.slice(0, 400));
+    for (const id of ['BE_01_01', 'BE_01_02', 'UI_01_01', 'UI_01_02']) {
+      assert.ok(block.includes(`<a href="#case-${anchorOf(id)}">${id}</a>`), `${id} links to its section`);
+      assert.ok(html.includes(`<details class="case" id="case-${anchorOf(id)}"`), `${id} has a section`);
+    }
+    assert.ok(block.includes('POST /v1/plans answered 500'));
+    // The sealed status, not a relabel: the error case reads `error` and is counted as one.
+    assert.match(block, /BE_01_02<\/a> <code class="sealed">error<\/code>/);
+    assert.ok(block.includes('2 cases · failed: 1 · error: 1'));
+    assert.ok(block.includes('<span class="fkind">api</span>'));
+    assert.ok(block.includes('<details class="finding unclustered">'));
+    assert.ok(!block.includes('PL_02_01'), 'a passed case is in no finding');
+  });
+
+  it('a run with nothing failed has no findings block', () => {
+    const html = renderCatalogReport({ title: 't', runKey: null, generatedAt: null, cases: [kase({})] });
+    assert.ok(!html.includes('<section class="findings"'));
+  });
+
+  it('a dependent is listed under its prerequisite\'s finding, marked', () => {
+    const html = renderCatalogReport({
+      title: 't', runKey: null, generatedAt: null,
+      cases: [
+        apiFailure('BE_01_01', 'failed', '/v1/plans'),
+        kase({ id: 'BE_01_02', name: 'BE_01_02 dep', scenario: 'BE_01', verdict: 'blocked', status: null, bundle: null, reason: 'depends on BE_01_01 which failed' }),
+      ],
+    });
+    const block = html.match(/<section class="findings" id="findings">[\s\S]*?<\/section>/)?.[0] ?? '';
+    assert.ok(block.includes('1 finding account for 2 of 2 non-passing cases · 0 unclustered'));
+    assert.match(block, /BE_01_02<\/a> <code class="sealed">blocked<\/code> <em[^>]*>↳ depends on BE_01_01<\/em>/);
+  });
+
+  it('252 never-ran cases render as ONE details block listing every id, and no section each', () => {
+    const neverRan = Array.from({ length: 252 }, (_, i) =>
+      kase({
+        id: `NR_${String(Math.floor(i / 20) + 1).padStart(2, '0')}_${String((i % 20) + 1).padStart(2, '0')}`,
+        name: `never ${i}`, scenario: `NR_${Math.floor(i / 20) + 1}`, verdict: 'never-ran', status: null, bundle: null,
+      }),
+    );
+    const html = renderCatalogReport({ title: 't', runKey: null, generatedAt: null, cases: [kase({}), ...neverRan] });
+    assert.equal((html.match(/<details class="never-ran"/g) ?? []).length, 1);
+    const fold = html.match(/<details class="never-ran"[\s\S]*?<\/details>/)?.[0] ?? '';
+    assert.ok(fold.includes('252 cases never ran'));
+    assert.ok(fold.includes('>NR_07_13<'), 'a sampled id is in the list');
+    assert.equal((fold.match(/class="nid"/g) ?? []).length, 252, 'every id is in the DOM');
+    assert.equal((html.match(/<details class="case"/g) ?? []).length, 1, 'only the case that ran has a section');
+    assert.ok(!html.includes('<details class="case" id="case-nr-07-13"'), 'no per-case section for a never-ran row');
+    assert.match(html, /never ran: <b>252<\/b>/, 'the tally still counts them');
   });
 });
 

@@ -20,6 +20,7 @@ import {
   CatalogLiveReport,
   buildCatalogReportCases,
   scenarioFromId,
+  writeCatalogArtifacts,
 } from '../src/cli/catalog-live-report.js';
 import { newLedger, recordOutcome, type SuiteLedger } from '../src/cli/suite-progress.js';
 
@@ -72,6 +73,48 @@ describe('the report exists before any verdict', () => {
     // The run workbook exists too, saying there is nothing in it yet; no media folder.
     assert.ok(existsSync(first.excel.xlsxPath));
     assert.ok(!existsSync(mediaDir(cwd)));
+    // And the findings export, beside the report from the first write.
+    assert.equal(first.findings.markdownPath, join(cwd, 'reports', 'be100-csv-2026-09-02t04-00-00-000z-findings.md'));
+    assert.ok(existsSync(first.findings.markdownPath));
+    assert.ok(existsSync(first.findings.xlsxPath));
+    assert.equal(first.findings.findings, 0);
+  });
+});
+
+describe('the findings export rides with the report', () => {
+  it('`wowlidator report`\'s path — writeCatalogArtifacts over a fixture ledger — writes <base>-findings.md from the ledgers alone', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'wow-live-'));
+    const ledger = newLedger('be100.csv', ['BE_01_01', 'BE_01_02', 'BE_02_01']);
+    ledger.runKey = 'be100-csv@2026-09-02T04:00:00.000Z';
+    // Two cases that met the same 500 on the same endpoint, their bundles on disk as an earlier pass left them.
+    for (const id of ['BE_01_01', 'BE_01_02']) {
+      const failed = bundle(`${id} create`, 'failed', {
+        steps: [
+          step({ index: 0, action: 'request', url: null, request: { method: 'POST', url: 'http://api.test/v1/plans', status: 500, durationMs: 50 } } as Partial<ProofStep>),
+          step({ index: 1, action: 'expectStatus', url: null, status: 'failed', detail: { expected: [201], actual: '500 Internal Server Error' } }),
+        ],
+      });
+      const proofPath = join(cwd, `${id}.json`);
+      writeFileSync(proofPath, JSON.stringify(failed), 'utf8');
+      recordOutcome(ledger, { name: failed.name, verdict: 'failed', bundle: failed, reason: 'step 1 broke' }, { proofPath });
+    }
+    const cases = await buildCatalogReportCases(ledger, async (id) => {
+      const proofPath = ledger.outcomes[id]?.proofPath;
+      return typeof proofPath === 'string' ? (JSON.parse(readFileSync(proofPath, 'utf8')) as ProofBundle) : null;
+    });
+    const artifacts = await writeCatalogArtifacts({ title: ledger.title, runKey: ledger.runKey, generatedAt: null, cases }, cwd);
+    const mdPath = artifacts.htmlPath.replace(/\.html$/, '-findings.md');
+    assert.equal(artifacts.findings.markdownPath, mdPath);
+    assert.ok(existsSync(mdPath));
+    const md = readFileSync(mdPath, 'utf8');
+    assert.ok(md.includes('1 finding account for 2 of 2 non-passing cases · 0 unclustered'));
+    assert.ok(md.includes('POST /v1/plans answered 500'));
+    assert.ok(md.includes('BE_01_01 (failed), BE_01_02 (failed)'));
+    assert.ok(md.includes('Never ran (1)'));
+    assert.ok(existsSync(artifacts.findings.xlsxPath));
+    // The HTML leads with the same finding.
+    const html = readFileSync(artifacts.htmlPath, 'utf8');
+    assert.ok(html.includes('1 finding account for 2 of 2 non-passing cases · 0 unclustered'));
   });
 });
 
