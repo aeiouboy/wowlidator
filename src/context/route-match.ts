@@ -110,8 +110,14 @@ export function concreteRouteUrl(pattern: string, startUrl: string): RouteUrlRes
     return { ok: false, reason: `the run's start url "${startUrl}" is not absolute` };
   }
 
-  const out: string[] = [];
   const segments = pattern.split('/').filter(Boolean);
+  const localePatternIndex = segments.findIndex((segment) => segment.slice(1).toLowerCase() === 'locale');
+  const localeStartIndex = startSegments.findIndex((segment) => LOCALE_SEGMENT.test(segment));
+  const prefix =
+    localePatternIndex !== -1 && localeStartIndex >= localePatternIndex
+      ? startSegments.slice(0, localeStartIndex - localePatternIndex)
+      : [];
+  const out: string[] = [...prefix];
   for (const [index, segment] of segments.entries()) {
     if (segment.startsWith('*')) {
       return { ok: false, reason: `"${pattern}" is a catch-all — any path for it would be invented` };
@@ -127,7 +133,7 @@ export function concreteRouteUrl(pattern: string, startUrl: string): RouteUrlRes
         reason: `"${pattern}" needs a value for ":${name}" that nothing in this run supplies`,
       };
     }
-    const candidate = startSegments[index];
+    const candidate = startSegments[index + prefix.length];
     if (candidate === undefined || !LOCALE_SEGMENT.test(candidate)) {
       return {
         ok: false,
@@ -211,9 +217,31 @@ export function nearestRoutes(
 }
 
 /** Whether ANY declared route claims this path. Null when nothing is indexed — no opinion. */
-export function routeIsDeclared(path: string, patterns: readonly string[]): boolean | null {
-  if (patterns.length === 0) return null;
+function deploymentRoutePath(path: string, patterns: readonly string[], deploymentUrl: string): string {
   const wanted = pathnameOf(path) ?? path;
-  return patterns.some((pattern) => matchesRoutePattern(wanted, pattern));
+  const deployed = pathnameOf(deploymentUrl);
+  if (deployed === undefined) return wanted;
+  const segments = deployed.split('/').filter(Boolean);
+  for (let offset = 0; offset < segments.length; offset += 1) {
+    const candidate = `/${segments.slice(offset).join('/')}`;
+    if (!patterns.some((pattern) => matchesRoutePattern(candidate, pattern))) continue;
+    const basePath = `/${segments.slice(0, offset).join('/')}`;
+    if (basePath === '/') return wanted;
+    if (wanted === basePath) return '/';
+    if (wanted.startsWith(`${basePath}/`)) return wanted.slice(basePath.length);
+    return wanted;
+  }
+  return wanted;
 }
 
+export function routeIsDeclared(
+  path: string,
+  patterns: readonly string[],
+  deploymentUrl?: string | undefined,
+): boolean | null {
+  if (patterns.length === 0) return null;
+  const wanted = deploymentUrl === undefined
+    ? (pathnameOf(path) ?? path)
+    : deploymentRoutePath(path, patterns, deploymentUrl);
+  return patterns.some((pattern) => matchesRoutePattern(wanted, pattern));
+}

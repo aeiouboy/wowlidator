@@ -84,6 +84,7 @@ export interface RiskRequest {
   repository: string;
   /** Page routes the repository declares; empty = no repository indexed. */
   declaredRoutes: readonly string[];
+  deploymentUrl?: string | undefined;
   /** Whether backend steps may run at all this pass. */
   backend: boolean;
   /**
@@ -163,7 +164,7 @@ export function riskSignals(request: RiskRequest): string[] {
       const path = pathnameOf(step.url);
       if (path !== undefined && !seenRoutes.has(path)) {
         seenRoutes.add(path);
-        if (routeIsDeclared(path, request.declaredRoutes) === false) {
+        if (routeIsDeclared(path, request.declaredRoutes, request.deploymentUrl) === false) {
           signals.push(`${at}: goto ${path} — the repository declares no page route for this path`);
         }
       }

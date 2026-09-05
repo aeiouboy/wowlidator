@@ -266,6 +266,13 @@ describe('context engine', () => {
       // No index, no opinion — the caller must not read this as "undeclared".
       assert.equal(routeIsDeclared('/en/anything', []), null);
     });
+
+    it('matches a declared route behind the start URL deployment base path', () => {
+      const startUrl = 'https://sit.example.test/humi/th/login';
+      const deploymentRoutes = [...routes, '/:locale/login'];
+      assert.equal(routeIsDeclared('/humi/th/login', deploymentRoutes, startUrl), true);
+      assert.equal(routeIsDeclared('/other/th/login', deploymentRoutes, startUrl), false);
+    });
   });
 
   describe('RouteIngester', () => {
@@ -695,6 +702,13 @@ describe('context engine', () => {
       assert.deepEqual(concreteRouteUrl('/:locale/overtime', start), {
         ok: true,
         url: 'http://localhost:3200/en/overtime',
+      });
+    });
+
+    it('preserves a deployment base path before the locale', () => {
+      assert.deepEqual(concreteRouteUrl('/:locale/overtime', 'https://sit.example.test/humi/th/login'), {
+        ok: true,
+        url: 'https://sit.example.test/humi/th/overtime',
       });
     });
 

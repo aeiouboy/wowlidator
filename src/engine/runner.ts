@@ -404,6 +404,7 @@ export interface SmartRunnerOptions {
    * has. Empty means no repository was indexed and the run keeps no opinion.
    */
   declaredRoutes?: readonly string[] | undefined;
+  deploymentUrl?: string | undefined;
   /**
    * In-run step reconstruction: on a step's failure, ask this model for a
    * rebuilt step against the live page and retry, up to
@@ -1649,6 +1650,7 @@ export class SmartRunner {
   readonly #backend: boolean;
   /** What the application's repository declares — see `RouteNotFoundError`. */
   readonly #declaredRoutes: readonly string[];
+  readonly #deploymentUrl: string | undefined;
   /**
    * Selectors that already exhausted the ladder in this run, keyed by
    * `url :: selector` (and the persona, when one is signed in: an employee's
@@ -1837,6 +1839,7 @@ export class SmartRunner {
     this.#agentMaxSteps = options.agentMaxSteps;
     this.#backend = options.backend ?? true;
     this.#declaredRoutes = options.declaredRoutes ?? [];
+    this.#deploymentUrl = options.deploymentUrl;
     this.stepRepair = options.stepRepair ?? null;
     this.dataGate = options.dataGate ?? null;
     this.#stepDelayMs =
@@ -4575,7 +4578,7 @@ export class SmartRunner {
     // The page may have been rescued since — a consent gate accepted, a
     // session established — and what it is showing NOW is what matters.
     const landed = this.page.url();
-    const declared = routeIsDeclared(landed, this.#declaredRoutes);
+    const declared = routeIsDeclared(landed, this.#declaredRoutes, this.#deploymentUrl);
     if (declared === true) {
       this.#recordRuntimeDefect(
         'functional',
@@ -9839,6 +9842,7 @@ export async function runFlow(
       // test that saw `routes=0` inside the runner).
       backend: options.backend,
       declaredRoutes: options.declaredRoutes,
+      deploymentUrl: flow.baseUrl,
       stepRepair: options.stepRepair,
       dataGate: gate,
       stepDelayMs: options.stepDelayMs,

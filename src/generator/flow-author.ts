@@ -3297,7 +3297,7 @@ export class FlowAuthor {
         const invented = ungroundedGoto(
           [...(result.setup ?? []), ...result.steps],
           this.#declaredRoutes,
-          url === undefined ? undefined : new URL(url).origin,
+          url,
         );
         if (invented !== null) {
           refuse(
@@ -5005,7 +5005,7 @@ export function unindexedRequestMethod(
 export function ungroundedGoto(
   steps: readonly FlowStep[],
   declaredRoutes: readonly string[] = [],
-  origin?: string | undefined,
+  deploymentUrl?: string | undefined,
 ): { index: number; url: string; near: string[] } | null {
   if (declaredRoutes.length === 0) return null;
   for (const [index, step] of steps.entries()) {
@@ -5013,10 +5013,16 @@ export function ungroundedGoto(
     const url = step.url;
     if (url === '') continue;
     // Another origin is not this application's routing table's business.
-    if (/^https?:\/\//i.test(url) && origin !== undefined && !url.startsWith(origin)) continue;
+    if (/^https?:\/\//i.test(url) && deploymentUrl !== undefined) {
+      try {
+        if (new URL(url).origin !== new URL(deploymentUrl).origin) continue;
+      } catch {
+        continue;
+      }
+    }
     const path = pathnameOf(url) ?? (url.startsWith('/') ? url : null);
     if (path === null) continue;
-    if (routeIsDeclared(path, declaredRoutes) !== false) continue;
+    if (routeIsDeclared(path, declaredRoutes, deploymentUrl) !== false) continue;
     return { index, url, near: nearestRoutes(path, declaredRoutes).map((one) => one.pattern) };
   }
   return null;

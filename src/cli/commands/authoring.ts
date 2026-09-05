@@ -1284,6 +1284,7 @@ async function authorEachRow(
             documents: selected.documents.map((d) => ({ name: d.name, text: d.text })),
             repository: rowProjectContext,
             declaredRoutes: declaredPageRoutes(context.graph ?? null),
+            deploymentUrl: options.url,
             backend: options.backend,
             // The sheet's own Actual Result: a row the tester already saw
             // fail is the strongest expected-fail evidence there is.
@@ -1316,6 +1317,7 @@ async function authorEachRow(
                   caseName: testCase.name, caseText: `${row.testCase}\n${described}`, flow: again.flow,
                   documents: selected.documents.map((d) => ({ name: d.name, text: d.text })), repository: rowProjectContext,
                   declaredRoutes: declaredPageRoutes(context.graph ?? null), backend: options.backend,
+                  deploymentUrl: options.url,
                   ...(humanVerdict === undefined ? {} : { knownResult: humanVerdict })
                 },
                 { model: context.risk, log: (line) => process.stderr.write(`${line}\n`) },

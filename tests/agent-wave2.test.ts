@@ -32,6 +32,7 @@ import {
   REVEAL_ACTIONS,
   WorkflowAgent,
   buildUserPrompt,
+  deploymentAwareAgentUrl,
   doneLedger,
   type AgentDecision,
   type AgentModel,
@@ -50,6 +51,28 @@ async function cdpAvailable(url: string): Promise<boolean> {
   }
 }
 const skipBrowser = (await cdpAvailable(CDP_URL)) ? false : `no CDP endpoint at ${CDP_URL}`;
+
+describe('deploymentAwareAgentUrl', () => {
+  it('keeps the deployment base path when an agent emits a locale-rooted URL', () => {
+    assert.equal(
+      deploymentAwareAgentUrl(
+        'https://humi-sit-int.central.co.th/th/admin/system/security/consent',
+        'https://humi-sit-int.central.co.th/humi/th/home',
+      ),
+      'https://humi-sit-int.central.co.th/humi/th/admin/system/security/consent',
+    );
+  });
+
+  it('leaves an already deployment-prefixed URL unchanged', () => {
+    assert.equal(
+      deploymentAwareAgentUrl(
+        'https://humi-sit-int.central.co.th/humi/en/profile/me?tab=consent',
+        'https://humi-sit-int.central.co.th/humi/th/home',
+      ),
+      'https://humi-sit-int.central.co.th/humi/en/profile/me?tab=consent',
+    );
+  });
+});
 
 async function withPage<T>(fn: (page: Page) => Promise<T>): Promise<T> {
   const browser = await chromium.connectOverCDP(CDP_URL);

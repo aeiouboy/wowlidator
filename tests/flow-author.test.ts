@@ -1759,6 +1759,14 @@ describe('ungroundedGoto', () => {
     assert.equal(ungroundedGoto([{ action: 'goto', url: '/th/login' }], routes), null, ':locale matches any locale');
   });
 
+  it('accepts a declared route mounted below the supplied deployment base path', () => {
+    const startUrl = 'https://sit.example.test/humi/th/login';
+    assert.equal(
+      ungroundedGoto([{ action: 'goto', url: startUrl }], routes, startUrl),
+      null,
+    );
+  });
+
   it('keeps no opinion without an index, or about another origin', () => {
     // Silence is the rule everywhere the evidence runs out: a repo that
     // declares nothing cannot contradict anything.

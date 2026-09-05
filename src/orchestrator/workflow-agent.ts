@@ -1083,6 +1083,30 @@ function originOf(url: string): string | null {
   }
 }
 
+const AGENT_LOCALE_SEGMENT = /^[a-z]{2}([-_][a-z0-9]{2,4})?$/i;
+
+export function deploymentAwareAgentUrl(targetUrl: string, currentUrl: string): string {
+  try {
+    const target = new URL(targetUrl);
+    const current = new URL(currentUrl);
+    if (target.origin !== current.origin) return targetUrl;
+
+    const targetSegments = target.pathname.split('/').filter(Boolean);
+    const currentSegments = current.pathname.split('/').filter(Boolean);
+    const targetLocaleIndex = targetSegments.findIndex((segment) => AGENT_LOCALE_SEGMENT.test(segment));
+    const currentLocaleIndex = currentSegments.findIndex((segment) => AGENT_LOCALE_SEGMENT.test(segment));
+    if (targetLocaleIndex !== 0 || currentLocaleIndex <= 0) return targetUrl;
+
+    target.pathname = `/${[
+      ...currentSegments.slice(0, currentLocaleIndex),
+      ...targetSegments,
+    ].join('/')}`;
+    return target.toString();
+  } catch {
+    return targetUrl;
+  }
+}
+
 /** Every origin an absolute URL in the goal's text points at. */
 function originsNamedIn(goal: string): string[] {
   const out: string[] = [];
@@ -2638,6 +2662,7 @@ export class WorkflowAgent {
 
       case 'goto': {
         if (!decision.url) throw new Error('goto decision carried no url');
+        decision.url = deploymentAwareAgentUrl(decision.url, page.url());
         const target = originOf(decision.url);
         if (target === null || !allowed.includes(target)) {
           throw new Error(

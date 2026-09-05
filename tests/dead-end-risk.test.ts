@@ -79,6 +79,16 @@ describe('the signals — facts computed before any model is asked', () => {
     assert.match(routes[0]!, /step 4: goto \/en\/benefits\/plans\/archive/);
   });
 
+  it('does not flag a declared route mounted below the deployment base path', () => {
+    const signals = riskSignals(
+      request({
+        deploymentUrl: 'https://sit.example.test/humi/th/login',
+        flow: { name: 'mounted-login', steps: [{ action: 'goto', url: 'https://sit.example.test/humi/th/login' }] },
+      }),
+    );
+    assert.equal(signals.some((signal) => signal.includes('declares no page route')), false);
+  });
+
   it('names a control label no document, the case, or the repository mentions', () => {
     const signals = riskSignals(request());
     assert.ok(signals.some((s) => s.includes('"Export to Excel"') && s.includes('no document')), signals.join('\n'));
