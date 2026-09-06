@@ -133,7 +133,7 @@ The report shows this as a **filmstrip above the timeline, assembled in the brow
 
 ## The catalog report (`catalog-report.ts`, `reports/`, 2026-08-31)
 
-One self-contained HTML per catalog RUN in the local `reports/` folder
+One HTML report per catalog RUN in the local `reports/` folder
 (`reports/<runKey slug>.html` — stable per key, so a resume overwrites its own
 file), generated at the suite roll-up from the LEDGER, never fatally. Every
 planned case is a row — never-ran included — grouped by scenario with
@@ -142,9 +142,16 @@ view: LEFT expandable steps (intent, selector, resolution, error, heal, agent
 turns, screenshot) plus history explanations (`analyseTrend`/`formatTrend`
 over `RunHistory.forFlow` + heal pressure) and the bundle's run notes; RIGHT
 the time record — a bar per step against the 2s fast-path budget, slowest
-named. Screenshots embed as data URIs: failure stills always, routine stills
-until `SCREENSHOT_BUDGET_BYTES` (15MB) is spent, then omitted with a note
-naming the proof bundle.
+named. Screenshots embed as data URIs: failure stills take priority, routine
+stills until `SCREENSHOT_BUDGET_BYTES` (15MB) is spent. Past that budget the
+artifact writer spills shots beside the report; a sink-less pure render omits
+them with a note naming the proof bundle.
+
+- **Self-contained while the evidence fits (2026-09-06).** When nothing
+  spills, the catalog report is still one file. Past the inline budgets, the
+  artifact writer puts shots in `<runKey slug>-media/shots/` and recordings
+  in `<runKey slug>-media/` beside the HTML; the report says how many of each
+  went there. A sink-less pure render keeps the old behaviour.
 
 **The film is here too, and it is the evidence a passing case has.** The
 runner's screenshot default is video-aware (`runner.ts`: filming ⇒
@@ -152,29 +159,29 @@ runner's screenshot default is video-aware (`runner.ts`: filming ⇒
 be100-rip's 32 bundles, that is exactly what they hold — all 13 non-passing
 cases carry stills, 18 of 19 passing ones carry none — so a report that
 dropped the recording left a reader with **no evidence at all for every case
-that worked**. Each case now carries its own `<video>`, on the same rules as
-the stills — except that **recordings have no size cap** (2026-09-03; there
-was a 25MB per-report budget spent non-passing-first, and a 24MB per-recording
-ceiling in `engine/video.ts` that left `video.omitted` in the bundle — both
-removed after a long run's film was dropped as "too large", which is worse
-than a large report). Every recording is embedded whatever it weighs; what
-bounds the file now is the run, not the reporter. Three mechanics are
-load-bearing: **the base64 rides on
+that worked**. Each case now carries its own `<video>`. Recordings use a
+deliberately small 20MB inline budget (2026-09-06), because they are the
+largest single value a bundle carries. Past it they spill as relative `.webm`
+files in the media folder; inline screenshots and recordings also draw down
+one shared 350MB ceiling, so their separate budgets cannot combine into an
+unbuildable document. Three mechanics are load-bearing: **inline base64 rides on
 `data-webm` and becomes a Blob URL in the page** (Chrome will not load a
 `data:` video — `readyState 0` forever, no error, reads exactly like a corrupt
 file); **it is decoded when the case is opened, not at load** (dozens of
 recordings, and building every Blob on first paint stalls the page to make
 players nobody opened); and **the attribute is never removed**, because a Blob
 URL means nothing in another document and every export here is another
-document. Each filmed step carries a `play from here` cue **on its summary**,
+document; a spilled recording is a real file-backed `src` and needs no Blob
+shim. Each filmed step carries a `play from here` cue **on its summary**,
 not in its body — measured in a browser, in the body it is inside a collapsed
 `<details>` and a reader has to expand every step to discover seeking exists;
 the handler's `preventDefault` is what stops a button inside a `<summary>`
 from toggling the step open as a side effect.
 
-Whole-catalog export is client-side (`Blob` + anchor, Blob `src`s stripped so
-the base64 on `data-webm` is what travels). Per-case export is the case's
-Excel workbook — see below — not an HTML clone.
+Whole-catalog export is client-side (`Blob` + anchor): Blob `src`s are stripped
+from inline recordings so `data-webm` travels, while relative file-backed
+`src`s stay. Per-case export is the case's Excel workbook — see below — not an
+HTML clone.
 
 **The report is live (`cli/catalog-live-report.ts`, 2026-09-02).** It is
 written when the run STARTS — every planned case a `never ran` row, or the

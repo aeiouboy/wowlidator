@@ -17,24 +17,28 @@
  * `wowlidator report` rebuild the same file from disk with no run at all.
  *
  * Writes are serialised and coalesced: cases finish concurrently, the file
- * embeds every screenshot and recording, and two writers racing on one path
- * would leave a torn report. A refresh requested while one is in flight runs
+ * carries every screenshot inline or beside the HTML, and two writers racing
+ * on one path would leave a torn report. A refresh requested in flight runs
  * once more after it, never in parallel. Never fatal: a report that cannot be
  * written must not fail the suite that earned the verdicts.
  */
 
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 import type { ProofBundle } from '../engine/proof-bundle.js';
 import { RunHistory, analyseTrend, formatTrend } from '../history/run-history.js';
 import {
   catalogReportPath,
+  catalogCaseExportName,
+  catalogMediaDirName,
   renderCatalogReport,
   writeCatalogReport,
   type CatalogReportCase,
   type CatalogReportInput,
 } from '../reporter/catalog-report.js';
-import { writePassedCasesExcel, type ExcelExportResult } from '../reporter/excel-export.js';
+import { caseVideoFile, writePassedCasesExcel, type ExcelExportResult } from '../reporter/excel-export.js';
 import { writeFindingsExports, type FindingsExportResult } from '../reporter/findings-export.js';
 import { caseIdOf, type SuiteLedger } from './suite-progress.js';
 
@@ -97,8 +101,45 @@ export interface CatalogArtifacts {
  */
 export async function writeCatalogArtifacts(input: CatalogReportInput, cwd?: string): Promise<CatalogArtifacts> {
   const htmlPath = catalogReportPath(input.runKey, input.title, cwd);
-  await writeCatalogReport(htmlPath, renderCatalogReport(input));
-  const excel = await writePassedCasesExcel(htmlPath, input);
+  const mediaDirName = catalogMediaDirName(input.runKey, input.title);
+  const mediaDir = join(dirname(htmlPath), mediaDirName);
+  const shotsDir = join(dirname(htmlPath), mediaDirName, 'shots');
+  const excelVideoCases = new Set(
+    input.cases
+      .filter((c) => c.verdict === 'passed' && typeof c.bundle?.video?.data === 'string' && c.bundle.video.data !== '')
+      .map((c) => c.id),
+  );
+  const spilledRecordingCases = new Set<string>();
+  let shotsDirReady = false;
+  const spillScreenshot = (caseId: string, stepIndex: number, base64: string): string | null => {
+    try {
+      if (!shotsDirReady) {
+        mkdirSync(shotsDir, { recursive: true });
+        shotsDirReady = true;
+      }
+      const fileName = `${catalogCaseExportName(caseId)}-${stepIndex}.jpg`;
+      writeFileSync(join(shotsDir, fileName), Buffer.from(base64, 'base64'));
+      return `${mediaDirName}/shots/${fileName}`;
+    } catch {
+      return null;
+    }
+  };
+  const spillRecording = (caseId: string, base64: string): string | null => {
+    try {
+      const fileName = caseVideoFile(caseId);
+      const path = join(mediaDir, fileName);
+      if (!excelVideoCases.has(caseId)) {
+        mkdirSync(mediaDir, { recursive: true });
+        writeFileSync(path, Buffer.from(base64, 'base64'));
+      }
+      if (!excelVideoCases.has(caseId)) spilledRecordingCases.add(caseId);
+      return `${mediaDirName}/${fileName}`;
+    } catch {
+      return null;
+    }
+  };
+  await writeCatalogReport(htmlPath, renderCatalogReport({ ...input, spillScreenshot, spillRecording }));
+  const excel = await writePassedCasesExcel(htmlPath, input, spilledRecordingCases);
   const findings = await writeFindingsExports(htmlPath, input);
   return { htmlPath, excel, findings };
 }

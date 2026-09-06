@@ -11,7 +11,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -23,6 +23,13 @@ import {
   writeCatalogArtifacts,
 } from '../src/cli/catalog-live-report.js';
 import { newLedger, recordOutcome, type SuiteLedger } from '../src/cli/suite-progress.js';
+import {
+  RECORDING_BUDGET_BYTES,
+  SCREENSHOT_BUDGET_BYTES,
+  catalogCaseExportName,
+  catalogMediaDirName,
+} from '../src/reporter/catalog-report.js';
+import { caseVideoFile } from '../src/reporter/excel-export.js';
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0xff, 0xd9]);
 
@@ -115,6 +122,104 @@ describe('the findings export rides with the report', () => {
     // The HTML leads with the same finding.
     const html = readFileSync(artifacts.htmlPath, 'utf8');
     assert.ok(html.includes('1 finding account for 2 of 2 non-passing cases · 0 unclustered'));
+  });
+
+  it('writes an over-budget screenshot under the media shots folder and links it relatively', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'wow-live-'));
+    const bytes = Buffer.alloc(Math.ceil((SCREENSHOT_BUDGET_BYTES + 1) * 3 / 4), 0xab);
+    const base64 = bytes.toString('base64');
+    const caseId = 'PL_07_09';
+    const input = {
+      title: 'catalog.csv',
+      runKey: 'catalog-csv@2026-09-06T04:00:00.000Z',
+      generatedAt: null,
+      cases: [{
+        id: caseId,
+        name: `${caseId} review`,
+        scenario: 'PL_07',
+        verdict: 'review',
+        status: 'needs-review',
+        reason: null,
+        bundle: bundle(`${caseId} review`, 'passed', { steps: [step({ index: 4, screenshot: base64 })] }),
+        history: [],
+      }],
+    };
+
+    const artifacts = await writeCatalogArtifacts(input, cwd);
+    const mediaName = catalogMediaDirName(input.runKey, input.title);
+    const fileName = `${catalogCaseExportName(caseId)}-4.jpg`;
+    const shotPath = join(cwd, 'reports', mediaName, 'shots', fileName);
+    const html = readFileSync(artifacts.htmlPath, 'utf8');
+
+    assert.ok(existsSync(shotPath));
+    assert.deepEqual(readFileSync(shotPath), bytes);
+    assert.match(html, new RegExp(`src="${mediaName}/shots/${fileName}"`));
+    assert.ok(!html.includes(`src="/${mediaName}/shots/${fileName}"`));
+  });
+
+  it('writes an over-budget recording under the media folder and links it relatively', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'wow-live-'));
+    const bytes = Buffer.alloc(Math.ceil((RECORDING_BUDGET_BYTES + 1) * 3 / 4), 0xbc);
+    const base64 = bytes.toString('base64');
+    const caseId = 'PL_07_11';
+    const input = {
+      title: 'catalog.csv',
+      runKey: 'catalog-csv@2026-09-06T04:30:00.000Z',
+      generatedAt: null,
+      cases: [{
+        id: caseId,
+        name: `${caseId} review`,
+        scenario: 'PL_07',
+        verdict: 'review',
+        status: 'needs-review',
+        reason: null,
+        bundle: bundle(`${caseId} review`, 'passed', {
+          video: { data: base64, bytes: bytes.byteLength, width: 960, height: 540 },
+        }),
+        history: [],
+      }],
+    };
+
+    const artifacts = await writeCatalogArtifacts(input, cwd);
+    const mediaName = catalogMediaDirName(input.runKey, input.title);
+    const fileName = caseVideoFile(caseId);
+    const videoPath = join(cwd, 'reports', mediaName, fileName);
+    const html = readFileSync(artifacts.htmlPath, 'utf8');
+
+    assert.ok(existsSync(videoPath));
+    assert.deepEqual(readFileSync(videoPath), bytes);
+    assert.match(html, new RegExp(`src="${mediaName}/${fileName}"`));
+    assert.ok(!html.includes(`src="/${mediaName}/${fileName}"`));
+  });
+
+  it('keeps writing the report when the shots directory cannot be created', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'wow-live-'));
+    const input = {
+      title: 'catalog.csv',
+      runKey: 'catalog-csv@2026-09-06T05:00:00.000Z',
+      generatedAt: null,
+      cases: [{
+        id: 'PL_07_10',
+        name: 'PL_07_10 review',
+        scenario: 'PL_07',
+        verdict: 'review',
+        status: 'needs-review',
+        reason: null,
+        bundle: bundle('PL_07_10 review', 'passed', {
+          steps: [step({ screenshot: 'A'.repeat(SCREENSHOT_BUDGET_BYTES + 1) })],
+        }),
+        history: [],
+      }],
+    };
+    const shotsPath = join(cwd, 'reports', catalogMediaDirName(input.runKey, input.title), 'shots');
+    mkdirSync(join(cwd, 'reports', catalogMediaDirName(input.runKey, input.title)), { recursive: true });
+    writeFileSync(shotsPath, 'not a directory', 'utf8');
+
+    const artifacts = await writeCatalogArtifacts(input, cwd);
+    const html = readFileSync(artifacts.htmlPath, 'utf8');
+
+    assert.match(html, /omitted for size — it stays in the proof bundle/);
+    assert.ok(!html.includes('screenshot(s) written beside this file'));
   });
 });
 

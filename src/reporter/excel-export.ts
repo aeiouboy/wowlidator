@@ -604,6 +604,7 @@ export function excelExportNames(htmlReportPath: string): { xlsxPath: string; me
 export async function writePassedCasesExcel(
   htmlReportPath: string,
   input: CatalogReportInput,
+  preserveVideoCaseIds: ReadonlySet<string> = new Set(),
 ): Promise<ExcelExportResult> {
   const { xlsxPath, mediaDir, mediaDirName } = excelExportNames(htmlReportPath);
   const { xlsx, videos, passedCases: count } = buildPassedCasesWorkbook(input, mediaDirName);
@@ -626,7 +627,9 @@ export async function writePassedCasesExcel(
   const removed: string[] = [];
   for (const c of input.cases) {
     if (c.verdict === 'passed') continue;
-    for (const stale of [join(mediaDir, `${catalogCaseExportName(c.id)}.xlsx`), join(mediaDir, caseVideoFile(c.id))]) {
+    const stalePaths = [join(mediaDir, `${catalogCaseExportName(c.id)}.xlsx`)];
+    if (!preserveVideoCaseIds.has(c.id)) stalePaths.push(join(mediaDir, caseVideoFile(c.id)));
+    for (const stale of stalePaths) {
       const gone = await rm(stale, { force: false }).then(() => true, () => false);
       if (gone) removed.push(stale);
     }

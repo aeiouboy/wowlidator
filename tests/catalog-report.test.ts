@@ -24,6 +24,8 @@ import { join } from 'node:path';
 
 import type { ProofBundle, ProofStep } from '../src/engine/proof-bundle.js';
 import {
+  RECORDING_BUDGET_BYTES,
+  REPORT_HTML_CEILING_BYTES,
   SCREENSHOT_BUDGET_BYTES,
   catalogReportPath,
   renderCatalogReport,
@@ -130,6 +132,114 @@ describe('embedded evidence and the budget', () => {
     assert.ok(!html.includes(big), 'the over-budget routine still is not embedded');
     assert.match(html, /omitted for size — it stays in the proof bundle/);
     assert.match(html, /routine screenshot\(s\) omitted/);
+  });
+
+  it('keeps a small report byte-identical when the optional spill sink is unused', () => {
+    const input = {
+      title: 't', runKey: null, generatedAt: null,
+      cases: [kase({ bundle: bundle([step({ screenshot: 'SMALLSHOT' })]) })],
+    };
+    const withoutSink = renderCatalogReport(input);
+    const withUnusedSink = renderCatalogReport({
+      ...input,
+      spillScreenshot: () => {
+        throw new Error('a small report must not call the spill sink');
+      },
+    });
+
+    assert.equal(withUnusedSink, withoutSink);
+    assert.equal((withUnusedSink.match(/data:image/g) ?? []).length, 1);
+    assert.ok(!withUnusedSink.includes('shots/'));
+  });
+
+  it('spills a routine screenshot after the inline budget and links the returned relative href', () => {
+    const routine = 'QUJD'.repeat(250_000);
+    const spilled = 'SPILL'.repeat(200_000);
+    const calls: Array<{ caseId: string; stepIndex: number; base64: string }> = [];
+    const cases = Array.from({ length: 16 }, (_, index) => {
+      const id = `PL_02_${String(index + 1).padStart(2, '0')}`;
+      return kase({
+        id,
+        name: `${id} case`,
+        bundle: bundle([step({ index: index === 15 ? 7 : 0, screenshot: index === 15 ? spilled : routine })]),
+      });
+    });
+
+    const html = renderCatalogReport({
+      title: 't', runKey: null, generatedAt: null, cases,
+      spillScreenshot: (caseId, stepIndex, base64) => {
+        calls.push({ caseId, stepIndex, base64 });
+        return 't-media/shots/pl-02-16-7.jpg';
+      },
+    });
+
+    assert.deepEqual(calls, [{ caseId: 'PL_02_16', stepIndex: 7, base64: spilled }]);
+    assert.match(html, /src="t-media\/shots\/pl-02-16-7\.jpg"/);
+    assert.ok(!html.includes(`data:image/jpeg;base64,${spilled}`));
+  });
+
+  it('keeps a failure inline after routine budget is spent, but spills one that would cross the hard ceiling', () => {
+    const routine = 'A'.repeat(SCREENSHOT_BUDGET_BYTES + 1);
+    const sinkCalls: string[] = [];
+    const prioritized = renderCatalogReport({
+      title: 't', runKey: null, generatedAt: null,
+      cases: [
+        kase({ bundle: bundle([step({ screenshot: routine })]) }),
+        kase({
+          id: 'PL_02_02', name: 'PL_02_02 failed', verdict: 'failed', status: 'failed',
+          bundle: bundle([step({ status: 'failed', screenshot: 'FAILSHOT' })], { status: 'failed' }),
+        }),
+      ],
+      spillScreenshot: (caseId) => {
+        sinkCalls.push(caseId);
+        return `t-media/shots/${caseId}.jpg`;
+      },
+    });
+    assert.deepEqual(sinkCalls, ['PL_02_01']);
+    assert.match(prioritized, /data:image\/jpeg;base64,FAILSHOT/);
+
+    const overCeiling = 'A'.repeat(REPORT_HTML_CEILING_BYTES + 1);
+    const ceilingCalls: string[] = [];
+    const capped = renderCatalogReport({
+      title: 't', runKey: null, generatedAt: null,
+      cases: [kase({
+        id: 'PL_02_03', name: 'PL_02_03 failed', verdict: 'failed', status: 'failed',
+        bundle: bundle([step({ status: 'failed', screenshot: overCeiling })], { status: 'failed' }),
+      })],
+      spillScreenshot: (caseId) => {
+        ceilingCalls.push(caseId);
+        return 't-media/shots/ceiling.jpg';
+      },
+    });
+    assert.deepEqual(ceilingCalls, ['PL_02_03']);
+    assert.match(capped, /src="t-media\/shots\/ceiling\.jpg"/);
+    assert.doesNotMatch(capped, /data:image\/jpeg;base64,/);
+  });
+
+  it('falls back to the proof-bundle omission when the spill sink cannot take a screenshot', () => {
+    const html = renderCatalogReport({
+      title: 't', runKey: null, generatedAt: null,
+      cases: [kase({ bundle: bundle([step({ screenshot: 'A'.repeat(SCREENSHOT_BUDGET_BYTES + 1) })]) })],
+      spillScreenshot: () => null,
+    });
+
+    assert.match(html, /omitted for size — it stays in the proof bundle/);
+    assert.match(html, /routine screenshot\(s\) omitted/);
+  });
+
+  it('adds the beside-this-file spill count only when a screenshot spilled', () => {
+    const input = {
+      title: 't', runKey: null, generatedAt: null,
+      cases: [kase({ bundle: bundle([step({ screenshot: 'A'.repeat(SCREENSHOT_BUDGET_BYTES + 1) })]) })],
+    };
+    const withoutSpill = renderCatalogReport(input);
+    const withSpill = renderCatalogReport({
+      ...input,
+      spillScreenshot: () => 't-media/shots/pl-02-01-0.jpg',
+    });
+
+    assert.ok(!withoutSpill.includes('screenshot(s) written beside this file'));
+    assert.match(withSpill, /1 screenshot\(s\) written beside this file in t-media\/shots\//);
   });
 });
 
@@ -314,6 +424,97 @@ describe('the recording in the page', () => {
     assert.match(html, /wowHydrateVideo/, 'and the page carries what turns it into a Blob');
   });
 
+  it('keeps a small report byte-identical when both optional spill sinks are unused', () => {
+    const input = {
+      title: 't', runKey: null, generatedAt: null,
+      cases: [withVideo({ id: 'A' }, 'QUJD')],
+    };
+    const current = renderCatalogReport(input);
+    const withUnusedSinks = renderCatalogReport({
+      ...input,
+      spillScreenshot: () => {
+        throw new Error('a small report must not spill screenshots');
+      },
+      spillRecording: () => {
+        throw new Error('a small report must not spill recordings');
+      },
+    });
+
+    assert.equal(withUnusedSinks, current);
+    assert.match(withUnusedSinks, /<video[^>]*data-webm="QUJD"/);
+    assert.doesNotMatch(withUnusedSinks, /<video[^>]* src=/);
+  });
+
+  it('spills an over-budget recording to a file-backed video and preserves the failure offset', () => {
+    const recording = 'V'.repeat(RECORDING_BUDGET_BYTES + 1);
+    const calls: Array<{ caseId: string; base64: string }> = [];
+    const html = renderCatalogReport({
+      title: 't', runKey: null, generatedAt: null,
+      cases: [kase({
+        id: 'PL_02_03', verdict: 'failed', status: 'failed',
+        bundle: bundle([step({ status: 'failed', videoOffsetMs: 4500 })], {
+          status: 'failed',
+          video: { data: recording, width: 960, height: 540 },
+        } as Partial<ProofBundle>),
+      })],
+      spillRecording: (caseId, base64) => {
+        calls.push({ caseId, base64 });
+        return 't-media/pl-02-03.webm';
+      },
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.caseId, 'PL_02_03');
+    assert.ok(calls[0]?.base64 === recording);
+    assert.match(html, /<video[^>]* src="t-media\/pl-02-03\.webm"[^>]*data-failure-offset="4\.50"/);
+    assert.doesNotMatch(html, /<video[^>]*data-webm=/);
+  });
+
+  it('spills both media kinds when their shared inline total reaches the hard ceiling', () => {
+    const firstRecording = 'V'.repeat(RECORDING_BUDGET_BYTES);
+    const crossingScreenshot = 'S'.repeat(REPORT_HTML_CEILING_BYTES - RECORDING_BUDGET_BYTES + 1);
+    const screenshotCalls: string[] = [];
+    const recordingCalls: string[] = [];
+    const html = renderCatalogReport({
+      title: 't', runKey: null, generatedAt: null,
+      cases: [
+        withVideo({ id: 'PL_02_01' }, firstRecording),
+        kase({
+          id: 'PL_02_02', verdict: 'failed', status: 'failed',
+          bundle: bundle([step({ status: 'failed', screenshot: crossingScreenshot })], {
+            status: 'failed',
+            video: { data: 'NEXT', width: 960, height: 540 },
+          } as Partial<ProofBundle>),
+        }),
+      ],
+      spillScreenshot: (caseId) => {
+        screenshotCalls.push(caseId);
+        return 't-media/shots/pl-02-02-0.jpg';
+      },
+      spillRecording: (caseId) => {
+        recordingCalls.push(caseId);
+        return 't-media/pl-02-02.webm';
+      },
+    });
+
+    assert.deepEqual(recordingCalls, ['PL_02_02']);
+    assert.deepEqual(screenshotCalls, ['PL_02_02']);
+    assert.match(html, /src="t-media\/pl-02-02\.webm"/);
+    assert.match(html, /src="t-media\/shots\/pl-02-02-0\.jpg"/);
+    assert.match(html, /1 screenshot\(s\) written beside this file[^<]* · 1 recording\(s\) written beside this file/);
+  });
+
+  it('uses the existing recording omission wording when its sink returns null', () => {
+    const html = renderCatalogReport({
+      title: 't', runKey: null, generatedAt: null,
+      cases: [withVideo({ id: 'A' }, 'V'.repeat(RECORDING_BUDGET_BYTES + 1))],
+      spillRecording: () => null,
+    });
+
+    assert.match(html, /the recording could not be embedded/);
+    assert.doesNotMatch(html, /<video/);
+  });
+
   it('does not decode until the case is opened', () => {
     const html = render([withVideo({ id: 'A' }, 'QUJD')]);
     assert.match(html, /preload="none"/);
@@ -341,7 +542,7 @@ describe('the recording in the page', () => {
     assert.match(html, /data-failure-offset="4\.50"/);
   });
 
-  it('embeds a recording whatever it weighs — there is no size cap (removed 2026-09-03)', () => {
+  it('keeps the old unlimited inline behaviour when no recording sink is supplied', () => {
     const html = renderCatalogReport({
       title: 't', runKey: null, generatedAt: null,
       cases: [withVideo({ id: 'A' }, 'x'.repeat(30_000_000))],

@@ -6,21 +6,19 @@
  * - **Every planned case of the catalog is on it**, grouped by scenario —
  *   including the ones that never ran (a report of 13 rows for a 108-row
  *   catalog reads as a 13-row catalog).
- * - **It is one file with the evidence inside**: screenshots are embedded as
- *   data URIs, so the file can be mailed or archived whole. Failure stills
- *   are always embedded; routine stills are embedded until a size budget is
- *   spent, then omitted with a note naming where they live (the proof
- *   bundle) — a 200MB report helps nobody.
+ * - **It is one file while the evidence fits**: screenshots are embedded as
+ *   data URIs until the inline budget is spent, then written beside the HTML
+ *   when the artifact writer supplies a spill sink. A sink-less pure render
+ *   keeps the old inline-or-omit behaviour for small runs and tests.
  * - **The film is here too, and it is the evidence a passing case has**
  *   (2026-08-31). The runner's screenshot default is video-aware: while it is
  *   filming, stills are taken only at failures, because the film covers the
  *   rest. Measured on be100-rip, that is exactly what the bundles hold — all
  *   13 non-passing cases carry stills and 18 of 19 passing ones carry none —
  *   so a report that dropped the recording left a reader with no evidence at
- *   all for every case that worked. Every recording is embedded, whatever it
- *   weighs (the 25MB budget was removed 2026-09-03: a report with no film is
- *   worth less than a large one). It is decoded only when its case is opened,
- *   so a heavy catalog costs load time, not the reader's patience.
+ *   all for every case that worked. Recordings embed while their inline
+ *   budget lasts, then become relative `.webm` links beside the report. An
+ *   inline recording is decoded only when its case is opened.
  * - **A case opens into a two-pane view**: LEFT the steps, each expandable
  *   into its full detail (intent, selector, resolution, error, heal, agent
  *   turns, screenshot) plus an explanation drawn from the run history (trend,
@@ -80,6 +78,13 @@ import {
 export const CATALOG_REPORT_DIR = 'reports';
 /** Routine screenshots are embedded until this many bytes of base64 are spent. */
 export const SCREENSHOT_BUDGET_BYTES = 15_000_000;
+/** Recordings are the largest single bundle value, so their inline allowance is deliberately small. */
+export const RECORDING_BUDGET_BYTES = 20_000_000;
+/**
+ * Hard cap for inline screenshot base64. 350 MB leaves roughly 160 MB below
+ * V8's ~512 MB maximum string length for the report's markup and recordings.
+ */
+export const REPORT_HTML_CEILING_BYTES = 350_000_000;
 /** A step at or over the fast-path budget is worth a reader's eye. */
 const SLOW_STEP_MS = 2_000;
 
@@ -130,6 +135,21 @@ export interface CatalogReportInput {
    * says so and reloads itself, since rows are still being filled in.
    */
   live?: boolean | undefined;
+  /**
+   * Where a screenshot goes when the inline budget is spent: it is handed the
+   * case id, the step index and the base64, and returns the href to link, or
+   * null when it cannot take it (then the report says the shot stays in the
+   * proof bundle, exactly as today). Absent means inline-or-omit, the old
+   * behaviour, which is what every small run and every test gets by default.
+   */
+  spillScreenshot?: ((caseId: string, stepIndex: number, base64: string) => string | null) | undefined;
+  /**
+   * Where a recording goes when it is not carried inline: handed the case id
+   * and the base64 webm, returns the href to play from, or null when it
+   * cannot take it (then the report says the recording is in the proof
+   * bundle). Absent means inline, the old behaviour.
+   */
+  spillRecording?: ((caseId: string, base64: string) => string | null) | undefined;
 }
 
 function esc(value: unknown): string {
@@ -165,12 +185,19 @@ export function verdictChipOf(c: CatalogReportCase): { cls: string; label: strin
 
 /* ------------------------------------------------------------ step detail */
 
-interface ShotBudget {
-  left: number;
-  omitted: number;
+interface MediaBudget {
+  screenshotLeft: number;
+  recordingLeft: number;
+  inline: number;
+  screenshotsSpilled: number;
+  screenshotsOmitted: number;
+  recordingsSpilled: number;
+  recordingsOmitted: number;
+  spillScreenshot: CatalogReportInput['spillScreenshot'];
+  spillRecording: CatalogReportInput['spillRecording'];
 }
 
-function stepDetail(step: ProofStep, budget: ShotBudget): string {
+function stepDetail(step: ProofStep, budget: MediaBudget, caseId: string): string {
   const rows: string[] = [];
   const row = (label: string, value: string | null | undefined, mono = true): void => {
     if (value === null || value === undefined || value === '') return;
@@ -240,14 +267,24 @@ function stepDetail(step: ProofStep, budget: ShotBudget): string {
   if (step.screenshot) {
     const isFailure = step.status !== 'passed' && step.status !== 'skipped';
     const size = step.screenshot.length;
-    if (isFailure || budget.left >= size) {
-      if (!isFailure) budget.left -= size;
+    const withinCeiling = budget.inline + size <= REPORT_HTML_CEILING_BYTES;
+    if (withinCeiling && (isFailure || budget.screenshotLeft >= size)) {
+      if (!isFailure) budget.screenshotLeft -= size;
+      budget.inline += size;
       rows.push(
         `<figure class="shot"><img loading="lazy" alt="step ${step.index} screenshot" src="data:image/jpeg;base64,${step.screenshot}"/></figure>`,
       );
     } else {
-      budget.omitted += 1;
-      rows.push('<div class="kv muted"><span>screenshot</span><span>omitted for size — it stays in the proof bundle</span></div>');
+      const href = budget.spillScreenshot?.(caseId, step.index, step.screenshot) ?? null;
+      if (href === null) {
+        budget.screenshotsOmitted += 1;
+        rows.push('<div class="kv muted"><span>screenshot</span><span>omitted for size — it stays in the proof bundle</span></div>');
+      } else {
+        budget.screenshotsSpilled += 1;
+        rows.push(
+          `<figure class="shot"><img loading="lazy" alt="step ${step.index} screenshot" src="${esc(href)}"/></figure>`,
+        );
+      }
     }
   }
   return rows.join('');
@@ -256,37 +293,65 @@ function stepDetail(step: ProofStep, budget: ShotBudget): string {
 /**
  * The run on film, inside the case that produced it.
  *
- * **The base64 rides on an attribute and becomes a Blob URL in the page**, as
- * it does in `html-reporter.ts`: Chrome's media stack will not load a `data:`
- * video — the element sits at `readyState 0` forever with no error, which
- * reads exactly like a corrupt recording. The same bytes play instantly from a
- * Blob. Keep the indirection.
+ * **Inline base64 rides on an attribute and becomes a Blob URL in the page**,
+ * as it does in `html-reporter.ts`: Chrome's media stack will not load a
+ * `data:` video. A spilled recording is already a real `.webm` file, so its
+ * relative `src` is left alone and needs no Blob indirection.
  *
- * **Hydrated when the case is opened, not at load.** A catalog holds dozens of
- * these; decoding every one into a Blob on first paint would stall the page
- * for seconds to build players nobody opened. The case's own `toggle` is the
- * signal, so a reader still does nothing but click the case.
+ * **Inline recordings hydrate when the case is opened, not at load.** A
+ * catalog holds dozens; decoding every one on first paint would stall the
+ * page to build players nobody opened.
  */
-function videoBlock(c: CatalogReportCase): string {
+function videoBlock(c: CatalogReportCase, budget: MediaBudget): { html: string; playable: boolean } {
   const video = c.bundle?.video;
-  if (!video) return '';
+  if (!video) return { html: '', playable: false };
   if (!video.data) {
-    return `<figure class="rec"><figcaption>Recording</figcaption><div class="muted">${esc(
-      video.omitted ?? 'the recording could not be embedded',
-    )}</div></figure>`;
+    return {
+      html: `<figure class="rec"><figcaption>Recording</figcaption><div class="muted">${esc(
+        video.omitted ?? 'the recording could not be embedded',
+      )}</div></figure>`,
+      playable: false,
+    };
   }
   const steps = c.bundle?.steps ?? [];
   const failing = steps.find((s) => s.status !== 'passed' && s.status !== 'skipped' && !s.superseded && s.videoOffsetMs !== undefined);
-  return (
+  const failureOffset = failing?.videoOffsetMs !== undefined
+    ? ` data-failure-offset="${(failing.videoOffsetMs / 1000).toFixed(2)}"`
+    : '';
+  const size = video.data.length;
+  const spillRecording = budget.spillRecording;
+  const inline = spillRecording === undefined || (
+    budget.recordingLeft >= size && budget.inline + size <= REPORT_HTML_CEILING_BYTES
+  );
+  if (inline) {
+    budget.inline += size;
+    if (spillRecording !== undefined) budget.recordingLeft -= size;
+    return {
+      html:
+        `<figure class="rec">` +
+        `<figcaption>Recording — the run as it happened<span class="hint">each step has “play from here”</span></figcaption>` +
+        `<video controls preload="none" width="${esc(video.width)}" height="${esc(video.height)}"` +
+        ` data-webm="${esc(video.data)}"${failureOffset}></video></figure>`,
+      playable: true,
+    };
+  }
+  const href = spillRecording(c.id, video.data);
+  if (href === null) {
+    budget.recordingsOmitted += 1;
+    return {
+      html: '<figure class="rec"><figcaption>Recording</figcaption><div class="muted">the recording could not be embedded — it stays in the proof bundle</div></figure>',
+      playable: false,
+    };
+  }
+  budget.recordingsSpilled += 1;
+  return {
+    html:
     `<figure class="rec">` +
     `<figcaption>Recording — the run as it happened<span class="hint">each step has “play from here”</span></figcaption>` +
     `<video controls preload="none" width="${esc(video.width)}" height="${esc(video.height)}"` +
-    ` data-webm="${esc(video.data)}"` +
-    (failing?.videoOffsetMs !== undefined
-      ? ` data-failure-offset="${(failing.videoOffsetMs / 1000).toFixed(2)}"`
-      : '') +
-    `></video></figure>`
-  );
+    ` src="${esc(href)}"${failureOffset}></video></figure>`,
+    playable: true,
+  };
 }
 
 /**
@@ -362,15 +427,16 @@ function exportControl(c: CatalogReportCase, input: CatalogReportInput): string 
   );
 }
 
-function caseSection(c: CatalogReportCase, input: CatalogReportInput, budget: ShotBudget): string {
+function caseSection(c: CatalogReportCase, input: CatalogReportInput, budget: MediaBudget): string {
   const chip = verdictChipOf(c);
   const anchor = caseAnchor(c.id);
   const bundle = c.bundle;
   const steps = bundle?.steps ?? [];
-  const film = videoBlock(c);
+  const video = videoBlock(c, budget);
+  const film = video.html;
   // Seek buttons only where there is something to seek IN: a recording that
   // was never made would give a reader a control that silently does nothing.
-  const hasVideo = typeof bundle?.video?.data === 'string' && bundle.video.data !== '';
+  const hasVideo = video.playable;
   const left =
     steps.length === 0
       ? `<div class="muted">No steps were recorded${c.reason ? ` — ${esc(c.reason)}` : ''}.</div>`
@@ -385,7 +451,7 @@ function caseSection(c: CatalogReportCase, input: CatalogReportInput, budget: Sh
               `<span class="sms">${esc(fmtMs(s.durationMs))}</span>` +
               seekControl(s, hasVideo) +
               '</summary>' +
-              `<div class="sbody">${stepDetail(s, budget)}</div></details>`
+              `<div class="sbody">${stepDetail(s, budget, c.id)}</div></details>`
             );
           })
           .join('');
@@ -505,20 +571,21 @@ function neverRanSection(cases: readonly CatalogReportCase[]): string {
 /**
  * The player script, shared by this page and by every case exported from it.
  *
- * Kept as its own string precisely so the export can carry it: an exported
- * case is a `<video data-webm="…">` with no `src`, and without this it is a
- * dead player in a file someone was told holds the evidence.
+ * Kept as its own string precisely so an export can carry either an inline
+ * `<video data-webm="…">` or a relative file-backed `<video src="…">`.
  */
 const PLAYER_SCRIPT = `
 function wowHydrateVideo(v) {
   if (!v || v.dataset.wowReady) return;
   var b64 = v.getAttribute('data-webm') || '';
-  if (!b64) return;
+  if (!b64 && !v.hasAttribute('src')) return;
   v.dataset.wowReady = '1';
-  var bin = atob(b64);
-  var bytes = new Uint8Array(bin.length);
-  for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  v.src = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }));
+  if (b64) {
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    v.src = URL.createObjectURL(new Blob([bytes], { type: 'video/webm' }));
+  }
   /* data-webm deliberately STAYS. A hydrated player's src is a Blob URL, which
      means nothing in another document — and every export here is another
      document. Leaving the bytes on the attribute is what makes an exported
@@ -537,7 +604,7 @@ function wowHydrateVideo(v) {
    make players nobody opened. */
 function wowWireCase(node) {
   node.addEventListener('toggle', function () {
-    if (node.open) node.querySelectorAll('video[data-webm]').forEach(wowHydrateVideo);
+    if (node.open) node.querySelectorAll('video').forEach(wowHydrateVideo);
   });
 }
 document.addEventListener('click', function (e) {
@@ -554,7 +621,7 @@ document.addEventListener('click', function (e) {
 });
 document.querySelectorAll('details.case').forEach(wowWireCase);
 /* An exported single case is already open, so its toggle never fires. */
-document.querySelectorAll('body.single video[data-webm]').forEach(wowHydrateVideo);
+document.querySelectorAll('body.single video').forEach(wowHydrateVideo);
 `;
 
 const EXPORT_SCRIPT = `
@@ -566,10 +633,10 @@ function download(name, html) {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
 }
-/* A Blob URL is scoped to THIS document, so it must never be written into an
-   exported one; the base64 on data-webm is what travels. */
+/* A Blob URL is scoped to THIS document, so strip it only from inline videos;
+   a relative file-backed src is the portable value and must stay. */
 function wowStripBlobs(root) {
-  root.querySelectorAll('video').forEach(function (v) {
+  root.querySelectorAll('video[data-webm]').forEach(function (v) {
     v.removeAttribute('src');
     delete v.dataset.wowReady;
   });
@@ -675,14 +742,25 @@ details.never-ran > summary { display: flex; align-items: center; gap: 10px; pad
 `;
 
 export function renderCatalogReport(input: CatalogReportInput): string {
-  const budget: ShotBudget = { left: SCREENSHOT_BUDGET_BYTES, omitted: 0 };
+  const budget: MediaBudget = {
+    screenshotLeft: SCREENSHOT_BUDGET_BYTES,
+    recordingLeft: RECORDING_BUDGET_BYTES,
+    inline: 0,
+    screenshotsSpilled: 0,
+    screenshotsOmitted: 0,
+    recordingsSpilled: 0,
+    recordingsOmitted: 0,
+    spillScreenshot: input.spillScreenshot,
+    spillRecording: input.spillRecording,
+  };
   const findings = buildFindingsSummary(input.cases);
   const neverRan = input.cases.filter((c) => c.verdict === 'never-ran');
   const byScenario = new Map<string, CatalogReportCase[]>();
   for (const c of input.cases) {
     const key = c.scenario || 'ungrouped';
-    if (!byScenario.has(key)) byScenario.set(key, []);
-    byScenario.get(key)!.push(c);
+    const cases = byScenario.get(key);
+    if (cases === undefined) byScenario.set(key, [c]);
+    else cases.push(c);
   }
   const tally = new Map<string, number>();
   for (const c of input.cases) {
@@ -711,9 +789,19 @@ export function renderCatalogReport(input: CatalogReportInput): string {
     })
     .join('');
   const omittedNote =
-    budget.omitted === 0
+    budget.screenshotsOmitted === 0
       ? ''
-      : `<div class="meta">${budget.omitted} routine screenshot(s) omitted to keep this file portable — every one stays in its proof bundle.</div>`;
+      : `<div class="meta">${budget.screenshotsOmitted} routine screenshot(s) omitted to keep this file portable — every one stays in its proof bundle.</div>`;
+  const mediaDirName = catalogMediaDirName(input.runKey, input.title);
+  const spillParts = [
+    budget.screenshotsSpilled === 0
+      ? ''
+      : `${budget.screenshotsSpilled} screenshot(s) written beside this file in ${esc(mediaDirName)}/shots/`,
+    budget.recordingsSpilled === 0
+      ? ''
+      : `${budget.recordingsSpilled} recording(s) written beside this file in ${esc(mediaDirName)}/`,
+  ].filter((part) => part !== '');
+  const spillNote = spillParts.length === 0 ? '' : `<div class="meta">${spillParts.join(' · ')}</div>`;
   const finished = input.cases.filter((c) => c.verdict !== 'never-ran').length;
   // A live report reloads itself: its rows are still being filled in, and a
   // reader who opened it from the panel mid-run should not have to know that.
@@ -739,6 +827,7 @@ export function renderCatalogReport(input: CatalogReportInput): string {
     `<div class="tally">${[...tally.entries()].map(([label, n]) => `<span>${esc(label)}: <b>${n}</b></span>`).join('')}</div>` +
     findingsSection(findings) +
     neverRanSection(neverRan) +
+    spillNote +
     omittedNote +
     sections +
     // The player source is also a VALUE in the page so a copy of it can carry
