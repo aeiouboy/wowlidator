@@ -23,11 +23,14 @@ import type { RequestRecord } from '../src/api/api-client.js';
 import { extractWorkbookSheets } from '../src/catalog/extract.js';
 import type { CatalogReportCase, CatalogReportInput } from '../src/reporter/catalog-report.js';
 import {
+  FINDINGS_OWNER_RULE,
   SEVERITY_RULE,
+  blockedChains,
   buildFindings,
   buildFindingsSummary,
   dependencyOf,
   findingsHeadline,
+  ownerOf,
   pathnameOf,
   signatureOf,
   statusCounts,
@@ -236,6 +239,68 @@ describe('url, control, hold and agent findings', () => {
 });
 
 describe('the remainder', () => {
+  it('assigns each typed finding to the application, harness, or catalog owner without replacing member objects', () => {
+    const held: BlockedOutcome = {
+      kind: 'blocked', reason: 'approval', rule: 'approval-missing', message: 'approval was not observed',
+      category: 'submit', target: 'record', policySource: null,
+    };
+    const cases = [
+      kase('OWN_01', { verdict: 'blocked', status: 'error', bundle: bundle([step({ action: 'workflow', status: 'error', blocked: held })]) }),
+      agentCase('OWN_02', { endedBy: 'stall' }),
+      kase('OWN_03', { verdict: 'blocked', status: null, reason: 'authoring refused: the flow has no application assertion' }),
+      kase('OWN_04', { bundle: bundle([step({ action: 'click', status: 'failed', selector: 'role=button[name="Save"]' })]) }),
+      apiCase('OWN_05', 'POST', 'http://api.test/v1/items', 500, 'request failed'),
+      kase('OWN_06', { bundle: bundle([step({ action: 'expectUrl', status: 'failed', url: 'http://app.test/login', detail: { expected: '/home', actual: '/login' } })]) }),
+      kase('OWN_07', { status: 'error', bundle: bundle([step({ action: 'click', status: 'error', selector: 'role=button[name="Cancel"]' })]) }),
+    ];
+    const findings = buildFindings(cases);
+    const members = findings.flatMap((finding) => finding.cases);
+    const memberState = members.map((member) => ({ member, status: member.status, verdict: member.verdict }));
+    const ownerByCase = new Map(findings.flatMap((finding) => finding.cases.map((member) => [member.id, ownerOf(finding)] as const)));
+
+    assert.equal(ownerByCase.get('OWN_01'), 'harness');
+    assert.equal(ownerByCase.get('OWN_02'), 'harness');
+    assert.equal(ownerByCase.get('OWN_03'), 'catalog');
+    assert.equal(ownerByCase.get('OWN_04'), 'application');
+    assert.equal(ownerByCase.get('OWN_05'), 'application');
+    assert.equal(ownerByCase.get('OWN_06'), 'application');
+    assert.equal(ownerByCase.get('OWN_07'), 'harness');
+    for (const { member, status, verdict } of memberState) {
+      const produced = findings.flatMap((finding) => finding.cases).find((candidate) => candidate.id === member.id);
+      assert.equal(produced, member, `${member.id} keeps the member object built by the projection`);
+      assert.equal(member.status, status);
+      assert.equal(member.verdict, verdict);
+    }
+    for (const finding of findings) assert.equal(finding.owner, ownerOf(finding));
+  });
+
+  it('builds transitive blocked chains nearest-first, sorts independent chains by size, and preserves the root record', () => {
+    const chains = blockedChains([
+      kase('A', { verdict: 'failed', status: 'error', reason: 'root failed\nmore detail' }),
+      kase('B', { verdict: 'blocked', status: null, reason: 'depends on A which failed' }),
+      kase('C', { verdict: 'blocked', status: null, reason: 'depends on B which is blocked' }),
+      kase('X', { verdict: 'failed', status: 'failed', reason: 'other root' }),
+      kase('Y', { verdict: 'blocked', status: null, reason: 'depends on X which failed' }),
+    ]);
+
+    assert.deepEqual(chains, [
+      { root: 'A', rootStatus: 'error', rootVerdict: 'failed', rootReason: 'root failed', waiting: ['B', 'C'] },
+      { root: 'X', rootStatus: 'failed', rootVerdict: 'failed', rootReason: 'other root', waiting: ['Y'] },
+    ]);
+  });
+
+  it('emits one finite circular chain and returns none without dependency lines', () => {
+    const circular = blockedChains([
+      kase('B', { verdict: 'blocked', status: null, reason: 'depends on A' }),
+      kase('A', { verdict: 'blocked', status: null, reason: 'depends on B' }),
+    ]);
+    assert.equal(circular.length, 1);
+    assert.equal(circular[0]!.root, 'A');
+    assert.deepEqual(circular[0]!.waiting, ['B']);
+    assert.match(circular[0]!.rootReason, /circular/i);
+    assert.deepEqual(blockedChains([kase('Z', { verdict: 'failed', reason: 'step broke' })]), []);
+  });
+
   it('a case with no signature is listed as unclustered, counted, never dropped', () => {
     const summary = buildFindingsSummary([
       kase('X_01_01', { bundle: bundle([step({ index: 0, status: 'failed' })]) }), // a goto that broke: no selector, no request, no url claim
@@ -277,6 +342,21 @@ describe('the remainder', () => {
     assert.equal(findings[0]!.kind, 'authoring');
     assert.equal(findings[0]!.key, 'authoring:the Steps column names a control the page does not render an', 'sixty characters of the reason, the counter gone');
     assert.equal(suggestedSeverity(findings[0]!), 'low');
+  });
+
+  it('normalises authored-flow ids, quoted values, step numbers and problem counts before keying', () => {
+    const findings = buildFindings([
+      kase('A_02_01', { verdict: 'blocked', status: null, reason: 'authoring refused (attempt 1): the authored flow "HIR-EC-050" counts role "option" (step 1)' }),
+      kase('A_02_02', { verdict: 'blocked', status: null, reason: 'authoring refused (attempt 2): the authored flow "HIR-EC-056" counts role "option" (step 4)' }),
+      kase('A_02_03', { verdict: 'blocked', status: null, reason: 'authoring refused: 3 problems make role "dialog" unreachable at step 9' }),
+      kase('A_02_04', { verdict: 'blocked', status: null, reason: 'authoring refused: 8 problems make role "dialog" unreachable at step 2' }),
+      kase('A_02_05', { verdict: 'blocked', status: null, reason: 'authoring refused: the flow has no application assertion' }),
+    ]);
+
+    assert.equal(findings.length, 3);
+    assert.equal(findings.find((finding) => finding.cases.some((member) => member.id === 'A_02_01'))?.cases.length, 2);
+    assert.equal(findings.find((finding) => finding.cases.some((member) => member.id === 'A_02_03'))?.cases.length, 2);
+    assert.equal(findings.find((finding) => finding.cases.some((member) => member.id === 'A_02_05'))?.cases.length, 1);
   });
 
   it('severity follows the stated rule: three cases high, one or two medium, all-harness low', () => {
@@ -357,8 +437,9 @@ describe('the markdown and the workbook', () => {
     const findings = buildFindings(cases);
     const md = renderFindingsMarkdown(findings, input(cases));
     assert.ok(md.includes(SEVERITY_RULE), 'the rule is stated at the top');
+    assert.ok(md.includes(FINDINGS_OWNER_RULE), 'the owner rule is stated at the top');
     assert.ok(md.includes('**1 finding account for 2 of 3 non-passing cases · 1 unclustered** · never ran: 1'));
-    assert.ok(md.includes(`## 1. ${findings[0]!.title}`));
+    assert.ok(md.includes(`### 1. ${findings[0]!.title}`));
     for (const id of ['E_01_01', 'E_01_02', 'E_01_03', 'E_01_04']) assert.ok(md.includes(id), id);
     assert.ok(md.includes('- status as sealed: failed: 2'));
     assert.ok(md.includes('E_01_03 (error)'), 'an error is shown as error, under unclustered');
@@ -366,6 +447,25 @@ describe('the markdown and the workbook', () => {
     assert.ok(md.includes('1. signIn — sign in as the HR admin · persona an account named by its credentials (withheld from the report)'), 'a label that is an address is withheld');
     assert.ok(md.includes('3. fill — type the plan name · role=textbox[name="Plan name"] [value="Gold 2026"]'), 'test data is kept');
     assert.ok(md.includes('4. expectUrl'));
+  });
+
+  it('puts blocked chains before three ordered owner sections, renders empty sections, and caps waiting ids at twelve', () => {
+    const root = apiCase('ROOT', 'POST', 'http://api.test/v1/items', 500, 'request failed', { status: 'error', reason: 'service returned 500' });
+    const dependents = Array.from({ length: 20 }, (_, index) =>
+      kase(`WAIT_${String(index + 1).padStart(2, '0')}`, { verdict: 'blocked', status: null, reason: `depends on ${index === 0 ? 'ROOT' : `WAIT_${String(index).padStart(2, '0')}`}` }),
+    );
+    const cases = [root, ...dependents];
+    const md = renderFindingsMarkdown(buildFindings(cases), input(cases));
+    const application = md.indexOf('## For the application team (1 finding, 21 cases)');
+    const harness = md.indexOf('## For the test harness (0 findings, 0 cases)');
+    const catalog = md.indexOf('## For the test catalog (0 findings, 0 cases)');
+
+    assert.ok(md.indexOf('## Blocked chains') < application);
+    assert.ok(application < harness && harness < catalog);
+    assert.match(md, /\*\*ROOT\*\* \(error\) — 20 case\(s\) wait on it:/);
+    assert.match(md, /WAIT_12, … and 8 more · reason: service returned 500/);
+    assert.match(md.slice(harness, catalog), /\nnone\n/);
+    assert.match(md.slice(catalog), /\nnone\n/);
   });
 
   it('a credential recorded on a step never reaches the markdown or the sheet', () => {
@@ -396,10 +496,23 @@ describe('the markdown and the workbook', () => {
     assert.ok(finding[4]!.includes('steps to reproduce (E_01_01):'));
     assert.equal(finding[5], 'failed: 2');
     assert.equal(finding[6], 'medium');
+    assert.equal(finding[7], 'application');
     assert.match(sheet!.rows[3]![0]!, /^unclustered \(1\)/);
     assert.equal(sheet!.rows[3]![1], 'E_01_03 (error)');
     assert.match(sheet!.rows[4]![0]!, /^never ran \(1\)/);
     assert.equal(sheet!.rows[4]![1], 'E_01_04');
+  });
+
+  it('keeps every existing workbook column in place and sorts finding rows by owner', () => {
+    const cases = [
+      kase('CAT', { verdict: 'blocked', status: null, reason: 'authoring refused: the flow has no application assertion' }),
+      agentCase('HAR', { endedBy: 'stall' }),
+      apiCase('APP', 'GET', 'http://api.test/v1/items', 500, 'request failed'),
+    ];
+    const sheet = extractWorkbookSheets(buildFindingsWorkbook(input(cases)))[0];
+
+    assert.deepEqual(FINDINGS_COLUMNS, ['Finding', 'Cases', 'Where', 'Asked/Offered', 'Evidence', 'Status as sealed', 'Suggested severity', 'Owner']);
+    assert.deepEqual(sheet!.rows.slice(2).map((row) => row[7]), ['application', 'harness', 'catalog']);
   });
 
   it('a reproduction line carries the intent, the target and short detail values, and never a credential key', () => {

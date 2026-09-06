@@ -41,6 +41,7 @@ import type { CatalogReportCase } from './catalog-report.js';
 import { stepTarget } from './step-facts.js';
 
 export type FindingKind = 'api' | 'url' | 'control' | 'hold' | 'agent' | 'authoring' | 'other';
+export type FindingOwner = 'application' | 'harness' | 'catalog';
 
 /** One member of a finding: the case and its verdict exactly as the ledger sealed it. */
 export interface FindingCase {
@@ -66,6 +67,7 @@ export interface Finding {
   /** The signature every member shares — `api:POST /x → 500`. Stable, so a rerun keeps the same key. */
   key: string;
   kind: FindingKind;
+  owner: FindingOwner;
   /** One plain sentence naming the cause, a pure function of the key's parts. */
   title: string;
   cases: FindingCase[];
@@ -77,6 +79,17 @@ export interface Finding {
   offered?: string | undefined;
   /** Typed facts from the FIRST member's failing step — the sample a reader checks the title against. */
   evidence: FindingEvidence[];
+}
+
+export interface BlockedChain {
+  /** The case every member of this chain is waiting on, directly or transitively. */
+  root: string;
+  /** The root's own sealed status/verdict and its reason's first line, verbatim. */
+  rootStatus: string | null;
+  rootVerdict: string;
+  rootReason: string;
+  /** Case ids that wait on the root, nearest first; transitive dependents included. */
+  waiting: string[];
 }
 
 /** The whole projection the report and the export render. */
@@ -187,6 +200,11 @@ function unresolvedControl(step: ProofStep): boolean {
 function authoringReason(reason: string): string {
   return reason
     .replace(/^authoring refused(?:\s*\(attempt \d+\))?:?\s*/i, '')
+    .replace(/^the authored flow\s+"[^"]*"\s+/i, '')
+    .replace(/"[^"]*"/g, '"…"')
+    .replace(/\bstep\s+\d+\b/gi, 'step N')
+    .replace(/^\d+\s+problems\b/i, 'N problems')
+    .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 60);
 }
@@ -196,6 +214,90 @@ export function dependencyOf(reason: string | null | undefined): string | null {
   if (typeof reason !== 'string') return null;
   const m = reason.match(/^depends on\s+([^\s,]+)/);
   return m?.[1] ?? null;
+}
+
+function firstLine(value: string | null): string {
+  return value?.split(/\r?\n/, 1)[0] ?? '';
+}
+
+export function blockedChains(cases: readonly CatalogReportCase[]): BlockedChain[] {
+  const byId = new Map(cases.map((c) => [c.id, c] as const));
+  const dependencies = new Map<string, string>();
+  for (const c of cases) {
+    const dependency = dependencyOf(c.reason);
+    if (c.verdict === 'blocked' && dependency !== null) dependencies.set(c.id, dependency);
+  }
+  if (dependencies.size === 0) return [];
+
+  interface ResolvedDependency {
+    root: string;
+    distance: number;
+    circular: boolean;
+    cycle: readonly string[];
+  }
+  const resolve = (start: string): ResolvedDependency | null => {
+    const path: string[] = [];
+    const seen = new Map<string, number>();
+    let current = start;
+    while (true) {
+      const cycleAt = seen.get(current);
+      if (cycleAt !== undefined) {
+        const cycle = path.slice(cycleAt);
+        const root = [...cycle].sort((a, b) => a.localeCompare(b))[0];
+        if (root === undefined) return null;
+        let distance = 0;
+        let cursor = start;
+        while (cursor !== root && distance <= cases.length) {
+          const next = dependencies.get(cursor);
+          if (next === undefined) return null;
+          cursor = next;
+          distance += 1;
+        }
+        return { root, distance, circular: true, cycle };
+      }
+      const record = byId.get(current);
+      if (record === undefined) return null;
+      seen.set(current, path.length);
+      path.push(current);
+      const next = dependencies.get(current);
+      if (next === undefined) return { root: current, distance: path.length - 1, circular: false, cycle: [] };
+      current = next;
+    }
+  };
+
+  const grouped = new Map<string, { resolved: ResolvedDependency; waiting: Map<string, number> }>();
+  for (const id of dependencies.keys()) {
+    const resolved = resolve(id);
+    if (resolved === null) continue;
+    let group = grouped.get(resolved.root);
+    if (group === undefined) {
+      group = { resolved, waiting: new Map() };
+      grouped.set(resolved.root, group);
+    }
+    if (resolved.circular && !group.resolved.circular) group.resolved = resolved;
+    if (id !== resolved.root) group.waiting.set(id, resolved.distance);
+  }
+
+  const chains: BlockedChain[] = [];
+  for (const [root, group] of grouped) {
+    const rootCase = byId.get(root);
+    if (rootCase === undefined) continue;
+    const waiting = [...group.waiting.entries()]
+      .sort(([a, distanceA], [b, distanceB]) => distanceA - distanceB || a.localeCompare(b))
+      .map(([id]) => id);
+    if (waiting.length === 0) continue;
+    const cycle = [...group.resolved.cycle].sort((a, b) => a.localeCompare(b));
+    chains.push({
+      root,
+      rootStatus: rootCase.status,
+      rootVerdict: rootCase.verdict,
+      rootReason: group.resolved.circular
+        ? `Circular dependency: ${cycle.join(', ')} wait on one another.`
+        : firstLine(rootCase.reason),
+      waiting,
+    });
+  }
+  return chains.sort((a, b) => b.waiting.length - a.waiting.length || a.root.localeCompare(b.root));
 }
 
 /* ------------------------------------------------------------- signature */
@@ -405,6 +507,7 @@ export function buildFindingsSummary(cases: readonly CatalogReportCase[]): Findi
       finding = {
         key: sig.key,
         kind: sig.kind,
+        owner: 'application',
         title: sig.title,
         cases: [],
         where: sig.where,
@@ -441,6 +544,7 @@ export function buildFindingsSummary(cases: readonly CatalogReportCase[]): Findi
   }
 
   const findings = [...byKey.values()].sort((a, b) => b.cases.length - a.cases.length || a.key.localeCompare(b.key));
+  for (const finding of findings) finding.owner = ownerOf(finding);
   const clustered = findings.reduce((sum, f) => sum + f.cases.length, 0);
   return { findings, unclustered, neverRan, nonPassing, clustered };
 }
@@ -479,6 +583,13 @@ export function harnessOnly(finding: Finding, member: FindingCase): boolean {
   return member.status !== null && verdictFamily(member.status) === 'system-error';
 }
 
+export function ownerOf(finding: Finding): FindingOwner {
+  if (finding.kind === 'hold' || finding.kind === 'agent') return 'harness';
+  if (finding.kind === 'authoring') return 'catalog';
+  if (finding.cases.length > 0 && finding.cases.every((member) => harnessOnly(finding, member))) return 'harness';
+  return 'application';
+}
+
 export type SuggestedSeverity = 'high' | 'medium' | 'low';
 
 /**
@@ -498,3 +609,7 @@ export const SEVERITY_RULE =
   '(a case listed under it because it depends on a member); MEDIUM for 1–2 cases; LOW when every member is harness-only ' +
   '(a system error, a hold by the harness, or an authoring refusal — none of which is a verdict about the application). ' +
   'Statuses are shown exactly as the run sealed them.';
+
+export const FINDINGS_OWNER_RULE =
+  'Finding owner is a stated rule over typed fields only: HARNESS when finding.kind is hold or agent, or, for a non-authoring finding, ' +
+  'every member is harness-only; CATALOG when finding.kind is authoring; APPLICATION for everything else (api, url, control, other).';

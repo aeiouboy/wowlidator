@@ -292,7 +292,7 @@ withheld outright (and says so) even when its key is an innocent `value`. The
 workbook goes through `buildTextWorkbook` in `excel-export.ts` (the same
 hand-written zip writer as the proof workbooks: a preface row, a bold header,
 wrapped cells) with the columns Finding · Cases · Where · Asked/Offered ·
-Evidence · Status as sealed · Suggested severity, and is read back in tests
+Evidence · Status as sealed · Suggested severity · Owner, and is read back in tests
 through `catalog/extract.ts`'s independent reader. Tests:
 `tests/findings.test.ts` (hand-built bundles for every kind, the prose-only
 difference that still clusters, the source grep, the credential that never
@@ -300,6 +300,8 @@ appears), `tests/catalog-report.test.ts` ("findings lead the report": the exact
 count line, every member linked, `error` shown as error, 252 never-ran rows as
 one block), `tests/catalog-live-report.test.ts` (the `.md` exists after
 `writeCatalogArtifacts` over a fixture ledger).
+
+**The export names who owns each cause and leads with dependency roots (2026-09-06).** `ownerOf` assigns `application`, `harness`, or `catalog` from the finding kind and sealed member fields only: holds, agent failures, and all-system-error findings belong to the harness; authoring refusals belong to the catalog; reached application behaviour belongs to the application team. Markdown states that rule, shows `blockedChains` before three owner sections, and the workbook adds Owner after Suggested severity and uses the same owner order. A blocked chain follows `depends on X` transitively to the first case that is not waiting, lists nearer dependents first, and folds a cycle once under its alphabetically first member. Authoring keys still use their one permitted prose input, but normalise the authored-flow id, quoted runs, step number, problem count, and whitespace before taking 60 characters, so one lint cause remains one finding.
 
 ## The target on every step (2026-09-02)
 

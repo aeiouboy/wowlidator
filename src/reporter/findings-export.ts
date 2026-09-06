@@ -29,7 +29,9 @@ import { describeTarget, type ProofStep } from '../engine/proof-bundle.js';
 import type { CatalogReportCase, CatalogReportInput } from './catalog-report.js';
 import { buildTextWorkbook } from './excel-export.js';
 import {
+  FINDINGS_OWNER_RULE,
   SEVERITY_RULE,
+  blockedChains,
   buildFindingsSummary,
   findingsHeadline,
   firstFailingStep,
@@ -92,7 +94,7 @@ export function reproductionSteps(c: CatalogReportCase | undefined): string[] {
 
 function findingMarkdown(f: Finding, n: number, byId: Map<string, CatalogReportCase>): string {
   const lines: string[] = [];
-  lines.push(`## ${n}. ${f.title}`);
+  lines.push(`### ${n}. ${f.title}`);
   lines.push('');
   lines.push(`- suggested severity: **${suggestedSeverity(f)}**`);
   lines.push(`- kind: ${f.kind} · key: \`${f.key}\``);
@@ -117,6 +119,23 @@ function findingMarkdown(f: Finding, n: number, byId: Map<string, CatalogReportC
   return lines.join('\n');
 }
 
+const OWNER_SECTIONS = [
+  { owner: 'application', label: 'For the application team' },
+  { owner: 'harness', label: 'For the test harness' },
+  { owner: 'catalog', label: 'For the test catalog' },
+] as const;
+
+function ownerOrder(owner: Finding['owner']): number {
+  return OWNER_SECTIONS.findIndex((section) => section.owner === owner);
+}
+
+function blockedChainLine(chain: ReturnType<typeof blockedChains>[number]): string {
+  const shown = chain.waiting.slice(0, 12);
+  const remaining = chain.waiting.length - shown.length;
+  const waiting = `${shown.join(', ')}${remaining === 0 ? '' : `, … and ${remaining} more`}`;
+  return `- **${chain.root}** (${chain.rootStatus ?? chain.rootVerdict}) — ${chain.waiting.length} case(s) wait on it: ${waiting} · reason: ${chain.rootReason}`;
+}
+
 /** The Markdown document: headline, the severity rule, one section per finding, then the remainder. */
 export function renderFindingsMarkdown(findings: readonly Finding[], input: CatalogReportInput): string {
   const folds = buildFindingsSummary(input.cases);
@@ -130,9 +149,34 @@ export function renderFindingsMarkdown(findings: readonly Finding[], input: Cata
   out.push('');
   out.push(`> ${SEVERITY_RULE}`);
   out.push('');
+  out.push(`> ${FINDINGS_OWNER_RULE}`);
+  out.push('');
   out.push(`**${findingsHeadline({ ...folds, findings: [...findings] })}** · never ran: ${folds.neverRan.length}`);
   out.push('');
-  findings.forEach((f, i) => out.push(findingMarkdown(f, i + 1, byId)));
+  out.push('## Blocked chains');
+  out.push('');
+  out.push('Fixing a root unblocks everything waiting under it.');
+  out.push('');
+  const chains = blockedChains(input.cases);
+  if (chains.length === 0) out.push('No case is waiting on another.');
+  else for (const chain of chains) out.push(blockedChainLine(chain));
+  out.push('');
+  let findingNumber = 1;
+  for (const section of OWNER_SECTIONS) {
+    const owned = findings.filter((finding) => finding.owner === section.owner);
+    const caseCount = owned.reduce((sum, finding) => sum + finding.cases.length, 0);
+    out.push(`## ${section.label} (${owned.length} finding${owned.length === 1 ? '' : 's'}, ${caseCount} case${caseCount === 1 ? '' : 's'})`);
+    out.push('');
+    if (owned.length === 0) {
+      out.push('none');
+      out.push('');
+      continue;
+    }
+    for (const finding of owned) {
+      out.push(findingMarkdown(finding, findingNumber, byId));
+      findingNumber += 1;
+    }
+  }
   if (folds.unclustered.length > 0) {
     out.push(`## Unclustered (${folds.unclustered.length})`);
     out.push('');
@@ -154,12 +198,15 @@ export function renderFindingsMarkdown(findings: readonly Finding[], input: Cata
 }
 
 /** The sheet's columns, in order. */
-export const FINDINGS_COLUMNS = ['Finding', 'Cases', 'Where', 'Asked/Offered', 'Evidence', 'Status as sealed', 'Suggested severity'] as const;
+export const FINDINGS_COLUMNS = ['Finding', 'Cases', 'Where', 'Asked/Offered', 'Evidence', 'Status as sealed', 'Suggested severity', 'Owner'] as const;
 
 /** The rows of the findings sheet (header excluded): one per finding, then the unclustered and never-ran folds. */
 export function findingsRows(folds: FindingsSummary, cases: readonly CatalogReportCase[]): string[][] {
   const byId = new Map(cases.map((c) => [c.id, c] as const));
-  const rows: string[][] = folds.findings.map((f) => {
+  const sortedFindings = [...folds.findings].sort(
+    (a, b) => ownerOrder(a.owner) - ownerOrder(b.owner) || b.cases.length - a.cases.length || a.key.localeCompare(b.key),
+  );
+  const rows: string[][] = sortedFindings.map((f) => {
     const sample = f.cases.find((m) => m.dependsOn === undefined) ?? f.cases[0];
     const steps = reproductionSteps(sample === undefined ? undefined : byId.get(sample.id));
     return [
@@ -170,6 +217,7 @@ export function findingsRows(folds: FindingsSummary, cases: readonly CatalogRepo
       [...f.evidence.map((e) => `${e.label}: ${e.value}`), ...(steps.length === 0 ? [] : ['', `steps to reproduce (${sample!.id}):`, ...steps])].join('\n'),
       statusCounts(f.cases).map((s) => `${s.status}: ${s.count}`).join('\n'),
       suggestedSeverity(f),
+      f.owner,
     ];
   });
   if (folds.unclustered.length > 0) {
@@ -181,10 +229,11 @@ export function findingsRows(folds: FindingsSummary, cases: readonly CatalogRepo
       folds.unclustered.map((m) => byId.get(m.id)?.reason ?? '').filter((r) => r !== '').join('\n'),
       statusCounts(folds.unclustered).map((s) => `${s.status}: ${s.count}`).join('\n'),
       '',
+      '',
     ]);
   }
   if (folds.neverRan.length > 0) {
-    rows.push([`never ran (${folds.neverRan.length})`, folds.neverRan.map((m) => m.id).join('\n'), '', '', '', `never ran: ${folds.neverRan.length}`, '']);
+    rows.push([`never ran (${folds.neverRan.length})`, folds.neverRan.map((m) => m.id).join('\n'), '', '', '', `never ran: ${folds.neverRan.length}`, '', '']);
   }
   return rows;
 }
@@ -194,10 +243,10 @@ export function buildFindingsWorkbook(input: CatalogReportInput): Buffer {
   const folds = buildFindingsSummary(input.cases);
   return buildTextWorkbook({
     sheetName: 'Findings',
-    preface: `${findingsHeadline(folds)} · never ran: ${folds.neverRan.length}. ${SEVERITY_RULE}`,
+    preface: `${findingsHeadline(folds)} · never ran: ${folds.neverRan.length}. ${SEVERITY_RULE} ${FINDINGS_OWNER_RULE}`,
     header: FINDINGS_COLUMNS,
     rows: findingsRows(folds, input.cases),
-    widths: [48, 30, 24, 34, 60, 18, 14],
+    widths: [48, 30, 24, 34, 60, 18, 14, 14],
   });
 }
 
