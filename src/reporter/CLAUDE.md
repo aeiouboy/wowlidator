@@ -147,6 +147,12 @@ stills until `SCREENSHOT_BUDGET_BYTES` (15MB) is spent. Past that budget the
 artifact writer spills shots beside the report; a sink-less pure render omits
 them with a note naming the proof bundle.
 
+- **The actionable headline (2026-09-07).** Above the unchanged chip tally,
+  the report shows passed, failed and no-verdict totals, plus review only when
+  present, followed by pass rate over decided cases. The coverage line is
+  mandatory even when no case is decided: without it, a pass rate over a small
+  answered subset can look like a result for the whole catalog.
+
 - **Self-contained while the evidence fits (2026-09-06).** When nothing
   spills, the catalog report is still one file. Past the inline budgets, the
   artifact writer puts shots in `<runKey slug>-media/shots/` and recordings

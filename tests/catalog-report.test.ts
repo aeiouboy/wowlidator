@@ -27,6 +27,7 @@ import {
   RECORDING_BUDGET_BYTES,
   REPORT_HTML_CEILING_BYTES,
   SCREENSHOT_BUDGET_BYTES,
+  catalogHeadline,
   catalogReportPath,
   renderCatalogReport,
   verdictChipOf,
@@ -86,6 +87,73 @@ describe('grouping and coverage', () => {
     assert.equal(verdictChipOf(kase({ verdict: 'failed', status: 'error' })).label, 'system error');
     assert.equal(verdictChipOf(kase({ verdict: 'passed', status: 'passed-with-issues' })).label, 'pass**');
     assert.equal(verdictChipOf(kase({ verdict: 'review', status: 'needs-review' })).label, 'needs review');
+  });
+});
+
+describe('catalog headline', () => {
+  it('folds chip classifications into four exclusive headline buckets', () => {
+    const headline = catalogHeadline([
+      kase({ verdict: 'passed', status: 'passed' }),
+      kase({ id: 'PL_02_02', verdict: 'passed', status: 'passed-with-issues' }),
+      kase({ id: 'PL_02_03', verdict: 'failed', status: 'failed' }),
+      kase({ id: 'PL_02_04', verdict: 'failed', status: 'dead-end' }),
+      kase({ id: 'PL_02_05', verdict: 'review', status: 'needs-review' }),
+      kase({ id: 'PL_02_06', verdict: 'blocked', status: null, bundle: null }),
+      kase({ id: 'PL_02_07', verdict: 'failed', status: 'error' }),
+      kase({ id: 'PL_02_08', verdict: 'never-ran', status: null, bundle: null }),
+    ]);
+
+    assert.deepEqual(headline, { passed: 2, failed: 2, review: 1, noVerdict: 3, decided: 4, total: 8 });
+    assert.equal(headline.passed + headline.failed + headline.review + headline.noVerdict, headline.total);
+  });
+
+  it('reports the live-run mix as 27 decided cases and a rounded 30% pass rate', () => {
+    const cases = [
+      ...Array.from({ length: 8 }, (_, index) => kase({ id: `PASS_${index}`, verdict: 'passed' })),
+      ...Array.from({ length: 19 }, (_, index) => kase({ id: `FAIL_${index}`, verdict: 'failed', status: 'failed' })),
+      ...Array.from({ length: 2 }, (_, index) => kase({ id: `REVIEW_${index}`, verdict: 'review', status: 'needs-review' })),
+      ...Array.from({ length: 280 }, (_, index) => kase({ id: `BLOCKED_${index}`, verdict: 'blocked', status: null, bundle: null })),
+    ];
+
+    assert.equal(catalogHeadline(cases).decided, 27);
+    const html = renderCatalogReport({ title: 't', runKey: null, generatedAt: null, cases });
+    assert.match(html, /pass rate 30% — 8 of 27 cases that reached a verdict/);
+    assert.match(html, /headline-count review"><b>2<\/b><span>review<\/span>/);
+  });
+
+  it('renders the headline above the original tally and always renders verdict coverage', () => {
+    const html = renderCatalogReport({
+      title: 't', runKey: null, generatedAt: null,
+      cases: [
+        kase({}),
+        kase({ id: 'PL_02_02', verdict: 'failed', status: 'dead-end' }),
+        kase({ id: 'PL_02_03', verdict: 'blocked', status: null, bundle: null }),
+      ],
+    });
+
+    assert.match(html, /class="headline"[\s\S]*>1<[^>]*>[\s\S]*passed[\s\S]*>1<[^>]*>[\s\S]*failed[\s\S]*>1<[^>]*>[\s\S]*no verdict/);
+    assert.match(html, /pass rate 50% — 1 of 2 cases that reached a verdict/);
+    assert.match(html, /2 of 3 cases have a verdict \(67%\)/);
+    assert.ok(html.indexOf('class="headline"') < html.indexOf('class="tally"'));
+    assert.match(html, /class="tally"[\s\S]*test failed \(dead-end\): <b>1<\/b>/);
+
+    const undecided = renderCatalogReport({
+      title: 't', runKey: null, generatedAt: null,
+      cases: [kase({ verdict: 'never-ran', status: null, bundle: null })],
+    });
+    assert.doesNotMatch(undecided, /pass rate/);
+    assert.match(undecided, /0 of 1 cases have a verdict \(0%\)/);
+  });
+
+  it('renders an all-passed run with 100% pass rate and coverage', () => {
+    const html = renderCatalogReport({
+      title: 't', runKey: null, generatedAt: null,
+      cases: [kase({}), kase({ id: 'PL_02_02' })],
+    });
+
+    assert.match(html, /pass rate 100% — 2 of 2 cases that reached a verdict/);
+    assert.match(html, /2 of 2 cases have a verdict \(100%\)/);
+    assert.doesNotMatch(html, /headline-count review/);
   });
 });
 

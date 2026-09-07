@@ -182,6 +182,30 @@ export function verdictChipOf(c: CatalogReportCase): { cls: string; label: strin
     : { cls: 'fail', label: c.status === 'dead-end' ? 'test failed (dead-end)' : 'test failed' };
 }
 
+export interface CatalogHeadline {
+  readonly passed: number;
+  readonly failed: number;
+  readonly review: number;
+  readonly noVerdict: number;
+  readonly decided: number;
+  readonly total: number;
+}
+
+export function catalogHeadline(cases: readonly CatalogReportCase[]): CatalogHeadline {
+  let passed = 0;
+  let failed = 0;
+  let review = 0;
+  let noVerdict = 0;
+  for (const c of cases) {
+    const { cls } = verdictChipOf(c);
+    if (cls === 'pass') passed += 1;
+    else if (cls === 'fail') failed += 1;
+    else if (cls === 'review' || cls === 'record') review += 1;
+    else noVerdict += 1;
+  }
+  return { passed, failed, review, noVerdict, decided: passed + failed, total: cases.length };
+}
+
 /* ------------------------------------------------------------ step detail */
 
 interface MediaBudget {
@@ -645,6 +669,17 @@ const STYLE = `
 body { max-width: 1200px; margin: 0 auto; padding: 24px; font: 14px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
 h1 { font-size: 20px; margin: 0 0 4px; }
 .meta { color: var(--muted); font-size: 12px; margin-bottom: 18px; }
+.headline { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 14px 16px; margin: 14px 0 10px; }
+.headline-counts { display: flex; align-items: baseline; gap: 24px; flex-wrap: wrap; }
+.headline-count { display: grid; gap: 1px; }
+.headline-count b { font-size: 28px; line-height: 1; font-variant-numeric: tabular-nums; }
+.headline-count span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.headline-count.pass b { color: var(--pass, #2e7d32); }
+.headline-count.fail b { color: #c0392b; }
+.headline-count.never b { color: var(--muted); }
+.headline-count.review b { color: #6a5acd; font-size: 19px; }
+.headline-rates { margin-top: 10px; font-size: 12px; }
+.headline-rates div + div { color: var(--muted); }
 .tally { display: flex; gap: 14px; flex-wrap: wrap; margin: 10px 0 22px; font-size: 13px; }
 .scenario { margin: 22px 0 8px; }
 .scenario > .shead { font-weight: 600; font-size: 15px; padding: 6px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; align-items: baseline; }
@@ -747,6 +782,23 @@ export function renderCatalogReport(input: CatalogReportInput): string {
     spillRecording: input.spillRecording,
   };
   const findings = buildFindingsSummary(input.cases);
+  const headline = catalogHeadline(input.cases);
+  const passRate = headline.decided === 0 ? null : Math.round((headline.passed / headline.decided) * 100);
+  const coverageRate = headline.total === 0 ? 0 : Math.round((headline.decided / headline.total) * 100);
+  const headlineHtml =
+    `<section class="headline"><div class="headline-counts">` +
+    `<div class="headline-count pass"><b>${esc(headline.passed)}</b><span>passed</span></div>` +
+    `<div class="headline-count fail"><b>${esc(headline.failed)}</b><span>failed</span></div>` +
+    `<div class="headline-count never"><b>${esc(headline.noVerdict)}</b><span>no verdict</span></div>` +
+    (headline.review === 0
+      ? ''
+      : `<div class="headline-count review"><b>${esc(headline.review)}</b><span>review</span></div>`) +
+    `</div><div class="headline-rates">` +
+    (passRate === null
+      ? ''
+      : `<div>pass rate ${esc(passRate)}% — ${esc(headline.passed)} of ${esc(headline.decided)} cases that reached a verdict</div>`) +
+    `<div>${esc(headline.decided)} of ${esc(headline.total)} cases have a verdict (${esc(coverageRate)}%)</div>` +
+    `</div></section>`;
   const neverRan = input.cases.filter((c) => c.verdict === 'never-ran');
   const byScenario = new Map<string, CatalogReportCase[]>();
   for (const c of input.cases) {
@@ -817,6 +869,7 @@ export function renderCatalogReport(input: CatalogReportInput): string {
     ` <a class="btn" download href="${esc(`${catalogReportBase(input.runKey, input.title)}-cases.xlsx`)}"` +
     ` title="Written beside this report: every planned case, one step per row, photos embedded within budget, video linked under every step">Cases (Excel)</a></div>` +
     liveNote +
+    headlineHtml +
     `<div class="tally">${[...tally.entries()].map(([label, n]) => `<span>${esc(label)}: <b>${n}</b></span>`).join('')}</div>` +
     findingsSection(findings) +
     neverRanSection(neverRan) +
