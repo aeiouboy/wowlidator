@@ -450,6 +450,32 @@ describe('a role the ARIA vocabulary does not hold is addressed by its label (HI
     assert.equal(withLabelForNonAriaRole('role=date[name="Hire Date" i] >> nth=0'), 'internal:label="Hire Date"i >> nth=0');
   });
 
+  it('rewrites the CSS spelling too — the one a model reaches for once the role has failed it', () => {
+    // Live (run 15): `input[type="date"][aria-label="Hire Date"]` and its
+    // Date-of-Birth twin burned 74 s, 96 s and 5 s in one run and entered
+    // nothing. `[aria-label=…]` matches nothing on that page — the name comes
+    // from a `<label for>`, which is exactly what the label engine reads.
+    assert.equal(withLabelForNonAriaRole('input[type="date"][aria-label="Hire Date"]'), 'internal:label="Hire Date"i');
+    assert.equal(withLabelForNonAriaRole("input[type=date][aria-label='Date of Birth']"), 'internal:label="Date of Birth"i');
+    assert.equal(
+      withLabelForNonAriaRole('input[type="date"][aria-label="Hire Date"] >> nth=0'),
+      'internal:label="Hire Date"i >> nth=0',
+    );
+  });
+
+  it('leaves a CSS selector alone wherever the attribute is the real handle', () => {
+    // Only the native input TYPES, where the label is all there is. On a text
+    // input an aria-label is a real attribute and the selector works.
+    for (const selector of [
+      'input[type="text"][aria-label="Search"]',
+      'input[type="password"][aria-label="Password"]',
+      'input[type="date"]',
+      'div[aria-label="Hire Date"]',
+    ]) {
+      assert.equal(withLabelForNonAriaRole(selector), selector);
+    }
+  });
+
   it('leaves every ARIA role exactly as it was', () => {
     for (const selector of [
       'role=textbox[name="First Name (EN)" i]',

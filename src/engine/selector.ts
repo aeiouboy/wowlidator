@@ -482,7 +482,20 @@ export function withLabelForNonAriaRole(selector: string): string {
   // and the tree's own line copied back verbatim.
   const asRole = /^role=([A-Za-z]+)\[name=(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')(\s+i)?\]$/.exec(head);
   const asLine = asRole === null ? /^([A-Za-z]+)\s+"((?:[^"\\]|\\.)+)"$/.exec(head) : null;
-  const match = asRole ?? asLine;
+  // The THIRD spelling of the same mistake, and the one a model reaches for
+  // once the role has failed it: CSS, by input type and aria-label. Live
+  // (HIR-EC-001 run 15) `input[type="date"][aria-label="Hire Date"]` and its
+  // Date-of-Birth twin burned 74 s, 96 s and 5 s in one run and entered
+  // nothing — the docblock's own measurement says why, `[aria-label=…]`
+  // matches nothing here because the name comes from a `<label for>`.
+  // Narrow on purpose: only the native input TYPES above, where the label is
+  // the only handle. `input[type="text"][aria-label="X"]` is left alone —
+  // there the attribute is real and the selector works.
+  const asCss =
+    asRole === null && asLine === null
+      ? /^input\[type=["']?([a-z-]+)["']?\](?:\[[^\]]*\])*?\[aria-label=(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')(?:\s+[si])?\](?:\[[^\]]*\])*$/i.exec(head)
+      : null;
+  const match = asRole ?? asLine ?? asCss;
   if (match === null) return selector;
   const role = match[1]!.toLowerCase();
   if (ARIA_ROLES.has(role) || !NATIVE_INPUT_ROLES.has(role)) return selector;
