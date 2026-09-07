@@ -2523,7 +2523,7 @@ async function selectNamedTab(
  * changes neither the URL nor the tree: a page that will not advance is the
  * end of the wizard, not a reason to keep clicking.
  */
-async function advanceWizardPages(
+export async function advanceWizardPages(
   tab: Page,
   before: string,
   log?: ((line: string) => void) | undefined,
