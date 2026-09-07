@@ -354,6 +354,23 @@ export const DEFAULT_AGENT_MAX_NODES = 60;
  * instance runs on the default budget — a caller that set its own keeps it.
  */
 export const FORM_AGENT_MAX_NODES = 120;
+/**
+ * The form budget for THIS run, `WOWLIDATOR_FORM_AGENT_MAX_NODES` or the
+ * default. A knob, not a fix: HIR-EC-001 (2026-09-07) spent 57 turns and 12
+ * minutes on a 102-control hire form, filled ten fields, and ended both legs
+ * with "absent from the current truncated accessibility tree" — for controls
+ * a screenshot shows filled. Raising this moves the wall; it does not remove
+ * it, because a goal naming forty `field = value` pairs flattens
+ * `focusTree`'s ranking whatever the budget. The knob exists to measure
+ * whether visibility is the ONLY blocker before the authoring plane is
+ * changed to emit those forty as deterministic steps.
+ */
+export function formAgentMaxNodes(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env['WOWLIDATOR_FORM_AGENT_MAX_NODES'];
+  if (raw === undefined || raw.trim() === '') return FORM_AGENT_MAX_NODES;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : FORM_AGENT_MAX_NODES;
+}
 /** How much of a `read`/`save` observation rides the record (OA-14; was 120 on the history line only). */
 export const READ_OBSERVATION_CHARS = 600;
 /** The DONE ledger's size cap in the prompt (OA-7). */
@@ -1410,7 +1427,7 @@ export class WorkflowAgent {
     // the model is SHOWN is budgeted.
     const outcomesAsked = goalOutcomes(goal).length;
     const formLeg = outcomesAsked >= 3 || FORM_GOAL.test(goal);
-    const maxNodes = formLeg ? Math.max(this.#maxAxNodes, FORM_AGENT_MAX_NODES) : this.#maxAxNodes;
+    const maxNodes = formLeg ? Math.max(this.#maxAxNodes, formAgentMaxNodes()) : this.#maxAxNodes;
     // A per-call ceiling can only LOWER the instance's own budget, never
     // raise it — `runOptions.maxSteps` exists for a caller that knows this
     // particular leg has already spent its retry budget (a fail-fast risk
