@@ -97,9 +97,12 @@ export function uniquePrefixMatch(options: readonly string[], value: string): st
     const name = fold(option);
     if (name === wanted) return false; // a whole match belongs to the rung above
     if (name.startsWith(wanted)) return true;
-    // "TH - Thailand": the label half after a code dash may carry the prefix.
-    const dash = name.indexOf(' - ');
-    return dash > 0 && name.slice(dash + 3).startsWith(wanted);
+    // "TH - Thailand", "THA — Thailand": the label half after a code dash may
+    // carry the prefix. Every dash the idiom is written with — live
+    // (HIR-EC-001) the country list uses an EM dash, and a hyphen-only rule
+    // read `THA — Thailand` as one opaque name.
+    const dash = /\s[-–—]\s/.exec(name);
+    return dash !== null && dash.index > 0 && name.slice(dash.index + dash[0].length).startsWith(wanted);
   });
   return hits.length === 1 ? hits[0]! : null;
 }
@@ -190,6 +193,56 @@ async function attr(locator: Locator, name: string, timeout: number): Promise<st
     .first()
     .evaluate((el, n: string) => (el as unknown as { getAttribute(a: string): string | null }).getAttribute(n), name, { timeout })
     .catch(() => null);
+}
+
+/**
+ * Click a found option, escalating when the ordinary click will not land.
+ *
+ * Live (HIR-EC-001 run 15): `Country of Birth`, `Nationality` and `Foreigner
+ * Flag` each matched their option — `THA — Thailand`, `Thailand - Thailand`,
+ * `No` — and each then failed `locator.click: Timeout 10000ms exceeded`. The
+ * MATCH was never the problem, so the error read as "no option named X
+ * appeared" about a list that was showing exactly one option, X. Twenty
+ * seconds a field, three fields, and a message that sent the reader hunting
+ * for the wrong thing.
+ *
+ * A rendered list that will not accept a plain click is ordinary: the row may
+ * sit under an overlay of its own popup, be scrolled out of its container, or
+ * be re-created between the actionability check and the click. So the rungs,
+ * cheapest first, each a real click on the real element:
+ *
+ *  1. the ordinary click, on a SHORT budget — where it works it works at once;
+ *  2. scrolled into its container's view, then clicked;
+ *  3. forced, which skips the actionability wait an overlay never satisfies;
+ *  4. a dispatched `click` event, for a row whose handler is on the element
+ *     itself and whose ancestor eats pointer events.
+ *
+ * The last failure is the one reported, so a genuinely unclickable option
+ * still fails with a real reason.
+ */
+async function clickOption(option: Locator, timeout: number): Promise<void> {
+  // A click that is going to land, lands immediately; the budget is for the
+  // fallbacks, not for waiting out an overlay that will never lift.
+  const first = Math.max(1_000, Math.min(timeout, 2_500));
+  const attempts: (() => Promise<void>)[] = [
+    () => option.click({ timeout: first }),
+    async () => {
+      await option.scrollIntoViewIfNeeded({ timeout: first });
+      await option.click({ timeout: first });
+    },
+    () => option.click({ timeout: first, force: true }),
+    () => option.dispatchEvent('click', {}, { timeout: first }),
+  ];
+  let last: unknown;
+  for (const attempt of attempts) {
+    try {
+      await attempt();
+      return;
+    } catch (error) {
+      last = error;
+    }
+  }
+  throw last;
 }
 
 /** The open list's container: `aria-controls` target, else the last visible listbox/menu on the page. */
@@ -468,7 +521,7 @@ export async function selectFromListbox(
       }
     } else {
       try {
-        await hit.option.click({ timeout });
+        await clickOption(hit.option, timeout);
       } catch (error) {
         await page.keyboard.press('Escape').catch(() => undefined);
         throw new ListboxOptionMissingError(triggerName, part, state.options, `the option was found but could not be clicked: ${describe(error)}`);

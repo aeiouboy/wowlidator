@@ -244,6 +244,10 @@ describe('listbox: uniquePrefixMatch is the one option that starts with the valu
   it('picks the single prefix match, in either half of a code - label name', () => {
     assert.equal(uniquePrefixMatch(['Thailand - Thailand', 'Taiwan - Taiwan'], 'Thai'), 'Thailand - Thailand');
     assert.equal(uniquePrefixMatch(['TH - Thailand', 'TW - Taiwan'], 'thai'), 'TH - Thailand');
+    // Live (HIR-EC-001): the country list writes its code and label with an EM
+    // dash, and a hyphen-only rule read the whole thing as one opaque name.
+    assert.equal(uniquePrefixMatch(['THA — Thailand', 'TWN — Taiwan'], 'Thailand'), 'THA — Thailand');
+    assert.equal(uniquePrefixMatch(['THA – Thailand', 'TWN – Taiwan'], 'thai'), 'THA – Thailand');
     assert.equal(uniquePrefixMatch(['  New  Hire  '], 'new hire'), null, 'a whole match is the rung above, not a prefix');
   });
 
