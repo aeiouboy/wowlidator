@@ -72,8 +72,10 @@ export async function buildCatalogReportCases(
     // case that never ran (no bundle) and for a caller with no plan in hand.
     const named = scenarioOf(id);
     const fromBundle = bundle?.generatedBy?.scenario;
+    const scenarioId = ledger.authored?.[id]?.scenarioId ?? bundle?.generatedBy?.scenarioId;
     cases.push({
       id,
+      scenarioId,
       name: outcome?.name ?? id,
       scenario: named !== 'ungrouped' ? named : (fromBundle ?? named),
       verdict: outcome === undefined ? 'never-ran' : outcome.verdict,

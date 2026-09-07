@@ -90,6 +90,8 @@ const SLOW_STEP_MS = 2_000;
 export interface CatalogReportCase {
   /** `PL_06_05` — the planned id. */
   id: string;
+  /** The QA sheet's Scenario ID label; never a case identity or lookup key. */
+  scenarioId?: string | undefined;
   /** Full name when known (`PL_06_05 ตรวจสอบ…`); the id stands in otherwise. */
   name: string;
   /** Scenario the sheet groups it under (`PL_06`). */
@@ -479,6 +481,12 @@ function caseSection(c: CatalogReportCase, input: CatalogReportInput, budget: Me
   // has the qualified id in front of them.
   const identity = sheetIdentity(c);
   const shownId = displayCaseId(c.id, identity.sheetCaseId);
+  const scenarioSuffix = c.scenarioId === undefined ? '' : ` · ${c.scenarioId}`;
+  const headingName = c.name === c.id
+    ? `${c.id}${scenarioSuffix}`
+    : c.name.startsWith(`${c.id} `)
+      ? `${c.id}${scenarioSuffix}${c.name.slice(c.id.length)}`
+      : c.name;
   const sheetChip = shownId.qualified
     ? `<span class="sid" title="the sheet's own spelling of this case id — the run qualified it to ${esc(shownId.qualified)} because the id repeats across or within sheets">sheet id ${esc(shownId.shown)}</span>`
     : '';
@@ -497,7 +505,7 @@ function caseSection(c: CatalogReportCase, input: CatalogReportInput, budget: Me
   return (
     `<details class="case" id="${anchor}" data-name="${esc(c.name)}">` +
     `<summary><span class="chip ${chip.cls}">${esc(chip.label)}</span>` +
-    `<span class="cname">${esc(c.name)}${sheetChip}${sheetTag}</span>` +
+    `<span class="cname">${esc(headingName)}${sheetChip}${sheetTag}</span>` +
     (bundle ? `<span class="cms">${esc(fmtMs(bundle.caseDurationMs ?? bundle.durationMs))}</span>` : '') +
     exportControl(c, input) +
     '</summary>' +
@@ -515,14 +523,16 @@ function caseAnchor(id: string): string {
   return `case-${slugify(id)}`;
 }
 
-function memberChip(m: FindingCase): string {
+function memberChip(m: FindingCase, byId: ReadonlyMap<string, CatalogReportCase>): string {
   // The status exactly as the ledger sealed it — `error` reads `error`.
   const sealed = m.status ?? m.verdict;
   const via = m.dependsOn === undefined ? '' : ` <em title="listed here because it depends on ${esc(m.dependsOn)}">↳ depends on ${esc(m.dependsOn)}</em>`;
-  return `<span class="fcase"><a href="#${esc(caseAnchor(m.id))}">${esc(m.id)}</a> <code class="sealed">${esc(sealed)}</code>${via}</span>`;
+  const scenarioId = byId.get(m.id)?.scenarioId;
+  const label = scenarioId === undefined ? m.id : `${m.id} · ${scenarioId}`;
+  return `<span class="fcase"><a href="#${esc(caseAnchor(m.id))}">${esc(label)}</a> <code class="sealed">${esc(sealed)}</code>${via}</span>`;
 }
 
-function findingBlock(f: Finding): string {
+function findingBlock(f: Finding, byId: ReadonlyMap<string, CatalogReportCase>): string {
   const counts = statusCounts(f.cases)
     .map((s) => `${esc(s.status)}: ${s.count}`)
     .join(' · ');
@@ -533,7 +543,7 @@ function findingBlock(f: Finding): string {
     `<span class="fkind">${esc(f.kind)}</span><span class="ftitle">${esc(f.title)}</span>` +
     `<span class="fcount">${f.cases.length} case${f.cases.length === 1 ? '' : 's'} · ${counts}</span></summary>` +
     `<div class="fbody">` +
-    `<div class="kv"><span>cases</span><span class="fcases">${f.cases.map(memberChip).join('')}</span></div>` +
+    `<div class="kv"><span>cases</span><span class="fcases">${f.cases.map((m) => memberChip(m, byId)).join('')}</span></div>` +
     kv('where', f.where) +
     kv('asked', f.asked) +
     kv('offered', f.offered) +
@@ -549,19 +559,20 @@ function findingBlock(f: Finding): string {
  * unclustered remainder. Absent only when nothing failed — a run with no
  * non-passing case has no findings to lead with.
  */
-function findingsSection(summary: FindingsSummary): string {
+function findingsSection(summary: FindingsSummary, cases: readonly CatalogReportCase[]): string {
   if (summary.nonPassing === 0) return '';
+  const byId = new Map(cases.map((c) => [c.id, c] as const));
   const headline = findingsHeadline(summary);
   const unclustered =
     summary.unclustered.length === 0
       ? ''
       : `<details class="finding unclustered"><summary><span class="fkind">—</span><span class="ftitle">unclustered — no shared cause in the typed fields; each keeps its own section below</span>` +
         `<span class="fcount">${summary.unclustered.length} case${summary.unclustered.length === 1 ? '' : 's'}</span></summary>` +
-        `<div class="fbody"><div class="kv"><span>cases</span><span class="fcases">${summary.unclustered.map(memberChip).join('')}</span></div></div></details>`;
+        `<div class="fbody"><div class="kv"><span>cases</span><span class="fcases">${summary.unclustered.map((m) => memberChip(m, byId)).join('')}</span></div></div></details>`;
   return (
     `<section class="findings" id="findings"><div class="shead">Findings<span class="scount">${esc(headline)}</span></div>` +
     `<div class="fnote">Grouped by the failing step's typed fields — request, URL, control, hold, agent end — never by its message. Statuses are shown as the run sealed them.</div>` +
-    summary.findings.map(findingBlock).join('') +
+    summary.findings.map((finding) => findingBlock(finding, byId)).join('') +
     unclustered +
     '</section>'
   );
@@ -578,7 +589,7 @@ function neverRanSection(cases: readonly CatalogReportCase[]): string {
     `<details class="never-ran" id="never-ran"><summary><span class="chip never">never ran</span>` +
     `<span class="cname">${cases.length} case${cases.length === 1 ? '' : 's'} never ran — listed here, not as a section each</span></summary>` +
     `<div class="fbody nlist">${cases
-      .map((c) => `<span class="nid" id="${esc(caseAnchor(c.id))}" title="${esc(c.scenario)}${c.reason ? ` — ${esc(c.reason)}` : ''}">${esc(c.id)}</span>`)
+      .map((c) => `<span class="nid" id="${esc(caseAnchor(c.id))}" title="${esc(c.scenario)}${c.reason ? ` — ${esc(c.reason)}` : ''}">${esc(c.id)}${c.scenarioId === undefined ? '' : ` · ${esc(c.scenarioId)}`}</span>`)
       .join('')}</div></details>`
   );
 }
@@ -871,7 +882,7 @@ export function renderCatalogReport(input: CatalogReportInput): string {
     liveNote +
     headlineHtml +
     `<div class="tally">${[...tally.entries()].map(([label, n]) => `<span>${esc(label)}: <b>${n}</b></span>`).join('')}</div>` +
-    findingsSection(findings) +
+    findingsSection(findings, input.cases) +
     neverRanSection(neverRan) +
     spillNote +
     omittedNote +

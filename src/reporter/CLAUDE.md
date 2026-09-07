@@ -209,8 +209,9 @@ always been stable per key; now the rows are too, each case replacing its own.
 Beside every catalog report the run writes `<runKey slug>-cases.xlsx` — one
 workbook for EVERY planned case, ordered failed, review, blocked, then passed,
 with catalog order stable inside each verdict. A never-ran case sits with the
-no-verdict cases before passes. The sheet adds **Verdict** immediately after
-Case so a reader can filter it; each case band also says `failed`, `blocked
+no-verdict cases before passes. The sheet starts with **Scenario ID**, then
+Case and **Verdict**, so a reader can sort or match it against the QA sheet;
+each case band also says `failed`, `blocked
 (no verdict)`, `proved-? (a human must rule)`, `recorded only`, or `passed`,
 and a blocked band carries its reason. Under `<runKey slug>-media/` every case
 also gets `<case id slug>.xlsx`, beside its recording when one exists, and the
@@ -250,6 +251,18 @@ everything above, plus one CDP-gated test that the recording ACTUALLY PLAYS
 (against `tests/fixtures/recording.webm`), because a markup assertion would
 pass on a report whose every player spins forever, which is the bug this
 exists to fix.
+
+**Scenario ID is a label, never an identity (2026-09-07).** The QA sheet's
+Test Case ID and Scenario ID are independent columns: only 99 of 272 measured
+rows had the same trailing number, so correspondence near the top of a sheet
+cannot be extrapolated to later rows. `CatalogReportCase.scenarioId` comes
+from the ledger's authored entry, with the bundle's explicit value as a
+fallback; it is never guessed from the case id. HTML shows it beside every
+case label, the case workbook puts it in the first column, and findings write
+it after the case id. Case-id keys, anchors, media names, finding signatures,
+and rerun selection remain case-id-only. Scenario IDs may repeat, so equal
+labels are rendered independently and never deduplicated or merged; absence
+stays an omitted suffix, an empty workbook cell, and a bare finding member id.
 
 ## Findings: the catalog report leads with N root causes (`findings.ts`, `findings-export.ts`, 2026-09-05)
 

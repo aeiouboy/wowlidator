@@ -106,7 +106,7 @@ describe('what goes in', () => {
     ]);
     const [sheet] = extractWorkbookSheets(buildRunWorkbook(input(cases), 'ec10-media').xlsx);
     assert.ok(sheet);
-    assert.deepEqual(sheet.rows.filter((row) => row[0]?.startsWith('EC_')).map((row) => row.slice(0, 2)), [
+    assert.deepEqual(sheet.rows.filter((row) => row[1]?.startsWith('EC_')).map((row) => row.slice(1, 3)), [
       ['EC_01_03', 'failed'], ['EC_01_03', 'failed'],
       ['EC_01_05', 'failed'], ['EC_01_05', 'failed'],
       ['EC_01_04', 'review'], ['EC_01_04', 'review'],
@@ -154,9 +154,8 @@ describe('the photo column', () => {
     assert.deepEqual(entries.get('xl/media/image1.jpeg'), JPEG);
     const drawing = entries.get('xl/drawings/drawing1.xml')?.toString('utf8') ?? '';
     assert.ok(drawing.includes('r:embed="rId1"'));
-    // Anchored to the Photo column (K, 0-based col 10) of the step's row.
-    assert.ok(drawing.includes('<xdr:col>10</xdr:col>'));
-    assert.ok(sheet.includes('<c r="K1"'), 'the Photo header is column K');
+    assert.ok(drawing.includes('<xdr:col>11</xdr:col>'));
+    assert.ok(sheet.includes('<c r="L1"'), 'the Photo header is column L');
     assert.ok(sheet.includes('<drawing r:id='));
     const types = entries.get('[Content_Types].xml')?.toString('utf8') ?? '';
     assert.ok(types.includes('image/jpeg'));
@@ -229,15 +228,37 @@ describe('the proof column', () => {
     assert.ok(!stepProof(step({ error: 'boom\nstack' } as Partial<ProofStep>)).includes('stack'));
   });
 
-  it('adds Verdict after Case and shifts every pre-existing column one position right', () => {
-    const c = kase({ bundle: bundle([step({ index: 0, detail: { expected: 200, actual: 200 } } as Partial<ProofStep>)]) });
+  it('puts Scenario ID first and shifts every pre-existing column one position right', () => {
+    const c = kase({ scenarioId: 'E2E-55', bundle: bundle([step({ index: 0, detail: { expected: 200, actual: 200 } } as Partial<ProofStep>)]) });
     const { sheet } = sheetOf(buildRunWorkbook(input([c]), 'm').xlsx);
     const [read] = extractWorkbookSheets(buildRunWorkbook(input([c]), 'm').xlsx);
     assert.ok(read);
-    assert.deepEqual(read.rows[0], ['Case', 'Verdict', 'Step', 'Action', 'Description', 'Selector', 'Target', 'Result', 'Duration', 'Proof', 'Photo']);
-    assert.ok(sheet.includes('<c r="G1" t="inlineStr" s="1"><is><t xml:space="preserve">Target</t>'));
-    assert.ok(sheet.includes('<c r="J1" t="inlineStr" s="1"><is><t xml:space="preserve">Proof</t>'));
-    assert.match(sheet, /<c r="J3"[^>]*><is><t xml:space="preserve">expected 200 · actual 200\n/);
+    assert.deepEqual(read.rows[0], ['Scenario ID', 'Case', 'Verdict', 'Step', 'Action', 'Description', 'Selector', 'Target', 'Result', 'Duration', 'Proof', 'Photo']);
+    assert.deepEqual(read.rows[1]?.slice(0, 3), ['E2E-55', 'EC_01_01', 'passed']);
+    assert.deepEqual(read.rows[2]?.slice(0, 4), ['E2E-55', 'EC_01_01', 'passed', '0']);
+    assert.ok(sheet.includes('<c r="H1" t="inlineStr" s="1"><is><t xml:space="preserve">Target</t>'));
+    assert.ok(sheet.includes('<c r="K1" t="inlineStr" s="1"><is><t xml:space="preserve">Proof</t>'));
+    assert.match(sheet, /<c r="K3"[^>]*><is><t xml:space="preserve">expected 200 · actual 200\n/);
+  });
+
+  it('keeps an absent scenario id empty and repeats a shared scenario id on both cases', () => {
+    const cases = [
+      kase({ id: 'EC_01_01', name: 'EC_01_01 first', scenarioId: 'E2E-236' }),
+      kase({ id: 'EC_01_02', name: 'EC_01_02 second', scenarioId: 'E2E-236' }),
+      kase({ id: 'EC_01_03', name: 'EC_01_03 absent' }),
+    ];
+    const [read] = extractWorkbookSheets(buildRunWorkbook(input(cases), 'm').xlsx);
+    assert.ok(read);
+    const caseRows = read.rows.filter((row) => row[1]?.startsWith('EC_'));
+
+    assert.deepEqual(caseRows.map((row) => row.slice(0, 2)), [
+      ['E2E-236', 'EC_01_01'],
+      ['E2E-236', 'EC_01_01'],
+      ['E2E-236', 'EC_01_02'],
+      ['E2E-236', 'EC_01_02'],
+      ['', 'EC_01_03'],
+      ['', 'EC_01_03'],
+    ]);
   });
 
   it('names the target in its own column and in the proof log — what the selector WAS on the page', () => {
@@ -250,11 +271,11 @@ describe('the proof column', () => {
       ]),
     });
     const { sheet } = sheetOf(buildRunWorkbook(input([c]), 'm').xlsx);
-    assert.match(sheet, /<c r="G3"[^>]*><is><t xml:space="preserve">button &quot;Sign in&quot; · 120×40 at \(30,200\)<\/t>/);
+    assert.match(sheet, /<c r="H3"[^>]*><is><t xml:space="preserve">button &quot;Sign in&quot; · 120×40 at \(30,200\)<\/t>/);
     assert.ok(sheet.includes('target: button &quot;Sign in&quot; · 120×40 at (30,200)'));
     // A step with no element has an empty Target cell, not a placeholder.
     const bare = kase({ bundle: bundle([step({ index: 0 })]) });
-    assert.ok(!sheetOf(buildRunWorkbook(input([bare]), 'm').xlsx).sheet.includes('<c r="G3"'));
+    assert.ok(!sheetOf(buildRunWorkbook(input([bare]), 'm').xlsx).sheet.includes('<c r="H3"'));
   });
 });
 
@@ -326,7 +347,7 @@ describe('a text sheet through the same writer', () => {
   });
 
   it('refuses more columns than the writer has letters for', () => {
-    assert.throws(() => buildTextWorkbook({ sheetName: 's', header: Array.from({ length: 12 }, (_, i) => `c${i}`), rows: [] }), /12 columns asked for/);
+    assert.throws(() => buildTextWorkbook({ sheetName: 's', header: Array.from({ length: 13 }, (_, i) => `c${i}`), rows: [] }), /13 columns asked for/);
   });
 });
 

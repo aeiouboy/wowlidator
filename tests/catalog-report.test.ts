@@ -82,6 +82,22 @@ describe('grouping and coverage', () => {
     assert.match(html, /No steps were recorded — the run was paused/);
   });
 
+  it('shows a scenario id beside each case id when present and no suffix when absent', () => {
+    const html = renderCatalogReport({
+      title: 't', runKey: null, generatedAt: null,
+      cases: [
+        kase({ id: 'HIR-EC-055', name: 'HIR-EC-055 creates a request', scenarioId: 'E2E-55' }),
+        kase({ id: 'HIR-EC-056', name: 'HIR-EC-056 has no scenario id' }),
+        kase({ id: 'HIR-EC-057', name: 'HIR-EC-057 never ran', verdict: 'never-ran', status: null, bundle: null, scenarioId: 'E2E-57' }),
+      ],
+    });
+
+    assert.ok(html.includes('HIR-EC-055 · E2E-55 creates a request'));
+    assert.ok(html.includes('HIR-EC-056 has no scenario id'));
+    assert.ok(!html.includes('HIR-EC-056 ·'));
+    assert.match(html, /class="nid"[^>]*>HIR-EC-057 · E2E-57<\/span>/);
+  });
+
   it('the chip follows the two-family taxonomy', () => {
     assert.equal(verdictChipOf(kase({ verdict: 'failed', status: 'dead-end' })).label, 'test failed (dead-end)');
     assert.equal(verdictChipOf(kase({ verdict: 'failed', status: 'error' })).label, 'system error');

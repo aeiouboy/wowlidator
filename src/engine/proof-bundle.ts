@@ -1187,6 +1187,8 @@ export interface GenerationProvenance {
    * Absent for anything not authored from a test-case table.
    */
   scenario?: string | undefined;
+  /** The row's Scenario ID label, distinct from the case id and never used as identity. */
+  scenarioId?: string | undefined;
   caseTitle?: string | undefined;
   /**
    * The catalog run's unique key: `<catalog name, slugged>@<generatedAt>`,

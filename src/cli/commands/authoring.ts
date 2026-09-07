@@ -3923,6 +3923,7 @@ function stampProvenance(
   return {
     ...base,
     ...(testCase.scenario === undefined ? {} : { scenario: testCase.scenario }),
+    ...(testCase.scenarioId === undefined ? {} : { scenarioId: testCase.scenarioId }),
     ...(testCase.caseTitle === undefined ? {} : { caseTitle: testCase.caseTitle }),
     ...(human === undefined ? {} : { knownResult: human }),
     ...(testCase.recordOnly === true ? { recordOnly: true } : {}),

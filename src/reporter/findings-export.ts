@@ -48,9 +48,11 @@ const SECRET_CONTROL = /password|passwd|pwd|secret|token|otp|pin\b/i;
 /** Longest detail value the steps carry inline; anything longer is a body, not a step. */
 const MAX_INLINE_VALUE = 80;
 
-function memberLine(m: FindingCase): string {
+function memberLine(m: FindingCase, byId: ReadonlyMap<string, CatalogReportCase>): string {
   const sealed = m.status ?? m.verdict;
-  return `${m.id} (${sealed}${m.dependsOn === undefined ? '' : ` — depends on ${m.dependsOn}`})`;
+  const scenarioId = byId.get(m.id)?.scenarioId;
+  const label = scenarioId === undefined ? m.id : `${m.id} (${scenarioId})`;
+  return `${label} (${sealed}${m.dependsOn === undefined ? '' : ` — depends on ${m.dependsOn}`})`;
 }
 
 /**
@@ -98,7 +100,7 @@ function findingMarkdown(f: Finding, n: number, byId: Map<string, CatalogReportC
   lines.push('');
   lines.push(`- suggested severity: **${suggestedSeverity(f)}**`);
   lines.push(`- kind: ${f.kind} · key: \`${f.key}\``);
-  lines.push(`- cases (${f.cases.length}): ${f.cases.map(memberLine).join(', ')}`);
+  lines.push(`- cases (${f.cases.length}): ${f.cases.map((m) => memberLine(m, byId)).join(', ')}`);
   lines.push(`- status as sealed: ${statusCounts(f.cases).map((s) => `${s.status}: ${s.count}`).join(' · ')}`);
   if (f.where) lines.push(`- where: ${f.where}`);
   if (f.asked) lines.push(`- asked: ${f.asked}`);
@@ -184,7 +186,7 @@ export function renderFindingsMarkdown(findings: readonly Finding[], input: Cata
     out.push('');
     for (const m of folds.unclustered) {
       const reason = byId.get(m.id)?.reason;
-      out.push(`- ${memberLine(m)}${reason ? ` — ${reason}` : ''}`);
+      out.push(`- ${memberLine(m, byId)}${reason ? ` — ${reason}` : ''}`);
     }
     out.push('');
   }
@@ -211,7 +213,7 @@ export function findingsRows(folds: FindingsSummary, cases: readonly CatalogRepo
     const steps = reproductionSteps(sample === undefined ? undefined : byId.get(sample.id));
     return [
       `${f.title}\n[${f.kind}] ${f.key}`,
-      f.cases.map(memberLine).join('\n'),
+      f.cases.map((m) => memberLine(m, byId)).join('\n'),
       f.where ?? '',
       [f.asked ? `asked: ${f.asked}` : '', f.offered ? `offered: ${f.offered}` : ''].filter((s) => s !== '').join('\n'),
       [...f.evidence.map((e) => `${e.label}: ${e.value}`), ...(steps.length === 0 ? [] : ['', `steps to reproduce (${sample!.id}):`, ...steps])].join('\n'),
@@ -223,7 +225,7 @@ export function findingsRows(folds: FindingsSummary, cases: readonly CatalogRepo
   if (folds.unclustered.length > 0) {
     rows.push([
       `unclustered (${folds.unclustered.length}) — no shared cause in the typed fields`,
-      folds.unclustered.map(memberLine).join('\n'),
+      folds.unclustered.map((m) => memberLine(m, byId)).join('\n'),
       '',
       '',
       folds.unclustered.map((m) => byId.get(m.id)?.reason ?? '').filter((r) => r !== '').join('\n'),

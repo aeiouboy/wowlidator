@@ -481,7 +481,10 @@ describe('the markdown and the workbook', () => {
   });
 
   it('the workbook reads back through the independent xlsx reader with the rule, the columns and one row per finding', () => {
-    const cases = secretCases();
+    const cases = secretCases().map((c) =>
+      c.id === 'E_01_01' ? { ...c, scenarioId: 'E2E-55' } : c.id === 'E_01_03' ? { ...c, scenarioId: 'E2E-57' } : c,
+    );
+    const markdown = renderFindingsMarkdown(buildFindings(cases), input(cases));
     const sheets = extractWorkbookSheets(buildFindingsWorkbook(input(cases)));
     assert.equal(sheets.length, 1);
     const [sheet] = sheets;
@@ -490,7 +493,8 @@ describe('the markdown and the workbook', () => {
     assert.deepEqual(sheet!.rows[1], [...FINDINGS_COLUMNS]);
     const finding = sheet!.rows[2]!;
     assert.match(finding[0]!, /expected the URL to contain "\/plans", landed on \/en\/login\n\[url\] url:\/plans → \/en\/login/);
-    assert.equal(finding[1], 'E_01_01 (failed)\nE_01_02 (failed)');
+    assert.equal(finding[1], 'E_01_01 (E2E-55) (failed)\nE_01_02 (failed)');
+    assert.ok(markdown.includes('- cases (2): E_01_01 (E2E-55) (failed), E_01_02 (failed)'));
     assert.equal(finding[2], '/en/login');
     assert.equal(finding[3], 'asked: /plans\noffered: http://app.test/en/login');
     assert.ok(finding[4]!.includes('steps to reproduce (E_01_01):'));
@@ -498,7 +502,9 @@ describe('the markdown and the workbook', () => {
     assert.equal(finding[6], 'medium');
     assert.equal(finding[7], 'application');
     assert.match(sheet!.rows[3]![0]!, /^unclustered \(1\)/);
-    assert.equal(sheet!.rows[3]![1], 'E_01_03 (error)');
+    const unclustered = sheet?.rows[3];
+    assert.ok(unclustered);
+    assert.equal(unclustered[1], 'E_01_03 (E2E-57) (error)');
     assert.match(sheet!.rows[4]![0]!, /^never ran \(1\)/);
     assert.equal(sheet!.rows[4]![1], 'E_01_04');
   });

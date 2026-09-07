@@ -119,7 +119,7 @@ function xmlEsc(value: unknown): string {
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ' ');
 }
 
-const COLS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'] as const;
+const COLS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'] as const;
 const LAST_COL = COLS[COLS.length - 1];
 /** 0-based index of the Photo column — where each screenshot is anchored. */
 const PHOTO_COL = COLS.length - 1;
@@ -178,11 +178,11 @@ function rowXml(r: number, cells: string, ht?: number): string {
   return `<row r="${r}"${height}>${cells}</row>`;
 }
 
-/** A row of one merged cell spanning C..K (A and B keep Case and Verdict clear). */
+/** A row of one merged cell spanning D..L (A..C keep Scenario ID, Case and Verdict clear). */
 function bandRow(build: SheetBuild, r: number, text: string, style: number, link?: string): void {
-  const ref = `C${r}`;
+  const ref = `D${r}`;
   build.rows.push(rowXml(r, textCell(ref, text, style)));
-  build.merges.push(`C${r}:${LAST_COL}${r}`);
+  build.merges.push(`D${r}:${LAST_COL}${r}`);
   if (link !== undefined) build.links.push({ ref, target: link });
 }
 
@@ -294,22 +294,23 @@ function stepRows(
   const hasScreenshot = typeof step.screenshot === 'string' && step.screenshot !== '';
   const hasPhoto = hasScreenshot && images.included.has(step);
   const cells =
-    textCell(`A${r}`, c.id, S.wrap) +
-    textCell(`B${r}`, c.verdict, S.wrap) +
-    numberCell(`C${r}`, step.index, S.wrap) +
-    textCell(`D${r}`, step.action, S.wrap) +
-    textCell(`E${r}`, step.intent ?? '', S.wrap) +
+    textCell(`A${r}`, c.scenarioId ?? '', S.wrap) +
+    textCell(`B${r}`, c.id, S.wrap) +
+    textCell(`C${r}`, c.verdict, S.wrap) +
+    numberCell(`D${r}`, step.index, S.wrap) +
+    textCell(`E${r}`, step.action, S.wrap) +
+    textCell(`F${r}`, step.intent ?? '', S.wrap) +
     // The Selector column says what the step was aimed at — for a kind with
     // no single selector, the record's own account (`stepTarget`), never blank.
-    textCell(`F${r}`, stepTarget(step) ?? '', S.wrap) +
-    textCell(`G${r}`, describeTarget(step.target) ?? '', S.wrap) +
-    textCell(`H${r}`, step.status + (step.heal ? ' (healed)' : ''), S.wrap) +
-    textCell(`I${r}`, fmtMs(step.durationMs), S.wrap) +
-    textCell(`J${r}`, stepProof(step), S.wrap) +
+    textCell(`G${r}`, stepTarget(step) ?? '', S.wrap) +
+    textCell(`H${r}`, describeTarget(step.target) ?? '', S.wrap) +
+    textCell(`I${r}`, step.status + (step.heal ? ' (healed)' : ''), S.wrap) +
+    textCell(`J${r}`, fmtMs(step.durationMs), S.wrap) +
+    textCell(`K${r}`, stepProof(step), S.wrap) +
     (hasPhoto
       ? ''
       : textCell(
-          `K${r}`,
+          `L${r}`,
           hasScreenshot ? 'omitted for size — it stays in the proof bundle' : videoHref === null ? '—' : 'see the video row below',
           S.wrap,
         ));
@@ -349,17 +350,18 @@ function headerRow(build: SheetBuild, r: number): void {
   build.rows.push(
     rowXml(
       r,
-      textCell(`A${r}`, 'Case', S.bold) +
-        textCell(`B${r}`, 'Verdict', S.bold) +
-        textCell(`C${r}`, 'Step', S.bold) +
-        textCell(`D${r}`, 'Action', S.bold) +
-        textCell(`E${r}`, 'Description', S.bold) +
-        textCell(`F${r}`, 'Selector', S.bold) +
-        textCell(`G${r}`, 'Target', S.bold) +
-        textCell(`H${r}`, 'Result', S.bold) +
-        textCell(`I${r}`, 'Duration', S.bold) +
-        textCell(`J${r}`, 'Proof', S.bold) +
-        textCell(`K${r}`, 'Photo', S.bold),
+      textCell(`A${r}`, 'Scenario ID', S.bold) +
+        textCell(`B${r}`, 'Case', S.bold) +
+        textCell(`C${r}`, 'Verdict', S.bold) +
+        textCell(`D${r}`, 'Step', S.bold) +
+        textCell(`E${r}`, 'Action', S.bold) +
+        textCell(`F${r}`, 'Description', S.bold) +
+        textCell(`G${r}`, 'Selector', S.bold) +
+        textCell(`H${r}`, 'Target', S.bold) +
+        textCell(`I${r}`, 'Result', S.bold) +
+        textCell(`J${r}`, 'Duration', S.bold) +
+        textCell(`K${r}`, 'Proof', S.bold) +
+        textCell(`L${r}`, 'Photo', S.bold),
     ),
   );
 }
@@ -399,9 +401,13 @@ function caseRows(
   const reason = c.verdict === 'blocked' && c.reason ? ` — ${c.reason}` : '';
   const trimmedName = c.name.trim();
   const name = trimmedName === c.id || trimmedName.startsWith(`${c.id} `) ? trimmedName : `${c.id} — ${trimmedName}`;
-  const cells = textCell(`A${r}`, c.id, S.bold) + textCell(`B${r}`, c.verdict, S.bold) + textCell(`C${r}`, `${name} — ${verdict}${reason}`, S.bold);
+  const cells =
+    textCell(`A${r}`, c.scenarioId ?? '', S.bold) +
+    textCell(`B${r}`, c.id, S.bold) +
+    textCell(`C${r}`, c.verdict, S.bold) +
+    textCell(`D${r}`, `${name} — ${verdict}${reason}`, S.bold);
   build.rows.push(rowXml(r, cells));
-  build.merges.push(`C${r}:${LAST_COL}${r}`);
+  build.merges.push(`D${r}:${LAST_COL}${r}`);
   r += 1;
   const steps = (c.bundle?.steps ?? []).filter((s) => !s.superseded);
   if (steps.length === 0) {
@@ -471,8 +477,8 @@ export function buildCaseWorkbook(c: CatalogReportCase): WorkbookBuild {
   };
 }
 
-/** The column widths of the step workbooks — Case, Verdict, Step, Action, Description, Selector, Target, Result, Duration, Proof, Photo. */
-const STEP_SHEET_WIDTHS = [14, 12, 6, 16, 44, 36, 34, 14, 10, 46, 45] as const;
+/** The column widths of the step workbooks — Scenario ID, Case, Verdict, Step, Action, Description, Selector, Target, Result, Duration, Proof, Photo. */
+const STEP_SHEET_WIDTHS = [14, 14, 12, 6, 16, 44, 36, 34, 14, 10, 46, 45] as const;
 
 export interface TextWorkbookInput {
   sheetName: string;

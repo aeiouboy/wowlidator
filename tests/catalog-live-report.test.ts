@@ -354,4 +354,45 @@ describe('the rows', () => {
     assert.deepEqual(cases.map((c) => c.id), ['B_01_01', 'A_01_01']);
     assert.deepEqual(cases.map((c) => c.verdict), ['never-ran', 'never-ran']);
   });
+
+  it('carries the authored scenario id, prefers it over the bundle, and leaves it absent when neither has one', async () => {
+    const ledger = newLedger('t', ['LEDGER_CASE', 'BUNDLE_CASE', 'ABSENT_CASE']);
+    ledger.authored = {
+      LEDGER_CASE: {
+        flowPath: '/tmp/ledger.flow.json',
+        authoredAt: '2026-09-07T00:00:00.000Z',
+        scenarioId: 'E2E-55',
+      },
+    };
+    const fromBundle = bundle('BUNDLE_CASE title', 'passed', {
+      generatedBy: {
+        model: 'fixture',
+        generatedAt: '2026-09-07T00:00:00.000Z',
+        sourceUrl: 'http://app.test',
+        kind: 'catalog',
+        rationale: 'fixture',
+        scenarioId: 'E2E-56',
+      },
+    });
+    const conflictingBundle = bundle('LEDGER_CASE title', 'passed', {
+      generatedBy: {
+        model: 'fixture',
+        generatedAt: '2026-09-07T00:00:00.000Z',
+        sourceUrl: 'http://app.test',
+        kind: 'catalog',
+        rationale: 'fixture',
+        scenarioId: 'E2E-999',
+      },
+    });
+    recordOutcome(ledger, { name: conflictingBundle.name, verdict: 'passed', bundle: conflictingBundle }, {});
+    recordOutcome(ledger, { name: fromBundle.name, verdict: 'passed', bundle: fromBundle }, {});
+
+    const cases = await buildCatalogReportCases(ledger, async (id) => {
+      if (id === 'LEDGER_CASE') return conflictingBundle;
+      if (id === 'BUNDLE_CASE') return fromBundle;
+      return null;
+    });
+
+    assert.deepEqual(cases.map((c) => c.scenarioId), ['E2E-55', 'E2E-56', undefined]);
+  });
 });
