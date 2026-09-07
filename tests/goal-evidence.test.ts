@@ -561,3 +561,19 @@ describe('wizardStepHint — the field is on the next step (OA-11)', () => {
     assert.equal(wizardStepHint('link "Hire" url="http://x/en/admin/hire?step=2"\nbutton "Save"'), null);
   });
 });
+
+describe('an appositive introducer is not part of the control (HIR-EC-001, 2026-09-07)', () => {
+  it('reads "including Salutation (EN) = Mr." as the control the page names', () => {
+    const goal = 'Step 3: complete the Identity fields including Salutation (EN) = Mr., Country of Birth = Thailand';
+    const outcomes = goalOutcomes(goal);
+    assert.deepEqual(outcomes.map((o) => o.control), ['Salutation (EN)', 'Country of Birth']);
+  });
+
+  it('and the page then settles the finish it used to contradict', () => {
+    const goal = 'Step 3: complete the Identity fields including Salutation (EN) = Mr., Country of Birth = Thailand';
+    const tree = 'main\n  button "Salutation (EN)*" text "Mr." expanded=false';
+    const outcome = goalOutcomes(goal)[0];
+    assert.ok(outcome);
+    assert.match(outcomeShown(outcome, tree) ?? '', /Salutation \(EN\)/);
+  });
+});

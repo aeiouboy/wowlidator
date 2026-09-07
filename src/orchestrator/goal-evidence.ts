@@ -431,8 +431,16 @@ const GOAL_PATH = /(?<=^|\s)\/[\w\-./]+/g;
 // preposition is not part of it.
 const CONTROL_CONNECTOR =
   /\s+(?:and|then|with|where|so|via|while|before|after|but|form|page|dialog|section|card|tab|screen|whose|which|that|และ|แล้ว|จากนั้น|โดย|คีย์|กำหนด|ตั้งค่า|ตั้ง|เลือก|กรอก|ระบุ|เปลี่ยน)\s+/iu;
+// `including` and its siblings introduce an APPOSITIVE — "complete the
+// Identity fields including Salutation (EN) = Mr." — and the bare `X = Y`
+// form runs back into the sentence and takes the introducer with it. Live
+// (HIR-EC-001, 2026-09-07): the control was read as `including Salutation
+// (EN)`, `outcomeShown` requires EVERY word of the control on the line, no
+// tree line says "including", and a leg that had set the field to "Mr." —
+// the observation on the record reads `text "Mr."` — was recorded as a
+// claim the page contradicts.
 const CONTROL_LEAD =
-  /^(?:(?:on|in|at|to|for|from|the|a|an|its|this|that|and|then|with|where|so|via|while|but|fill|set|select|choose|change|switch|enter|type|pick)\s+|(?:และ|แล้ว|จากนั้น|โดย|คีย์|กำหนด|ตั้งค่า|ตั้ง|เลือก|กรอก|ระบุ|เปลี่ยน|ให้)\s*)+/iu;
+  /^(?:(?:on|in|at|to|for|from|the|a|an|its|this|that|and|then|with|where|so|via|while|but|fill|set|select|choose|change|switch|enter|type|pick|including|include|namely|especially)\s+|(?:และ|แล้ว|จากนั้น|โดย|คีย์|กำหนด|ตั้งค่า|ตั้ง|เลือก|กรอก|ระบุ|เปลี่ยน|ให้|รวมถึง|ได้แก่)\s*)+/iu;
 const CONTROL_TAIL = /(?:\s+(?:control|dropdown|filter|field|selector|box|button|value)|\s*\*)+$/iu;
 // What is never a control: a number, a step/case reference, the sheet's own
 // column headers when a goal quotes a row ("Menu: EC > Hire & Onboard",
