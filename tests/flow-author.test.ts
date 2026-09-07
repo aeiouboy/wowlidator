@@ -87,8 +87,11 @@ import {
   expandedControlIn,
   expectedValuedFields,
   advancedControlIn,
+  ADVANCED_MARKER,
+  JOURNEY_TREE_MAX_LINES,
 } from '../src/generator/flow-author.js';
 import { isFixtureSpec } from '../src/data/fixtures.js';
+import { focusTreeText } from '../src/context/retriever.js';
 import { compileAuthoringRules, openQuestionIdsIn, withOverride, DEFAULT_VALUE_RULES } from '../src/generator/value-rules.js';
 import { exclusivityClaimIn, unprovedExclusivity } from '../src/generator/exclusivity.js';
 import {
@@ -4751,5 +4754,42 @@ describe('the wizard\'s later pages are captured, and their fields ordered behin
       assert.equal(selectors.some((one) => one.includes(wrong)), false, `${wrong}: ${selectors.join(' / ')}`);
     }
     assert.ok(selectors.includes('internal:label="Hire Date"i'), selectors.join(' / '));
+  });
+});
+
+describe('the acceptance reads the whole tree, because narrowing drops the marker that orders it (2026-09-07)', () => {
+  const twoPage = readFileSync(fileURLToPath(new URL('./fixtures/ax-hire-form-2page.txt', import.meta.url)), 'utf8');
+  const goal =
+    'Step 8: Position = Studio Traffic Staff & Admin; Cost Center = C00132653; Work Schedule = D05H0800';
+  const expected = '9.2 Position; 9.1 Cost Center; 9.2 Work Schedule';
+
+  const lift = (evidence: string): FlowStep[] => {
+    const leg: FlowStep = { action: 'workflow', goal };
+    const flow = { steps: [leg] as FlowStep[], cases: undefined as undefined };
+    settleAcceptedFlowInputs(flow, expected, evidence, 'HIR-EC-001');
+    return flow.steps;
+  };
+
+  it('narrowed to the prompt\'s budget, the wizard marker is ranked away and the ordering silently disappears', () => {
+    // The hazard, pinned: `focusTreeText` keeps only the head line verbatim,
+    // so `WIZARD ADVANCED` is just another line to rank — and without it every
+    // page-2 control reads as a page-1 control. Live, that put Position, Cost
+    // Center and six more BEFORE the click that reaches their page.
+    const narrowed = focusTreeText(twoPage, expected, JOURNEY_TREE_MAX_LINES, 1).text;
+    assert.equal(narrowed.includes(ADVANCED_MARKER), false, 'if this ever holds, say so — the hazard is gone');
+    assert.equal(advancedControlIn(narrowed), null);
+    const steps = lift(narrowed);
+    assert.ok(steps.some((s) => s.action === 'selectOption'), 'the fields are still lifted…');
+    assert.equal(steps.some((s) => s.action === 'click'), false, '…but nothing reaches their page');
+  });
+
+  it('given the whole tree, every page-2 field sits behind the click that reaches it', () => {
+    const steps = lift(twoPage);
+    const advance = steps.findIndex((s) => s.action === 'click' && (s as { selector?: string }).selector === 'role=button[name="Next" i]');
+    assert.notEqual(advance, -1);
+    for (const [at, step] of steps.entries()) {
+      if (step.action !== 'selectOption') continue;
+      assert.ok(at > advance, `${(step as { selector: string }).selector} must come after the advance`);
+    }
   });
 });

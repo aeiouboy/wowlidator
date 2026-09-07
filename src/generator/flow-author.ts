@@ -4036,7 +4036,24 @@ export class FlowAuthor {
       result.notes = result.notes === '' ? weak.note : `${result.notes}; ${weak.note}`;
       this.#onLog?.(`weak claim: ${weak.note}`);
     }
-    const acceptedEvidence = [evidenceTree, interactions].filter((text): text is string => typeof text === 'string').join('\n');
+    // **The acceptance reads the WHOLE journey tree, not the cut the model got.**
+    // `JOURNEY_TREE_MAX_LINES` exists for the PROMPT's token budget, and it is
+    // tight: measured live (HIR-EC-001, 2026-09-07) the hire form's two pages
+    // are 743 nodes and the model was shown 80 — Event Reason, Hire Date,
+    // Position and every Employment control fell outside the cut, so the
+    // deterministic lift below could ground almost none of the fields the goal
+    // named, and the review answered `unsure` four times over a tree that
+    // holds the answer.
+    //
+    // Narrowing the acceptance's copy buys nothing: it spends no tokens, and
+    // it never refuses anything — it turns a `Field = value` pair the MODEL
+    // already wrote into an entry step against a real tree line, or leaves it
+    // in the leg. The "model and lints see one tree" rule above is about
+    // refusals, where judging on evidence the model never saw is unfair; this
+    // is the opposite direction.
+    const acceptedEvidence = [axTree, rawJourneyTree, interactions]
+      .filter((text): text is string => typeof text === 'string' && text !== '')
+      .join('\n');
     const acceptedNotes = settleAcceptedFlowInputs(
       result,
       sectionOf(extra.caseText ?? trimmed, 'expected') ?? '',
