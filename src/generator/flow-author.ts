@@ -5992,6 +5992,30 @@ function pairsOnLine(line: string): { key: string; value: string }[] {
   return out;
 }
 
+/**
+ * The fields an Expected line gives a VALUE, as against the fields it merely
+ * mentions.
+ *
+ * The distinction decides who may supply a value. `10.1 Employee Group = A -
+ * Permanent` asserts a value: nothing the harness picks may stand under it.
+ * `6.2 ระบบกรอง Sub-District ตาม District ที่เลือก` asserts a BEHAVIOUR — that
+ * the list filters — and says nothing about which sub-district; the harness
+ * choosing one cannot make that claim true or false. Live (HIR-EC-001,
+ * 2026-09-07): the sheet's own cell for Sub-District is the instruction
+ * "เลือกแขวงที่อยู่ใน District ที่เลือก", so no value exists on either side, and
+ * treating the prose mention as an assertion left the field permanently
+ * unfillable — the listbox was typed with the instruction and answered
+ * "ไม่พบผลลัพธ์".
+ */
+export function expectedValuedFields(expected: string): Set<string> {
+  const names = new Set<string>();
+  for (const raw of expected.split('\n')) {
+    const line = raw.replace(/^\s*\d+(?:\.\d+)*[.)]?\s*/, '').trim();
+    for (const pair of pairsOnLine(line)) names.add(pair.key.toLowerCase().replace(/\s+/g, ' ').trim());
+  }
+  return names;
+}
+
 export function expectedNamedFields(expected: string): Set<string> {
   const names = new Set<string>();
   for (const raw of expected.split('\n')) {
@@ -6365,6 +6389,10 @@ export function settleAcceptedFlowInputs(
   }
   const workflowSteps = flow.steps.filter((step) => step.action === 'workflow');
   const goalPairs = workflowSteps.flatMap((step) => pairsOnLine(step.goal).map((pair) => ({ phase: null, ...pair })));
+  // Only a field the Expected output gives a VALUE is out of bounds — see
+  // `expectedValuedFields`. A field it merely mentions is a behaviour claim,
+  // and the behaviour is what the assertions after this leg check.
+  const valued = expectedValuedFields(expected);
   for (const control of requiredChoiceControls(evidence)) {
     const field = squash(control.name.replace(/\*/g, ' '));
     // **The rule the whole change rests on, read the cautious way.** A value
@@ -6374,7 +6402,7 @@ export function settleAcceptedFlowInputs(
     // the control the tree calls "Employee Group Code". Erring here costs
     // nothing — the case simply behaves as it did before this rule existed —
     // while erring the other way puts our own value under someone's claim.
-    if ([...named].some((name) => {
+    if ([...valued].some((name) => {
       const asked = squash(name);
       return asked !== '' && (asked === field || field.includes(asked) || asked.includes(field));
     })) continue;

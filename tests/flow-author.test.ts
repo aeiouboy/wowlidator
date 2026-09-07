@@ -83,6 +83,7 @@ import {
   baseUrlOf,
   EXPANDED_MARKER,
   expandedControlIn,
+  expectedValuedFields,
 } from '../src/generator/flow-author.js';
 import { isFixtureSpec } from '../src/data/fixtures.js';
 import { compileAuthoringRules, openQuestionIdsIn, withOverride, DEFAULT_VALUE_RULES } from '../src/generator/value-rules.js';
@@ -4538,5 +4539,30 @@ describe('a cell that opens with a choosing verb is an instruction, not a value 
     assert.equal(picks.length, 1);
     assert.equal(picks[0]?.selector, 'role=button[name="Sub-District" i]');
     assert.equal(picks[0]?.value, ANY_OFFERED);
+  });
+});
+
+describe('an Expected line that names a field without a value asserts behaviour, not a value (HIR-EC-001, 2026-09-07)', () => {
+  const evidence = ['main', '  button "Sub-District" required', '  button "Employee Group" required'].join('\n');
+  const goal = 'Step 6: Sub-District = เลือกแขวงที่อยู่ใน District ที่เลือก; Employee Group = เลือกจากรายการ';
+  const expected = '6.2 ระบบกรอง Sub-District ตาม District ที่เลือก\n10.1 Employee Group = A - Permanent';
+
+  it('fills the field the Expected output only mentions, and never the one it gives a value', () => {
+    const flow = { steps: [{ action: 'workflow', goal }] as FlowStep[], cases: undefined as undefined };
+
+    settleAcceptedFlowInputs(flow, expected, evidence, 'HIR-EC-001');
+
+    const picks = flow.steps.filter((s) => s.action === 'selectOption') as (FlowStep & { selector: string })[];
+    assert.deepEqual(picks.map((p) => p.selector), ['role=button[name="Sub-District" i]']);
+  });
+
+  it('expectedValuedFields reads only the pairs', () => {
+    const valued = expectedValuedFields(expected);
+    assert.deepEqual([...valued], ['employee group']);
+    assert.equal(valued.has('sub-district'), false);
+    // The prose mention reaches `expectedNamedFields` as the capitalised run
+    // its regex can take from `ระบบกรอง Sub-District ตาม …` — enough to have
+    // blocked the field before this split existed.
+    assert.equal(expectedNamedFields(expected).has('sub'), true);
   });
 });
