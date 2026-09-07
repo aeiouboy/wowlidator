@@ -4522,3 +4522,21 @@ describe('a flow written from an expanded tree opens the form the same way (HIR-
     assert.equal(expandedControlIn('main\n  button "Expand all"'), null);
   });
 });
+
+describe('a cell that opens with a choosing verb is an instruction, not a value (HIR-EC-001, 2026-09-07)', () => {
+  const evidence = ['main', '  button "Sub-District" required', '  button "Zone" required'].join('\n');
+
+  it('takes the first offered option for an instruction the word list does not name', () => {
+    const flow = {
+      steps: [{ action: 'workflow', goal: 'Step 6: Sub-District = เลือกแขวงที่อยู่ใน District ที่เลือก; Zone = Z01' }] as FlowStep[],
+      cases: undefined as undefined,
+    };
+
+    settleAcceptedFlowInputs(flow, '', evidence, 'HIR-EC-001');
+
+    const picks = flow.steps.filter((s) => s.action === 'selectOption') as (FlowStep & { selector: string; value: string })[];
+    assert.equal(picks.length, 1);
+    assert.equal(picks[0]?.selector, 'role=button[name="Sub-District" i]');
+    assert.equal(picks[0]?.value, ANY_OFFERED);
+  });
+});

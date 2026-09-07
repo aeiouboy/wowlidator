@@ -65,7 +65,9 @@ import { describeUnprovedExclusivity, optionSetsIn, unprovedExclusivity } from '
 // every list bilingual, every list replaceable from `.wowlidator/value-rules.json`.
 // The lints below key on STRUCTURE — a numbered line, an action kind, a
 // selector's role — and read it through these compiled classes.
-import { AUTHORING, openQuestionIdsIn } from './value-rules.js';
+import { AUTHORING, openQuestionIdsIn,
+  DEFAULT_AUTHORING_RULES,
+} from './value-rules.js';
 // The sheet grammar (CG-15): one regex names every heading `describeCase`
 // writes, so the lints that cut the described row — the Steps script, the
 // Expected block, the Test data pairs — cut on the same list the parser does.
@@ -6258,6 +6260,28 @@ function requiredChoiceControls(evidence: string): { role: string; name: string 
   return controls;
 }
 
+/**
+ * Is the sheet's "value" for a choice an INSTRUCTION rather than a value?
+ *
+ * The named phrases (`offeredChoiceWords`) catch the common spellings, but a
+ * sheet writes as many as it has fields. Live (HIR-EC-001, 2026-09-07) the
+ * Sub-District cell reads `เลือกแขวงที่อยู่ใน District ที่เลือก` — "choose the
+ * sub-district inside the District you picked" — and the agent, taking it at
+ * face value, hunted for an option by that name among the twelve the control
+ * offered and stopped the leg.
+ *
+ * So the second test is grammatical, not lexical: a cell that OPENS with a
+ * choosing verb is telling the tester what to do, and a dropdown option does
+ * not begin with "choose". The verbs are the ones the script tier already
+ * lists (`script.choosing`), so the vocabulary stays in one place.
+ */
+function placeholderChoice(value: string): boolean {
+  const text = value.trim();
+  if (text === '') return false;
+  if (AUTHORING.offeredChoice.test(text)) return true;
+  return DEFAULT_AUTHORING_RULES.script.choosing.some((verb) => text.toLowerCase().startsWith(verb.toLowerCase()));
+}
+
 function pairForControl(controlName: string, pairs: readonly TestDataPair[]): TestDataPair | undefined {
   const control = squash(controlName.replace(/\*/g, ' '));
   return pairs.find((pair) => {
@@ -6355,7 +6379,7 @@ export function settleAcceptedFlowInputs(
       return asked !== '' && (asked === field || field.includes(asked) || asked.includes(field));
     })) continue;
     const pair = pairForControl(control.name, [...goalPairs, ...testData]);
-    if (pair === undefined || !AUTHORING.offeredChoice.test(pair.value)) continue;
+    if (pair === undefined || !placeholderChoice(pair.value)) continue;
     const matchingAnchor = workflowSteps.find((step) => squash(step.goal).includes(field));
     const anchor = matchingAnchor ?? workflowSteps[workflowSteps.length - 1];
     if (anchor === undefined) continue;
