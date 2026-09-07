@@ -96,6 +96,7 @@ import {
   LOGIN_URL_PATTERN,
   LlmFlowAuthorModel,
   caseFlows,
+  ADVANCED_MARKER,
   EXPANDED_MARKER,
   type AuthoredFlow,
 } from '../../generator/flow-author.js';
@@ -2292,6 +2293,10 @@ async function captureJourneyTree(
     } else {
       opened = await captureAfterOpening(extra, hints.opening ?? null, log);
     }
+    // The wizard's later pages, from wherever the capture now stands — after
+    // the opening click, because that is what opens the wizard in the first
+    // place on the rows that have one.
+    const advanced = await advanceWizardPages(extra, opened?.tree ?? tree, log);
     const landing =
       landingAfterSignIn === undefined ||
         LOGIN_URL_PATTERN.test(landingAfterSignIn) ||
@@ -2302,7 +2307,7 @@ async function captureJourneyTree(
         'This is the ONLY landing path you may expectUrl, and only for that same account; any ' +
         'other persona\'s landing is unknown, so its proof of sign-in is expectHidden of the ' +
         'submit control (see SIGNING IN), never a path inferred from a route or role name.\n\n';
-    return landing + journeyTreeSection({ landed, tree, tabWanted, tabSelected, opened, expanded });
+    return landing + journeyTreeSection({ landed, tree, tabWanted, tabSelected, opened, expanded, advanced });
   } catch (error) {
     // Diagnostic, and swallowed: authoring without this section is exactly
     // what authoring did before it existed.
@@ -2361,8 +2366,9 @@ export function journeyTreeSection(parts: {
   tabSelected: { name: string; selector: string } | null;
   opened: { name: string; selector: string; url: string; tree: string } | null;
   expanded?: { name: string; selector: string } | null | undefined;
+  advanced?: readonly { name: string; selector: string; url: string; tree: string }[] | undefined;
 }): string {
-  const { landed, tree, tabWanted, tabSelected, opened, expanded } = parts;
+  const { landed, tree, tabWanted, tabSelected, opened, expanded, advanced } = parts;
   const tabNote =
     tabSelected !== null
       ? ` This tree was read WITH the tab "${tabSelected.name}" selected (${tabSelected.selector}), as the row's script ` +
@@ -2395,7 +2401,20 @@ export function journeyTreeSection(parts: {
       : `\n\nAFTER CLICKING "${opened.name}" ON ${landed}${tabSelected === null ? '' : ` (with the tab "${tabSelected.name}" selected)`} — the accessibility tree once that control ` +
       `(${opened.selector}) was clicked, now at ${opened.url}: the dialog, form or wizard step the row's ` +
       'fields live in. Write that click FIRST; every selector below resolves only after it, and none of ' +
-      `them is on the page above.\n\n${opened.tree}`)
+      `them is on the page above.\n\n${opened.tree}`) +
+    // Machine-readable, like `EXPANDED_MARKER` above: `advancedControlIn`
+    // reads the selector back at acceptance, so a field of a later page gets
+    // its entry step AFTER the click that reaches that page — the ordering is
+    // the whole point, and prose cannot carry it.
+    (advanced ?? [])
+      .map(
+        (page, at) =>
+          `\n\n${ADVANCED_MARKER} ${page.selector}\nWIZARD PAGE ${at + 2} — the accessibility tree after clicking ` +
+          `"${page.name}" (${page.selector}), now at ${page.url}. These controls are NOT on the page above: write ` +
+          'that click before the first field of this page, and keep the fields of each page together in the order ' +
+          `the wizard shows them.\n\n${page.tree}`,
+      )
+      .join('')
   );
 }
 
@@ -2482,6 +2501,74 @@ async function selectNamedTab(
  * names one. Null — with the reason logged — when nothing matches or the
  * click does not land; the capture then stands as it was.
  */
+/**
+ * Carry a wizard to its next page and read that too.
+ *
+ * A journey capture reads ONE page, and a wizard's fields are on several.
+ * Live (HIR-EC-001, 2026-09-07): the hire form's Employment page holds
+ * Position, Cost Center, Employee Group, Work Schedule, Job Code — ten of the
+ * twenty-two fields the row's second leg keys — and not one of them was in
+ * the 288-node capture, because they are behind `button "Next"`. So every one
+ * went to the agent to find by hunting, and Position alone was reached for
+ * eight times in 415 s before the leg ended.
+ *
+ * Probed on the live form before this was written: Next on the blank page
+ * goes straight to `?step=2` and renders the whole Employment page. Nothing
+ * is submitted and no validation blocks it — a wizard's Next is a
+ * disclosure, the same shape as the expand-all click above, which is why it
+ * is safe to click on a capture tab. `NOT_AN_OPENING` still guards the name,
+ * so a "Save Draft" beside it can never be taken for the advance.
+ *
+ * Capped at `WIZARD_PAGES_CAPTURED` advances, and stops as soon as a click
+ * changes neither the URL nor the tree: a page that will not advance is the
+ * end of the wizard, not a reason to keep clicking.
+ */
+async function advanceWizardPages(
+  tab: Page,
+  before: string,
+  log?: ((line: string) => void) | undefined,
+): Promise<{ name: string; selector: string; url: string; tree: string }[]> {
+  const pages: { name: string; selector: string; url: string; tree: string }[] = [];
+  let previous = before;
+  for (let page = 0; page < WIZARD_PAGES_CAPTURED; page += 1) {
+    try {
+      const nodes = await captureAxNodes(tab, 600);
+      let hit: { name: string; selector: string } | null = null;
+      for (const word of DEFAULT_AUTHORING_RULES.advanceWords) {
+        const found = controlNamedIn(nodes, word);
+        if (found === null || NOT_AN_OPENING.test(found.name)) continue;
+        hit = found;
+        break;
+      }
+      if (hit === null) return pages;
+      const wasAt = tab.url();
+      await tab.locator(hit.selector).first().click({ timeout: 3_000 });
+      await tab.waitForTimeout(1_000);
+      await tab.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => undefined);
+      // Each page collapses its own sections, and the expand-all above ran on
+      // the first one. Measured on the hire wizard: 108 nodes collapsed
+      // against the fields the row keys — Employee Group, Work Schedule and
+      // Job Code named nowhere in them.
+      await expandCollapsedSections(tab, log);
+      const tree = await captureAxTree(tab, DEFAULT_AUTHOR_MAX_NODES);
+      if (tree.trim() === '' || (tree === previous && tab.url() === wasAt)) {
+        log?.(`journey capture: "${hit.name}" advanced nothing — the wizard ends here`);
+        return pages;
+      }
+      log?.(`journey capture: advanced with "${hit.name}" (${hit.selector}) and read ${tab.url()}`);
+      pages.push({ name: hit.name, selector: hit.selector, url: tab.url(), tree });
+      previous = tree;
+    } catch (error) {
+      log?.(`journey capture: advancing the wizard did not land (${error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error)}) — the pages read so far stand`);
+      return pages;
+    }
+  }
+  return pages;
+}
+
+/** How many pages past the first a journey capture carries a wizard through. */
+const WIZARD_PAGES_CAPTURED = 2;
+
 async function captureAfterOpening(
   tab: Page,
   opening: string | null,

@@ -86,6 +86,7 @@ import {
   EXPANDED_MARKER,
   expandedControlIn,
   expectedValuedFields,
+  advancedControlIn,
 } from '../src/generator/flow-author.js';
 import { isFixtureSpec } from '../src/data/fixtures.js';
 import { compileAuthoringRules, openQuestionIdsIn, withOverride, DEFAULT_VALUE_RULES } from '../src/generator/value-rules.js';
@@ -4676,5 +4677,79 @@ describe('a field is matched by its whole name, and a block is read item by item
     const flow = { steps: [leg] as FlowStep[], cases: undefined as undefined };
     settleAcceptedFlowInputs(flow, '9.2 Work Schedule = D05H0800', tree, 'HIR-EC-001');
     assert.equal(flow.steps.some((step) => step.action === 'fill' || step.action === 'selectOption'), false);
+  });
+});
+
+describe('the wizard\'s later pages are captured, and their fields ordered behind the click that reaches them (2026-09-07, HIR-EC-001)', () => {
+  // `tests/fixtures/ax-hire-form-2page.txt` is the live capture of BOTH pages
+  // of the hire wizard as `journeyTreeSection` composes them — page 1 (288
+  // nodes), the `WIZARD ADVANCED` marker naming the control, then page 2 (347
+  // nodes) once its own sections were expanded. Probed before it was written:
+  // Next on the blank form goes to `?step=2` and submits nothing.
+  const twoPage = readFileSync(fileURLToPath(new URL('./fixtures/ax-hire-form-2page.txt', import.meta.url)), 'utf8');
+  const goal =
+    'Step 8 ถึง Step 13: กรอกข้อมูล Employment ตาม Test data ได้แก่ Position = Studio Traffic Staff & Admin; ' +
+    'Employee Group = A; Work Schedule = D05H0800; Job Code = MKB12.12';
+  const expected = '9.2 Position; 10.1 Employee Group = A; 9.2 Work Schedule; 9.2 Job Code';
+
+  const settled = (): { steps: FlowStep[] } => {
+    const leg: FlowStep = { action: 'workflow', goal };
+    const flow = { steps: [leg] as FlowStep[], cases: undefined as undefined };
+    settleAcceptedFlowInputs(flow, expected, twoPage, 'HIR-EC-001');
+    return flow;
+  };
+
+  it('reads the control the second page names, which the first page has not got', () => {
+    assert.equal(advancedControlIn(twoPage), 'role=button[name="Next" i]');
+    const selectors = settled().steps.filter((s) => s.action === 'selectOption').map((s) => (s as { selector: string }).selector);
+    for (const field of ['Position', 'Employee Group', 'Work Schedule']) {
+      assert.ok(selectors.includes(`role=button[name="${field}" i]`), `${field}: ${selectors.join(' / ')}`);
+    }
+  });
+
+  it('puts the click that advances the wizard before every field of the page behind it', () => {
+    const steps = settled().steps;
+    const advance = steps.findIndex((s) => s.action === 'click' && (s as { selector?: string }).selector === 'role=button[name="Next" i]');
+    assert.notEqual(advance, -1, 'the fields below resolve nothing until it is clicked');
+    for (const [at, step] of steps.entries()) {
+      if (step.action !== 'selectOption') continue;
+      assert.ok(at > advance, `${(step as { selector: string }).selector} is on page 2 and must come after the advance`);
+    }
+  });
+
+  it('never fills a control the tree marks disabled — that value is derived, not keyed', () => {
+    const selectors = settled().steps.filter((s) => s.action === 'fill').map((s) => (s as { selector: string }).selector);
+    assert.equal(selectors.some((one) => one.includes('Job Code')), false);
+  });
+
+  it('counts an attachment\'s position within its own page, because that is the ordinal the run sees', () => {
+    // Page 1 renders three `button "Upload"` and page 2 renders its own. When
+    // the browser is on page 2 the selector matches page 2's alone, so a
+    // whole-evidence ordinal would address the wrong dropzone.
+    assert.deepEqual(requiredAttachmentControls(twoPage), [
+      { role: 'button', name: 'Upload', nth: 1, section: 'Personal Information' },
+      { role: 'button', name: 'Upload', nth: 0, section: 'Job Information', later: true },
+    ]);
+  });
+
+  it('still refuses every fragment collision, with twice the tree to collide in', () => {
+    const collisions: FlowStep = {
+      action: 'workflow',
+      goal: 'Step 3: Date of Birth = 01 Jan 1990; Job Code = MKB12.12; Account Number = 1234567890; Hire Date = 01 Sep 2027',
+    };
+    const flow = { steps: [collisions] as FlowStep[], cases: undefined as undefined };
+    settleAcceptedFlowInputs(
+      flow,
+      '1.1 Date of Birth = 01 Jan 1990; 1.2 Job Code = MKB12.12; 1.3 Account Number = 1234567890; 1.4 Hire Date = 01 Sep 2027',
+      twoPage,
+      'HIR-EC-001',
+    );
+    const selectors = flow.steps
+      .filter((s) => s.action === 'fill' || s.action === 'selectOption')
+      .map((s) => (s as { selector: string }).selector);
+    for (const wrong of ['Region of Birth', 'Postal code', 'Number of Children', 'Select date', 'Select Position', 'Select Cost Center']) {
+      assert.equal(selectors.some((one) => one.includes(wrong)), false, `${wrong}: ${selectors.join(' / ')}`);
+    }
+    assert.ok(selectors.includes('internal:label="Hire Date"i'), selectors.join(' / '));
   });
 });

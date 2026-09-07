@@ -6071,6 +6071,38 @@ function valueHeadOf(text: string): string {
 }
 
 /**
+ * The line `journeyTreeSection` writes at the head of each wizard page it
+ * carried the form to, and `advancedControlIn` reads back. A field of a later
+ * page cannot be entered until the flow has clicked the same control, so the
+ * marker is what makes the ORDER computable — the tree alone says only that
+ * the control exists.
+ */
+export const ADVANCED_MARKER = 'WIZARD ADVANCED BEFORE READING — click first:';
+
+/** The selector that carries the wizard forward, from the evidence the capture wrote, or null. */
+export function advancedControlIn(evidence: string): string | null {
+  for (const line of evidence.split('\n')) {
+    const at = line.indexOf(ADVANCED_MARKER);
+    if (at === -1) continue;
+    const selector = line.slice(at + ADVANCED_MARKER.length).trim();
+    if (selector !== '') return selector;
+  }
+  return null;
+}
+
+/**
+ * The evidence before the first wizard advance, and everything after it.
+ *
+ * A two-page capture names a control on either page, and which page it is on
+ * decides where its entry step may go. Splitting on the marker is exact: the
+ * capture writes it at the head of each page it advanced to.
+ */
+function evidencePages(evidence: string | undefined): { first: string; later: string } {
+  const parts = (evidence ?? '').split(ADVANCED_MARKER);
+  return { first: parts[0] ?? '', later: parts.slice(1).join('\n') };
+}
+
+/**
  * The tree line naming a field, as `{ role, name }`, or null — every captured
  * tree and the probe report.
  *
@@ -6107,6 +6139,11 @@ function treeControlNamed(field: string, evidence: string | undefined): { role: 
     const name = (m[2] ?? '').replace(/\\(.)/g, '$1').trim();
     const have = squash(name);
     if (have === '') continue;
+    // A control the tree marks disabled is derived, not keyed — the hire
+    // wizard's `textbox "Job Code" disabled` is filled BY the Position pick,
+    // and the Expected output says so ("ระบบดึงข้อมูลจาก Position ได้แก่ …
+    // Job Code"). Typing into it is a claim about the wrong half.
+    if (/(?:^|\s)disabled(?:\s|$)/.test(raw.slice(m.index + m[0].length))) continue;
     const control = { role: (m[1] ?? '').toLowerCase(), name };
     if (have === needle) exact.push(control);
     else if (have.startsWith(needle)) anchored.push(control);
@@ -6154,21 +6191,30 @@ function namesField(names: ReadonlySet<string>, key: string): boolean {
   return false;
 }
 
-function treeControlForPairKey(key: string, evidence: string | undefined): { role: string; name: string } | null {
-  const whole = treeControlNamed(key, evidence);
-  if (whole !== null) return whole;
-  const words = key.trim().split(/\s+/);
-  for (let take = words.length - 1; take >= 1; take -= 1) {
-    const tail = words.slice(-take).join(' ');
-    const needle = squash(tail);
-    if (needle === '') continue;
-    for (const raw of (evidence ?? '').split('\n')) {
-      const m = /^\s*([a-z]+)\s+"((?:[^"\\]|\\.)*)"/i.exec(raw);
-      if (m === null) continue;
-      const name = (m[2] ?? '').replace(/\\(.)/g, '$1').trim();
-      if (squash(name) !== needle) continue;
-      const control = { role: (m[1] ?? '').toLowerCase(), name };
-      if (entryStepFor(control, 'x', '') !== null) return control;
+function treeControlForPairKey(
+  key: string,
+  evidence: string | undefined,
+): { role: string; name: string; later: boolean } | null {
+  const pages = evidencePages(evidence);
+  // The first page wins wherever both name the field: it is reachable
+  // without a click, and a wizard repeats a heading far more often than it
+  // repeats a control.
+  for (const [page, later] of [[pages.first, false], [pages.later, true]] as const) {
+    if (page.trim() === '') continue;
+    const whole = treeControlNamed(key, page);
+    if (whole !== null) return { ...whole, later };
+    const words = key.trim().split(/\s+/);
+    for (let take = words.length - 1; take >= 1; take -= 1) {
+      const needle = squash(words.slice(-take).join(' '));
+      if (needle === '') continue;
+      for (const raw of page.split('\n')) {
+        const m = /^\s*([a-z]+)\s+"((?:[^"\\]|\\.)*)"/i.exec(raw);
+        if (m === null) continue;
+        const name = (m[2] ?? '').replace(/\\(.)/g, '$1').trim();
+        if (squash(name) !== needle) continue;
+        const control = { role: (m[1] ?? '').toLowerCase(), name };
+        if (entryStepFor(control, 'x', '') !== null) return { ...control, later };
+      }
     }
   }
   return null;
@@ -6327,6 +6373,7 @@ function settleWorkflowPairs(
   step: FlowStep,
   evidence: string | undefined,
   include: (field: string) => boolean,
+  laterPage?: string[],
 ): string | null {
   if (step.action !== 'workflow') return null;
   const done: string[] = [];
@@ -6344,6 +6391,7 @@ function settleWorkflowPairs(
     if (entry === null) continue;
     if (flow.steps.some((candidate) => JSON.stringify(candidate) === JSON.stringify(entry))) continue;
     insertStepBefore(flow, step, entry);
+    if (control.later && 'selector' in entry) laterPage?.push((entry as { selector: string }).selector);
     done.push(`${control.role} ${JSON.stringify(control.name)} = ${JSON.stringify(pair.value)}`);
   }
   if (done.length === 0) return null;
@@ -6412,7 +6460,19 @@ export function expandedControlIn(evidence: string): string | null {
  */
 export function requiredAttachmentControls(
   evidence: string,
-): { role: string; name: string; nth?: number; section?: string }[] {
+): { role: string; name: string; nth?: number; section?: string; later?: boolean }[] {
+  // Each wizard page is its own document at run time: when the browser is on
+  // page 2, `role=button[name="Upload" i]` matches page 2's dropzones and
+  // nothing else, so an ordinal counted across the whole evidence would
+  // address the wrong one. Read page by page, and the ordinal is the one the
+  // run will see.
+  const pages = (evidence ?? '').split(ADVANCED_MARKER);
+  return pages.flatMap((page, at) =>
+    attachmentsOnPage(page).map((control) => (at === 0 ? control : { ...control, later: true })),
+  );
+}
+
+function attachmentsOnPage(evidence: string): { role: string; name: string; nth?: number; section?: string }[] {
   type Node = { role: string; name: string; required: boolean };
   const nodes: Node[] = [];
   for (const raw of evidence.split('\n')) {
@@ -6588,8 +6648,9 @@ export function settleAcceptedFlowInputs(
     }
   }
   const named = expectedNamedFields(expected);
+  const laterPage: string[] = [];
   for (const step of [...flow.steps]) {
-    const note = settleWorkflowPairs(flow, step, evidence, (field) => namesField(named, field));
+    const note = settleWorkflowPairs(flow, step, evidence, (field) => namesField(named, field), laterPage);
     if (note !== null) notes.push(note);
   }
   for (const control of requiredAttachmentControls(evidence)) {
@@ -6620,11 +6681,37 @@ export function settleAcceptedFlowInputs(
       files: [fixture],
       intent: markGenerated(undefined, `the sheet named no file for ${JSON.stringify(called)}; the harness minted one as ${fixture}`),
     });
+    if (control.later === true) laterPage.push(selector);
     notes.push(
       `required attachment ${JSON.stringify(called)} was minted by the harness because the Expected output named no file` +
         (usedLateFallback ? '; inserted before the last workflow leg because no workflow goal named its control or section' : '') +
         ' (marked [generated: …])',
     );
+  }
+  // **The click that carries the wizard to the page those fields are on.**
+  // A step written from page 2's tree resolves nothing on page 1, and the flow
+  // reaches page 2 only by clicking the control the capture clicked. Same
+  // shape as the expand-all click above, and for the same reason: the tree is
+  // evidence for a page the flow has not arrived at yet.
+  const advanceSelector = advancedControlIn(evidence ?? '');
+  if (advanceSelector !== null && laterPage.length > 0) {
+    const already = flow.steps.some(
+      (one) => one.action === 'click' && (one as { selector?: string }).selector === advanceSelector,
+    );
+    const first = flow.steps.find(
+      (one) => 'selector' in one && laterPage.includes((one as { selector: string }).selector),
+    );
+    if (!already && first !== undefined) {
+      insertStepBefore(flow, first, {
+        action: 'click',
+        selector: advanceSelector,
+        intent: markGenerated(undefined, `carries the wizard to the page holding ${laterPage.length} field(s) below; the capture read them there`),
+      });
+      notes.push(
+        `the wizard is advanced with ${JSON.stringify(advanceSelector)} before the ${laterPage.length} field(s) ` +
+          'the capture read on the page behind it (marked [generated: …])',
+      );
+    }
   }
   const workflowSteps = flow.steps.filter((step) => step.action === 'workflow');
   const goalPairs = workflowSteps.flatMap((step) => pairsOnLine(step.goal).map((pair) => ({ phase: null, ...pair })));
