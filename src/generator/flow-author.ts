@@ -5754,6 +5754,9 @@ export function declaredControlStrings(codeContext: string | undefined): string[
  * whole-word, case-insensitive, appearing in the goal's own text — so a goal
  * about genuinely undeclared territory never trips it.
  */
+/** A `/…/flags` literal — an assertion about a value's FORM, which no accessible name can render. */
+const REGEX_LITERAL = /^\/.*\/[a-z]*$/i;
+
 /**
  * The run of adjacent Capitalised words (single spaces between) that covers
  * `[at, at+length)` of `text`, lower-cased, or null when the span itself is
@@ -5860,6 +5863,14 @@ export function ungroundedTextExpectation(
         /^text=(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|(.+))$/s.exec(head);
       const text = (named?.[1] ?? named?.[2] ?? named?.[3] ?? '').replace(/\\(.)/g, '$1').trim();
       if (text === '') continue;
+      // **A REGEX asserts a form, and no page renders one.** Live (run 16):
+      // Expected 14.1 is "an 8-digit Employee ID whose first digit is 2", the
+      // flow wrote it as a pattern, and this lint refused it for quoting "the
+      // requirement document's wording" — while `unassertedExpectedItems`
+      // refuses the flow that then drops it. The same exemption
+      // `wordingClaimAssertsDataValue` already carries, for the same reason:
+      // a pattern is checkable and unquotable at once.
+      if (REGEX_LITERAL.test(text)) continue;
       const needle = text.toLowerCase();
       // The sheet's own words ARE the claim — exempt, run it, and an exact-miss
       // over text the page holds becomes a near-miss needs-review (the right
@@ -5879,6 +5890,43 @@ export function ungroundedTextExpectation(
     }
   }
   return null;
+}
+
+/**
+ * Does an earlier step of this flow do the thing the disabled control's own
+ * hint asks for?
+ *
+ * The tree describes the page AT REST, and a cascade is disabled at rest by
+ * design. Live (HIR-EC-001 run 16): `button "District" value="— Select
+ * Province first —" disabled`, and the flow picks Province at step 26 before
+ * touching District at step 27 — exactly what Expected line 6.1 claims the
+ * page does. Refusing it demanded the flow prove the cascade by not using it.
+ *
+ * The evidence is the control's own words: the hint names the field that
+ * enables it, and an earlier step naming that field is the enabling. Nothing
+ * is assumed about WHICH control enables what — only that the page said so
+ * and the flow did it, in that order.
+ */
+function enabledByAnEarlierStep(line: string, earlier: readonly FlowStep[]): boolean {
+  const hint = /\bvalue="((?:[^"\\]|\\.)*)"/.exec(line)?.[1];
+  if (hint === undefined) return false;
+  // The capitalised runs of the hint are the fields it names: "— Select
+  // Province first —" names Province.
+  // A run and its trailing tails: "Select Province" names Province, and the
+  // hint's leading verb is instruction, not the field. Same tail rule as
+  // `treeControlForPairKey`, and for the same reason — the prose sits in
+  // front of the name, never behind it.
+  const fields: string[] = [];
+  for (const match of hint.matchAll(/\p{Lu}[\p{L}\p{N}]*(?:\s+\p{Lu}[\p{L}\p{N}]*)*/gu)) {
+    const words = match[0].split(/\s+/);
+    for (let take = words.length; take >= 1; take -= 1) {
+      const tail = squash(words.slice(-take).join(' '));
+      if (tail.length > 2) fields.push(tail);
+    }
+  }
+  if (fields.length === 0) return false;
+  const before = squash(JSON.stringify(earlier.map((step) => ('selector' in step ? step.selector : ''))));
+  return fields.some((field) => before.includes(field));
 }
 
 /**
@@ -5939,7 +5987,7 @@ export function ungroundedSelectorRole(
     if (roles.has(role) || (role === 'select' && roles.has('combobox'))) {
       if (needle !== null && (step.action === 'fill' || step.action === 'click' || step.action === 'type' || step.action === 'selectOption')) {
         const line = lines.find((l) => new RegExp(`^${role}\\s+"[^"]*${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^"]*"`, 'i').test(l));
-        if (line !== undefined && /\bdisabled\b/.test(line)) {
+        if (line !== undefined && /\bdisabled\b/.test(line) && !enabledByAnEarlierStep(line, steps.slice(0, i))) {
           return { index: i, role, name, nearest: [line], disabled: true };
         }
       }

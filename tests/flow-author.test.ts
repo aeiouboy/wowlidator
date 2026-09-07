@@ -4892,3 +4892,49 @@ describe('a refusal names the field\'s real input, and a sign-in reaches the sig
     });
   });
 });
+
+describe('a pattern is unquotable, and a cascade is disabled at rest by design (2026-09-07, run 16)', () => {
+  const cascade = [
+    'main',
+    'button "Province" value="— Select —"',
+    'button "District" value="— Select Province first —" disabled',
+    'textbox "Employee ID" readonly',
+  ].join('\n');
+
+  it('never refuses a regex for not being rendered — no page renders a form', () => {
+    // Expected 14.1 is "an 8-digit Employee ID whose first digit is 2"; the
+    // flow writes it as a pattern, and this lint refused it as "the
+    // requirement document's wording" while `unassertedExpectedItems` refuses
+    // the flow that then drops it.
+    const steps: FlowStep[] = [
+      { action: 'expectVisible', selector: 'text=/\\b2\\d{7}\\b/', intent: '14.1' },
+    ];
+    assert.equal(ungroundedTextExpectation(steps, cascade), null);
+    // A literal the page does not render is still refused.
+    assert.notEqual(
+      ungroundedTextExpectation([{ action: 'expectVisible', selector: 'text=Nowhere On This Page' }], cascade),
+      null,
+    );
+  });
+
+  it('lets a cascade be driven in order, and still refuses one driven out of order', () => {
+    const inOrder: FlowStep[] = [
+      { action: 'selectOption', selector: 'role=button[name="Province" i]', value: 'กรุงเทพมหานคร' },
+      { action: 'selectOption', selector: 'role=button[name="District" i]', value: 'บางรัก' },
+    ];
+    assert.equal(ungroundedSelectorRole(inOrder, cascade), null, 'Province is picked first, which is what the hint asks');
+
+    const outOfOrder: FlowStep[] = [
+      { action: 'selectOption', selector: 'role=button[name="District" i]', value: 'บางรัก' },
+    ];
+    const refused = ungroundedSelectorRole(outOfOrder, cascade);
+    assert.equal(refused?.disabled, true);
+    assert.equal(refused?.name, 'District');
+  });
+
+  it('a disabled control whose hint names nothing is still refused', () => {
+    const opaque = 'main\nbutton "Filter" disabled';
+    const steps: FlowStep[] = [{ action: 'click', selector: 'role=button[name="Filter" i]' }];
+    assert.equal(ungroundedSelectorRole(steps, opaque)?.disabled, true);
+  });
+});
