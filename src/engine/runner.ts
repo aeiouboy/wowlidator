@@ -22,7 +22,7 @@ import {
   type Response as PlaywrightResponse,
 } from 'playwright';
 import { mkdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { ApiActions, resolveUrl, type FlowRequestSpec } from '../api/api-actions.js';
 import { BrowserTransport, FetchTransport, type ApiTransport } from '../api/api-client.js';
@@ -4098,8 +4098,15 @@ export class SmartRunner {
       }
       try {
         const written = await writeFixture(spec, { runKey: this.bundle.runId });
-        minted.push({ spec, path: written.path, description: written.description });
-        out.push(written.path);
+        // ABSOLUTE, always. `writeFixture` returns a path under the fixture
+        // root as written — relative to the process's cwd — and `attachFiles`
+        // resolves a relative path against the FLOW's directory, which is
+        // somewhere else entirely. Live (run 17): the file was minted and the
+        // step still died `fixture file not found`, one directory tree away
+        // from the file that existed.
+        const path = resolve(written.path);
+        minted.push({ spec, path, description: written.description });
+        out.push(path);
       } catch (error) {
         // `isFixtureSpec` tests the SHAPE and `buildFixture` validates the
         // parts — an unknown mutation passes the first and throws the second.
