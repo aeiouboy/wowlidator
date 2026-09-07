@@ -142,15 +142,30 @@ export async function attachFiles(
   }
   // The native chooser: what a person's click opens. Armed BEFORE the click,
   // or the event is missed; the page's own change handler runs on setFiles.
-  const chooser = page.waitForEvent('filechooser', { timeout });
+  //
+  // **Its handler is attached at creation, not after the click.** The `.catch`
+  // used to sit on the line after `await click`, so a chooser that timed out
+  // while the click was still running rejected with nothing listening — an
+  // unhandled rejection, which takes the whole process down. Live (run 18):
+  // `page.waitForEvent: Timeout 2000ms exceeded` killed a run at step 63 of
+  // 76, losing the verdict and the report for a step that should merely have
+  // failed. The timeout here is the step's own, and a healed step's is short.
+  let refused: unknown;
+  const chooser = page
+    .waitForEvent('filechooser', { timeout })
+    .catch((error: unknown) => {
+      refused = error;
+      return null;
+    });
   await locator.first().click({ timeout });
-  const opened = await chooser.catch((error: unknown) => {
+  const opened = await chooser;
+  if (opened === null) {
     throw new Error(
       `no file input under the element and clicking it opened no file chooser within ${timeout} ms: ${
-        error instanceof Error ? error.message.split('\n')[0] : String(error)
+        refused instanceof Error ? refused.message.split('\n')[0] : String(refused)
       }`,
     );
-  });
+  }
   await opened.setFiles(paths);
   return { via: 'filechooser', files: resolved };
 }
