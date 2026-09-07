@@ -6007,10 +6007,33 @@ function pairsOnLine(line: string): { key: string; value: string }[] {
  * unfillable — the listbox was typed with the instruction and answered
  * "ไม่พบผลลัพธ์".
  */
+/**
+ * The ITEMS of a block the sheet wrote as one run of text.
+ *
+ * An Expected block and a workflow goal both reach the author as a single
+ * line whose items are joined by `; ` — the claim renderer joins them that
+ * way, and the model writes a goal the same way. Read line by line, HIR-EC-001
+ * yields field names like `"ตามค่าที่กรอก; 3.2 event reason"` and
+ * `"Sep 2027; Company"`, so the Expected-named gate matched nothing and not
+ * one of the forty fields in run 12's two big legs was lifted out as a
+ * deterministic step: 37 steps, 0 `fill`, 0 `selectOption`, 1% of the page's
+ * controls exercised.
+ *
+ * A `;` ends an item exactly as a newline does — `valueHeadOf` already cuts a
+ * value at one, so no value has ever spanned one — and the leading item
+ * number goes with the split, per item rather than per line.
+ */
+function blockItems(block: string): string[] {
+  return block
+    .split('\n')
+    .flatMap((line) => line.split(/;\s*/))
+    .map((item) => item.replace(/^\s*\d+(?:\.\d+)*[.)]?\s*/, '').trim())
+    .filter((item) => item !== '');
+}
+
 export function expectedValuedFields(expected: string): Set<string> {
   const names = new Set<string>();
-  for (const raw of expected.split('\n')) {
-    const line = raw.replace(/^\s*\d+(?:\.\d+)*[.)]?\s*/, '').trim();
+  for (const line of blockItems(expected)) {
     for (const pair of pairsOnLine(line)) names.add(pair.key.toLowerCase().replace(/\s+/g, ' ').trim());
   }
   return names;
@@ -6018,8 +6041,7 @@ export function expectedValuedFields(expected: string): Set<string> {
 
 export function expectedNamedFields(expected: string): Set<string> {
   const names = new Set<string>();
-  for (const raw of expected.split('\n')) {
-    const line = raw.replace(/^\s*\d+(?:\.\d+)*[.)]?\s*/, '').trim();
+  for (const line of blockItems(expected)) {
     const pairs = pairsOnLine(line);
     for (const pair of pairs) names.add(pair.key.toLowerCase().replace(/\s+/g, ' ').trim());
     if (pairs.length > 0) continue;
@@ -6048,16 +6070,106 @@ function valueHeadOf(text: string): string {
   return kept.join(' ').trim();
 }
 
-/** The tree line naming a field, as `{ role, name }`, or null — every captured tree and the probe report. */
+/**
+ * The tree line naming a field, as `{ role, name }`, or null — every captured
+ * tree and the probe report.
+ *
+ * **A field is matched by its whole name, never by a fragment of it**
+ * (2026-09-07). The rule was two-way substring containment returning the
+ * FIRST line that touched, and measured against the live hire form it is a
+ * machine for typing the sheet's data into the wrong field:
+ *
+ *     Date of Birth  → textbox "Region of Birth"     (…of Birth)
+ *     Job Code       → combobox "Postal code"        (…code)
+ *     Account Number → spinbutton "Number of Children" (Number…)
+ *     Hire Date      → textbox "Select date"         (the read-only shell)
+ *     Event Reason   → button "EN"                   (needle contains "en")
+ *
+ * Every one of those is a step that runs, goes green, and proves nothing —
+ * strictly worse than the slow agent leg it would replace, because a slow leg
+ * fails where a reader can see it. So: an EXACT name, or a tree name that
+ * BEGINS with the field (`First Name` → `First Name (EN)`, the rendered
+ * suffix), and nothing else. `needle.includes(have)` is gone: a field name
+ * that happens to contain a short tree name is not evidence of anything.
+ *
+ * Among candidates an enterable role wins, because it is the enterable
+ * control the caller is looking for and a `StaticText` of the same name is
+ * the label beside it.
+ */
 function treeControlNamed(field: string, evidence: string | undefined): { role: string; name: string } | null {
   const needle = squash(field);
   if (needle === '') return null;
+  const exact: { role: string; name: string }[] = [];
+  const anchored: { role: string; name: string }[] = [];
   for (const raw of (evidence ?? '').split('\n')) {
     const m = /^\s*([a-z]+)\s+"((?:[^"\\]|\\.)*)"/i.exec(raw);
     if (m === null) continue;
     const name = (m[2] ?? '').replace(/\\(.)/g, '$1').trim();
     const have = squash(name);
-    if (have !== '' && (have === needle || have.includes(needle) || needle.includes(have))) return { role: (m[1] ?? '').toLowerCase(), name };
+    if (have === '') continue;
+    const control = { role: (m[1] ?? '').toLowerCase(), name };
+    if (have === needle) exact.push(control);
+    else if (have.startsWith(needle)) anchored.push(control);
+  }
+  for (const pool of [exact, anchored]) {
+    const enterable = pool.find((one) => entryStepFor(one, 'x', '') !== null);
+    if (enterable !== undefined) return enterable;
+    const first = pool[0];
+    if (first !== undefined) return first;
+  }
+  return null;
+}
+
+/**
+ * The control a `Field = value` pair means, hunting past the prose the sheet
+ * wrapped the field in.
+ *
+ * A goal reads `Step 3 ถึง Step 7: กรอกข้อมูล … ตามค่าที่ระบุ ได้แก่ Event Reason
+ * = New Hire`, so the pair's key is four words of Thai instruction with the
+ * field at the end. Shortening from the tail recovers it — but ONLY on an
+ * exact tree name, never on the anchored-prefix rule: a fragment allowed to
+ * match a prefix is how `Event Reason` became `button "EN"`. `Account
+ * Number` shortened to `Number` finds no line named exactly `Number`, so it
+ * stays in the leg, which is the honest answer.
+ */
+/**
+ * Does this set of Expected field names name the field a goal's pair keys?
+ *
+ * The two sides are written by different hands: the Expected block says
+ * `Event Reason`, and the goal wraps the same field in the sheet's own
+ * instruction — `ตามค่าที่ระบุ ได้แก่ Event Reason`. So a trailing run of the
+ * key counts, not only the whole key: leading words are dropped, because the
+ * prose is in front of the field and never behind it.
+ *
+ * This is a LOOSE gate on purpose, and it is safe only because it decides
+ * nothing on its own — a pair it lets through is still dropped unless the
+ * tree names its control exactly (`treeControlForPairKey`). Widening the gate
+ * without that exactness is how the sheet's data ends up in the wrong field.
+ */
+function namesField(names: ReadonlySet<string>, key: string): boolean {
+  const words = key.toLowerCase().replace(/\s+/g, ' ').trim().split(/\s+/).filter((w) => w !== '');
+  for (let take = words.length; take >= 1; take -= 1) {
+    if (names.has(words.slice(-take).join(' '))) return true;
+  }
+  return false;
+}
+
+function treeControlForPairKey(key: string, evidence: string | undefined): { role: string; name: string } | null {
+  const whole = treeControlNamed(key, evidence);
+  if (whole !== null) return whole;
+  const words = key.trim().split(/\s+/);
+  for (let take = words.length - 1; take >= 1; take -= 1) {
+    const tail = words.slice(-take).join(' ');
+    const needle = squash(tail);
+    if (needle === '') continue;
+    for (const raw of (evidence ?? '').split('\n')) {
+      const m = /^\s*([a-z]+)\s+"((?:[^"\\]|\\.)*)"/i.exec(raw);
+      if (m === null) continue;
+      const name = (m[2] ?? '').replace(/\\(.)/g, '$1').trim();
+      if (squash(name) !== needle) continue;
+      const control = { role: (m[1] ?? '').toLowerCase(), name };
+      if (entryStepFor(control, 'x', '') !== null) return control;
+    }
   }
   return null;
 }
@@ -6070,6 +6182,20 @@ function entryStepFor(control: { role: string; name: string }, value: string, in
     case 'searchbox':
     case 'spinbutton':
       return { action: 'fill', selector, value, intent };
+    // A native date/time input the tree names by its own role. It is filled
+    // like any other field once the selector stops asking for an ARIA role
+    // that does not exist — `withLabelForNonAriaRole` rewrites it to the
+    // label engine, and measured on the live form that is 15 ms against the
+    // 297,771 ms the `role=date` spelling burned before it gave up.
+    case 'date':
+    case 'time':
+    case 'inputtime':
+    case 'datetime':
+    case 'datetime-local':
+    case 'month':
+    case 'week':
+    case 'color':
+      return { action: 'fill', selector: withLabelForNonAriaRole(selector), value, intent };
     case 'button':
     case 'combobox':
     case 'listbox':
@@ -6157,7 +6283,7 @@ export function settleScriptDemand(
     let grounded = 0;
     for (const pair of fromData) {
       if (unconfirmedValue(pair.value)) continue;
-      const control = treeControlNamed(pair.key, evidence);
+      const control = treeControlForPairKey(pair.key, evidence);
       if (control === null) continue;
       const step = entryStepFor(control, pair.value, markGenerated(label, `performs the script's "${scriptDemand(verb, text)}" on ${control.role} ${JSON.stringify(control.name)} from the tree with the sheet's value ${JSON.stringify(pair.value)}`));
       if (step === null) continue;
@@ -6204,9 +6330,15 @@ function settleWorkflowPairs(
 ): string | null {
   if (step.action !== 'workflow') return null;
   const done: string[] = [];
-  for (const pair of pairsOnLine(step.goal)) {
+  for (const pair of blockItems(step.goal).flatMap((item) => pairsOnLine(item))) {
     if (!include(pair.key)) continue;
-    const control = treeControlNamed(pair.key, evidence);
+    // "เลือกจากรายการ" — choose from the list — is the sheet telling the tester
+    // what to do, not the value to enter. Lifting it out of the leg would type
+    // the instruction into the control and hunt for an option by that name,
+    // which is the very failure `placeholderChoice` exists to name; the
+    // required-choice path below answers those with the first offered option.
+    if (placeholderChoice(pair.value)) continue;
+    const control = treeControlForPairKey(pair.key, evidence);
     if (control === null) continue;
     const entry = entryStepFor(control, pair.value, markGenerated(`${pair.key} = ${pair.value}`, `split out of the workflow goal: ${control.role} ${JSON.stringify(control.name)} is in the tree`));
     if (entry === null) continue;
@@ -6457,7 +6589,7 @@ export function settleAcceptedFlowInputs(
   }
   const named = expectedNamedFields(expected);
   for (const step of [...flow.steps]) {
-    const note = settleWorkflowPairs(flow, step, evidence, (field) => named.has(field.toLowerCase().replace(/\s+/g, ' ').trim()));
+    const note = settleWorkflowPairs(flow, step, evidence, (field) => namesField(named, field));
     if (note !== null) notes.push(note);
   }
   for (const control of requiredAttachmentControls(evidence)) {

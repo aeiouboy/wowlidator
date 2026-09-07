@@ -4623,3 +4623,58 @@ describe('a required attachment is found on the tree the run actually captured',
     assert.deepEqual(requiredAttachmentControls(proper), [{ role: 'button', name: 'Upload passport' }]);
   });
 });
+
+describe('a field is matched by its whole name, and a block is read item by item (2026-09-07, HIR-EC-001 run 12)', () => {
+  const tree = readFileSync(fileURLToPath(new URL('./fixtures/ax-hire-form.txt', import.meta.url)), 'utf8');
+
+  it('never types the sheet\'s data into a field that merely shares a fragment of the name', () => {
+    // Every one of these was a live match under the two-way substring rule,
+    // and every one of them runs, goes green and proves nothing — strictly
+    // worse than the slow agent leg it replaces.
+    const goal =
+      'Step 3: กรอกข้อมูลตามค่าที่ระบุ ได้แก่ Date of Birth = 01 Jan 1990; Job Code = MKB12.12; ' +
+      'Account Number = 1234567890; Employee Group = A - Permanent';
+    const leg: FlowStep = { action: 'workflow', goal };
+    const flow = { steps: [leg] as FlowStep[], cases: undefined as undefined };
+    settleAcceptedFlowInputs(
+      flow,
+      '1.1 Date of Birth = 01 Jan 1990; 1.2 Job Code = MKB12.12; 1.3 Account Number = 1234567890; 1.4 Employee Group = A - Permanent',
+      tree,
+      'HIR-EC-001',
+    );
+    const selectors = flow.steps
+      .filter((step) => step.action === 'fill' || step.action === 'selectOption')
+      .map((step) => (step as { selector: string }).selector);
+    for (const wrong of ['Region of Birth', 'Postal code', 'Number of Children', 'Select date']) {
+      assert.equal(selectors.some((one) => one.includes(wrong)), false, `${wrong} is a different field`);
+    }
+  });
+
+  it('lifts the Expected output\'s own fields out of a goal the sheet wrote as one `;`-joined line', () => {
+    // Run 12's flow: 37 steps, three goals of five and six sheet steps each,
+    // zero `fill`, zero `selectOption`, 1% of the page's controls exercised —
+    // because both the Expected block and the goal arrive as ONE line and the
+    // per-line parse produced field names like "Sep 2027; Company".
+    const goal = 'Step 3 ถึง Step 7: กรอกข้อมูล Identity ตามค่าที่ระบุ ได้แก่ Event Reason = New Hire; Hire Date = 01 Sep 2027; Company = C001';
+    const leg: FlowStep = { action: 'workflow', goal };
+    const flow = { steps: [leg] as FlowStep[], cases: undefined as undefined };
+    const notes = settleAcceptedFlowInputs(flow, '3.1 Hire Date = Today ตามค่าที่กรอก; 3.2 Event Reason = New Hire; 9.2 Company', tree, 'HIR-EC-001');
+
+    const entries = flow.steps
+      .filter((step) => step.action === 'fill' || step.action === 'selectOption')
+      .map((step) => `${step.action} ${(step as { selector: string }).selector} = ${(step as { value?: string }).value}`);
+    assert.ok(entries.includes('selectOption role=button[name="Event Reason" i] = New Hire'), entries.join(' / '));
+    // The native date input, addressed through the label engine: 15 ms on the
+    // live form, against 297,771 ms for the `role=date` spelling.
+    assert.ok(entries.includes('fill internal:label="Hire Date"i = 01 Sep 2027'), entries.join(' / '));
+    assert.ok(entries.includes('selectOption role=button[name="Company" i] = C001'), entries.join(' / '));
+    assert.ok((notes ?? []).some((note) => /performed deterministically before the leg/.test(note)));
+  });
+
+  it('leaves a pair in the leg when the tree names no control for it — honest, not guessed', () => {
+    const leg: FlowStep = { action: 'workflow', goal: 'Step 9: Work Schedule = D05H0800' };
+    const flow = { steps: [leg] as FlowStep[], cases: undefined as undefined };
+    settleAcceptedFlowInputs(flow, '9.2 Work Schedule = D05H0800', tree, 'HIR-EC-001');
+    assert.equal(flow.steps.some((step) => step.action === 'fill' || step.action === 'selectOption'), false);
+  });
+});
