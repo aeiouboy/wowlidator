@@ -859,3 +859,15 @@ The panel's job-6 (`--author-attempts 1`, so attempt 1 IS the last word) blocked
 - `insertStepBefore` / `appendOrInsert` skip a case whose `steps` IS the body's array (the folded single case shares it) — found by the test, it would have inserted twice.
 
 Tests: `tests/flow-author.test.ts` ("a script step is performed, never read as a noun, and the last word performs it (multirole ML_01_04)"): the noun rule, the workflow-leg rule, the compound rule, `settleScriptDemand` from the tree and to an agent leg, `settleWorkflowGoal`, and the pipeline shipping the ML_01_04 shape on attempt 1 of 1.
+
+## The authored host is the deployment host (2026-09-07)
+
+`foreignAuthoredHost` is a fatal authoring lint over setup and body steps. Every
+absolute HTTP(S) URL carried by a step must use the deployment URL's exact host;
+relative URLs and `{{variable}}` placeholders remain portable. The informed
+re-ask names both the authored and expected hosts and says that the run's own
+host is the only one this catalog may reach. This runs before route grounding:
+a typo in an origin is authored evidence failure, not an application environment
+error, and applies equally to `goto`, `signIn`, `request`, and any future step
+that carries a string `url`. Tests: `tests/flow-author.test.ts` ("authored
+absolute URLs stay on the deployment host").

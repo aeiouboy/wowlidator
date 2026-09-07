@@ -9612,6 +9612,7 @@ export async function executeFlow(runner: SmartRunner, flow: Flow): Promise<void
 }
 
 export interface RunFlowOptions {
+  abortSignal?: AbortSignal | undefined;
   cdpUrl?: string | undefined;
   cachePath?: string | undefined;
   healer?: JitHealer | null | undefined;
@@ -9780,6 +9781,33 @@ export interface RunFlowOptions {
    * read a file should pass it.
    */
   flowDir?: string | undefined;
+}
+
+class RunAbortedError extends Error {
+  override readonly name = 'RunAbortedError';
+
+  constructor() {
+    super('the suite stopped this case at its case ceiling');
+  }
+}
+
+function abortable<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return work;
+  if (signal.aborted) return Promise.reject(new RunAbortedError());
+  return new Promise<T>((resolve, reject) => {
+    const abort = (): void => reject(new RunAbortedError());
+    signal.addEventListener('abort', abort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', abort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', abort);
+        reject(error);
+      },
+    );
+  });
 }
 
 /**
@@ -9962,7 +9990,7 @@ export async function runApiFlow(flow: Flow, options: RunFlowOptions = {}): Prom
   // Same per-flow resolution as the browser path: a browser-free flow writes
   // to the same database and takes the same locks.
   const gate = options.dataGate?.(flow) ?? null;
-  try {
+  const execution = (async (): Promise<void> => {
     if (flow.setup?.length) {
       await executeApiSteps(api, db, flow.setup, flow.baseUrl, issues, bundle, gate, options.dbBaselineProbe);
     }
@@ -9972,6 +10000,13 @@ export async function runApiFlow(flow: Flow, options: RunFlowOptions = {}): Prom
     if (flow.teardown?.length) {
       await executeApiSteps(api, db, flow.teardown, flow.baseUrl, issues, bundle, gate, options.dbBaselineProbe);
     }
+  })();
+  try {
+    await abortable(execution, options.abortSignal);
+  } catch (error) {
+    if (!(error instanceof RunAbortedError)) throw error;
+    bundle.recordRunError(error);
+    bundle.note(error.message);
   } finally {
     gate?.releaseAll();
     await db.close().catch(() => undefined);
@@ -9992,13 +10027,15 @@ export async function runApiFlow(flow: Flow, options: RunFlowOptions = {}): Prom
       const trend = analyseTrend(sealed, priors);
       bundle.setTrend(trend);
       await history.append(sealed);
-      return { ...sealed, trend };
+      return options.abortSignal?.aborted === true
+        ? structuredClone({ ...sealed, trend })
+        : { ...sealed, trend };
     } catch {
-      return sealed;
+      return options.abortSignal?.aborted === true ? structuredClone(sealed) : sealed;
     }
   }
 
-  return sealed;
+  return options.abortSignal?.aborted === true ? structuredClone(sealed) : sealed;
 }
 
 /**
@@ -10244,8 +10281,9 @@ export async function runFlow(
     return appendToHistory(bundle.finish(), bundle, options, flow.caseContext);
   }
 
+  const execution = executeFlow(runner, flow);
   try {
-    await executeFlow(runner, flow);
+    await abortable(execution, options.abortSignal);
   } catch (error) {
     // The step itself is already recorded; keep the message at run level too.
     // A tally of step issues is kept apart from a fatal — see StepIssuesError.
@@ -10290,7 +10328,8 @@ export async function runFlow(
   // share of the session meter travels with its proof.
   await noteSessionSpend(bundle, sessionBefore, quotaBefore);
   const sealed = await runner.close();
-  return appendToHistory(sealed, bundle, options, flow.caseContext);
+  const recorded = await appendToHistory(sealed, bundle, options, flow.caseContext);
+  return options.abortSignal?.aborted === true ? structuredClone(recorded) : recorded;
 }
 
 /**

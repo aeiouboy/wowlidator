@@ -52,6 +52,8 @@ import {
   SUITE_REFUSAL_MEMORY,
   loginProofAssertsLoginPage,
   ungroundedGoto,
+  foreignAuthoredHost,
+  foreignHostRefusal,
   unindexedRequestMethod,
   assertsOpenQuestion,
   skipsAuthoredScript,
@@ -1789,6 +1791,50 @@ describe('ungroundedGoto', () => {
       null,
       "another origin is not this application's routing table's business",
     );
+  });
+});
+
+describe('authored absolute URLs stay on the deployment host', () => {
+  const deployment = 'https://suite-int.example.test/en/start';
+
+  it('refuses a goto whose host differs by one character and names both hosts', () => {
+    const found = foreignAuthoredHost(
+      [{ action: 'goto', url: 'https://suite.int.example.test/en/start' }],
+      deployment,
+    );
+    assert.equal(found?.actualHost, 'suite.int.example.test');
+    assert.equal(found?.expectedHost, 'suite-int.example.test');
+  });
+
+  it('returns an actionable fatal refusal naming the actual and expected hosts', () => {
+    const foreign = foreignAuthoredHost(
+      [{ action: 'goto', url: 'https://suite.int.example.test/en/start' }],
+      deployment,
+    );
+    assert.ok(foreign !== null);
+    assert.equal(
+      foreignHostRefusal('stub flow', foreign),
+      'the authored flow "stub flow" has a goto URL "https://suite.int.example.test/en/start" on host ' +
+        '"suite.int.example.test", but this run\'s deployment host is "suite-int.example.test". ' +
+        'The run\'s own host "suite-int.example.test" is the only one this catalog may reach. ' +
+        'Use "suite-int.example.test" for this URL, or make it relative to the deployment URL.',
+    );
+  });
+
+  it('accepts relative, placeholder, and same-host absolute URLs', () => {
+    assert.equal(foreignAuthoredHost([{ action: 'goto', url: '/en/start' }], deployment), null);
+    assert.equal(foreignAuthoredHost([{ action: 'signIn', as: 'PERSONA', url: '{{loginUrl}}' }], deployment), null);
+    assert.equal(foreignAuthoredHost([{ action: 'goto', url: 'https://suite-int.example.test/en/next' }], deployment), null);
+  });
+
+  it('refuses a request to a foreign host through the same rule', () => {
+    const found = foreignAuthoredHost(
+      [{ action: 'request', method: 'GET', url: 'https://api.example.test/items' }],
+      deployment,
+    );
+    assert.equal(found?.action, 'request');
+    assert.equal(found?.actualHost, 'api.example.test');
+    assert.equal(found?.expectedHost, 'suite-int.example.test');
   });
 });
 

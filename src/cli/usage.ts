@@ -324,6 +324,10 @@ Browser lifecycle (wowlidator starts and checks Chrome itself — no wrapper scr
                        asserts on the database — always runs alone. 1 runs
                        them one after another, and is the A/B test for a
                        parallel result that looks wrong.
+  --case-timeout <seconds|off>
+                       Whole-case ceiling for suite/catalog runs (default 1200s;
+                       env WOWLIDATOR_CASE_TIMEOUT_MS is milliseconds). 0 or off
+                       disables it. A cut case is blocked and --resume runs it again.
   --author-concurrency <n>
   --author-attempts <n>  Authoring asks per row including the first (default 3, or the
                        Machinery dial); 1 = no re-ask budget

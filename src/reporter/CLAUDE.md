@@ -326,3 +326,12 @@ escaped like every other string.
 ## A rescued step shows once, as it ended (2026-09-04)
 
 A failed attempt that an in-run reconstruction later rescued (`ProofStep.superseded`) used to sit in the per-run report's step list as a red row of its own, one line above the green rebuilt step with the same headline — the same step twice, once failed and once passed, and only the `superseded` badge said the red one was not a failure. `stepList` in `html-reporter.ts` now folds each run of superseded attempts under the next step carrying a `ReconstructionRecord` (the one that finally held), behind a closed `details.replaced` disclosure; preparation the reconstruction inserted renders as an ordinary step in between. The attempt is still a full row inside the disclosure — error, screenshot, trace, the badge — because what was tried is evidence, just not the outcome. Three companions: the first failure that puts later absence checks "in doubt" is the first LIVE failure (a superseded one is history); the page script neither auto-opens a folded attempt nor films it (`.step:not(.attempt)`, and a step's own screenshot is read with `:scope`, never an attempt's); and `agentBlock` is framed by the STEP's status — an assist-rung agent that stalled after its first action had already opened the panel reports `success: false` on a step that passed, and the callout now says the page was prepared and the step passed on the flow's own selector, in the ordinary colour with the trace closed, rather than "goal not reached" in red. An attempt with no rescue after it (a shape the runner never writes) renders in place rather than vanishing. The catalog report and the Excel export already filtered superseded rows. Tests: `tests/reporter-wave2.test.ts` ("folds a superseded attempt").
+
+## Provider failures in the suite roll-up (2026-09-07)
+
+`LlmFactory` counts a logical model call only after its configured failover is
+exhausted, keyed by role. `runCases` prints the non-zero counts once at close as
+`provider failures: generator N · healer N · agent N (each degraded one step,
+never the verdict)`. It changes neither retry policy nor verdicts: the tally
+only makes the previously logged degradation countable. With no recorded
+failure the line is absent. Tests: `tests/api-keys.test.ts`.

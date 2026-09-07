@@ -34,6 +34,7 @@ import {
   LAUNCH_COMMANDS,
   SCREENSHOT_MODES,
   parseCaptureDelay,
+  parseCaseTimeout,
   parseContextBudget,
   parseScope,
   parseCredentials,
@@ -139,6 +140,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       'wait-for': { type: 'string' },
       open: { type: 'boolean', default: false },
       timeout: { type: 'string' },
+      'case-timeout': { type: 'string' },
       every: { type: 'string' },
       notify: { type: 'string' },
       'until-fail': { type: 'boolean', default: false },
@@ -359,6 +361,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   // and an unparseable value is an error rather than a silent fallback — a
   // typo'd delay would otherwise be discovered as a filmstrip of blank frames.
   const captureDelayMs = parseCaptureDelay(values['capture-delay'], config.captureDelayMs);
+  const caseTimeoutMs = parseCaseTimeout(values['case-timeout']);
   const stepDelayRaw = values['step-delay'] ?? process.env['WOWLIDATOR_STEP_DELAY'];
   const stepDelayMs =
     stepDelayRaw === undefined || stepDelayRaw === ''
@@ -368,6 +371,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
         : undefined;
   if (captureDelayMs === null) {
     process.stderr.write('wowlidator: --capture-delay must be a number of milliseconds\n');
+    return 2;
+  }
+  if (caseTimeoutMs === null) {
+    process.stderr.write('wowlidator: --case-timeout must be a non-negative integer number of seconds, or off\n');
     return 2;
   }
 
@@ -447,6 +454,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     waitFor: values['wait-for'],
     open: values.open === true,
     timeoutMs: values.timeout === undefined ? undefined : Number(values.timeout) * 1000,
+    caseTimeoutMs,
     every: values.every,
     notify: values.notify,
     untilFail: values['until-fail'] === true,

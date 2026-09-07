@@ -21,6 +21,7 @@ import {
   MissingApiKeyError,
   isKeyExhaustedError,
 } from '../src/providers/llm-factory.js';
+import { providerFailureLine } from '../src/cli/run-cases.js';
 import { KeySelection, KeySelectionError, maskKey } from '../src/ui/keys.js';
 
 /** A config with a chosen number of Groq keys, everything else defaulted. */
@@ -144,6 +145,12 @@ describe('a run moving off a dead key', () => {
     );
     assert.deepEqual(used, ['key-1'], 'the second key was never spent');
     assert.equal(factory.activeKeyIndex('groq'), 0);
+    assert.equal(providerFailureLine(factory.providerFailures()), 'provider failures: healer 1 (each degraded one step, never the verdict)');
+  });
+
+  it('prints no provider-failure line before a failure is recorded', () => {
+    const { factory } = keyRecordingFactory(configWith(['key-1']));
+    assert.equal(providerFailureLine(factory.providerFailures()), null);
   });
 
   it('reports every key it tried once they are all gone', async () => {

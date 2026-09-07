@@ -12,6 +12,12 @@ import type { LlmFactory } from '../providers/llm-factory.js';
 
 export const SCREENSHOT_MODES = ['auto', 'off', 'on-failure', 'on-event', 'all'] as const;
 
+/**
+ * Live 309-case run, 2026-09-07: 133 cases exceeded an hour; the worst ran
+ * 13h15m across 145 agent calls and 2.0M tokens, then exercised 0% of controls.
+ */
+export const DEFAULT_CASE_TIMEOUT_MS = 1_200_000;
+
 export interface CliOptions {
   config: WowlidatorConfig;
   factory: LlmFactory;
@@ -199,6 +205,8 @@ export interface CliOptions {
   open: boolean;
   /** Per-navigation budget for a crawl, in ms. */
   timeoutMs: number | undefined;
+  /** Whole-case ceiling for suite/catalog runs; zero disables it. */
+  caseTimeoutMs?: number | undefined;
   /** `wowlidator watch` interval, e.g. "15m". */
   every: string | undefined;
   /** Command run on a result change, fed the verdict as JSON on stdin. */
@@ -373,6 +381,24 @@ export function parseCaptureDelay(raw: string | undefined, configured: number): 
     return null;
   }
   return parsed;
+}
+
+export function parseCaseTimeout(
+  rawSeconds: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): number | null {
+  if (rawSeconds !== undefined) {
+    if (rawSeconds.trim().toLowerCase() === 'off') return 0;
+    const seconds = Number(rawSeconds);
+    if (!Number.isSafeInteger(seconds) || seconds < 0 || seconds * 1_000 > 2_147_483_647) return null;
+    return seconds * 1_000;
+  }
+  const rawMs = env['WOWLIDATOR_CASE_TIMEOUT_MS'];
+  if (rawMs === undefined || rawMs.trim() === '') return DEFAULT_CASE_TIMEOUT_MS;
+  if (rawMs.trim().toLowerCase() === 'off') return 0;
+  const milliseconds = Number(rawMs);
+  if (!Number.isSafeInteger(milliseconds) || milliseconds < 0 || milliseconds > 2_147_483_647) return null;
+  return milliseconds;
 }
 
 /**

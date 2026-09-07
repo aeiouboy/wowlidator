@@ -347,6 +347,7 @@ export class LlmFactory {
   readonly #builders: Record<ProviderName, ModelBuilder>;
   readonly #cache = new Map<LlmRole, ResolvedModel>();
   readonly #keyIndex = new Map<ProviderName, number>();
+  readonly #providerFailures = new Map<LlmRole, number>();
 
   /**
    * @param builders Test-only. Overrides how a (provider, apiKey, modelId)
@@ -397,6 +398,10 @@ export class LlmFactory {
     return this.config.maxRetries;
   }
 
+  providerFailures(): ReadonlyMap<LlmRole, number> {
+    return new Map(this.#providerFailures);
+  }
+
   /**
    * Run `attempt` against the role's model, rotating through its provider's
    * configured keys — topmost first — whenever a call fails in a way that
@@ -433,6 +438,7 @@ export class LlmFactory {
         tried.push({ keyIndex: i, error });
         const hasNext = i < keys.length - 1;
         if (!hasNext || !isKeyExhaustedError(error)) {
+          this.#providerFailures.set(role, (this.#providerFailures.get(role) ?? 0) + 1);
           throw tried.length > 1 ? new AllKeysExhaustedError(role, provider, tried) : error;
         }
         // The cursor moves even before the next attempt succeeds, so a

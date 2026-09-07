@@ -125,7 +125,8 @@ import {
   writeTruthTable,
   type KnownResult,
 } from '../reporter/truth-table.js';
-import type { CliOptions } from './options.js';
+import { DEFAULT_CASE_TIMEOUT_MS, type CliOptions } from './options.js';
+import type { LlmRole } from '../config.js';
 import { clearPauseFile, pauseFileFor, pauseRequested, requestPause, resetPause } from './pause.js';
 import {
   assertRolesResolvable,
@@ -153,6 +154,62 @@ import {
 export interface LedgerHooks {
   /** Record where this queued case's flow was written. No-op for a refused case or one without a flow path; never throws. */
   noteAuthored(testCase: SuiteCase): Promise<void>;
+}
+
+export interface CaseDeadlineResult {
+  bundle: ProofBundle;
+  ceilingReached: boolean;
+  elapsedMs: number;
+}
+
+export async function runCaseWithDeadline(
+  run: (signal: AbortSignal | undefined) => Promise<ProofBundle>,
+  options: { timeoutMs: number; startedMs: number },
+): Promise<CaseDeadlineResult> {
+  if (options.timeoutMs === 0) {
+    return { bundle: await run(undefined), ceilingReached: false, elapsedMs: Date.now() - options.startedMs };
+  }
+  const controller = new AbortController();
+  const running = run(controller.signal);
+  let timer: NodeJS.Timeout | undefined;
+  const ceiling = new Promise<'ceiling'>((resolveCeiling) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolveCeiling('ceiling');
+    }, Math.max(0, options.timeoutMs - (Date.now() - options.startedMs)));
+  });
+  try {
+    const winner = await Promise.race([
+      running.then((bundle) => ({ kind: 'bundle' as const, bundle })),
+      ceiling.then(() => ({ kind: 'ceiling' as const })),
+    ]);
+    if (winner.kind === 'bundle') {
+      return { bundle: winner.bundle, ceilingReached: false, elapsedMs: Date.now() - options.startedMs };
+    }
+    return {
+      bundle: await running,
+      ceilingReached: true,
+      elapsedMs: Date.now() - options.startedMs,
+    };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+export function caseCeilingReason(timeoutMs: number, elapsedMs: number): string {
+  return `stopped at the ${formatElapsed(timeoutMs)} case ceiling (WOWLIDATOR_CASE_TIMEOUT_MS) — no verdict; --resume runs it again (elapsed ${formatElapsed(elapsedMs)})`;
+}
+
+const PROVIDER_FAILURE_ORDER: readonly LlmRole[] = ['generator', 'healer', 'agent', 'data', 'governor'];
+
+export function providerFailureLine(failures: ReadonlyMap<LlmRole, number>): string | null {
+  const parts = PROVIDER_FAILURE_ORDER.flatMap((role) => {
+    const count = failures.get(role) ?? 0;
+    return count === 0 ? [] : [`${role} ${count}`];
+  });
+  return parts.length === 0
+    ? null
+    : `provider failures: ${parts.join(' · ')} (each degraded one step, never the verdict)`;
 }
 
 /** One listed case, ready to run. */
@@ -346,6 +403,7 @@ export async function runCases(
     planRows?: readonly { name: string; text: string }[] | undefined;
   },
 ): Promise<CaseOutcome[]> {
+  const caseTimeoutMs = options.caseTimeoutMs ?? DEFAULT_CASE_TIMEOUT_MS;
   const log = lineLogger(options);
   // The ledger: reset on a fresh run, carried forward on a resume, written
   // after every case so a stop at any point leaves the high-water mark on
@@ -957,6 +1015,10 @@ export async function runCases(
       pool: { current: poolOverride ?? concurrencyOf(), max: poolCeiling() },
     };
   };
+  process.stdout.write(
+    `  case ceiling ${caseTimeoutMs === 0 ? 'off' : formatElapsed(caseTimeoutMs)} ` +
+      '(WOWLIDATOR_CASE_TIMEOUT_MS; --case-timeout overrides)\n',
+  );
   if (parallel && !streaming) {
     const alone = queue.items.filter((c, i) => scheduleOf(c, i)).length;
     const locked = useLocks ? queue.items.filter((c) => dataWindows(c.flow, fkPairs).length > 0).length : 0;
@@ -1177,7 +1239,10 @@ export async function runCases(
        * One function because a solo re-run (interference) needs to do all of
        * it again for its replacement verdict.
        */
-      const settle = async (bundle: ProofBundle, { notify }: { notify: boolean }): Promise<void> => {
+      const settle = async (
+        bundle: ProofBundle,
+        { notify, blockedReason }: { notify: boolean; blockedReason?: string | undefined },
+      ): Promise<void> => {
         // The governor hears about a case that still did not pass — it may
         // hold a sibling, shrink the pool, or seed the fixture the section is
         // starved on. Fire-and-forget: a verdict never waits on advice.
@@ -1191,7 +1256,7 @@ export async function runCases(
         // application — and the fix when one exists. Written into the bundle
         // BEFORE it is persisted, so the proof, the report and the panel all
         // carry it. A test-failure is a verdict and is never diagnosed.
-        if (bundle.status === 'error' && diagnosisModel) {
+        if (blockedReason === undefined && bundle.status === 'error' && diagnosisModel) {
           const diagnosis = await diagnoseError(
             {
               caseName: testCase.name,
@@ -1243,7 +1308,7 @@ export async function runCases(
         // gave up, a provider that refused the call). Both score `blocked`,
         // never `failed`: filing the harness's own gap as a product defect is
         // the false test failure this suite used to produce 136 times over.
-        const blocked = neverRan(bundle) ?? harnessOnly(bundle);
+        const blocked = blockedReason ?? neverRan(bundle) ?? harnessOnly(bundle);
         if (blocked !== null) {
           // Said out loud, at the moment it happens, and on stderr: this is not a
           // verdict, and a reader scanning stdout for verdicts must not take it
@@ -1307,30 +1372,43 @@ export async function runCases(
         if (notify) where.onCaseDone?.(testCase, collected[index]!);
       };
 
-      let bundle;
-      if (autoheal && !failFast) {
-        // The loop runs the first attempt itself, so the case is not run twice
-        // — a clean first pass is one run, exactly as without autoheal.
-        const loop = new FlowRepairLoop({
-          model: new LlmFlowRepairModel({ factory: options.factory }),
-          maxAttempts: options.repairAttempts,
-          // Repaired attempts land beside the case's own artifacts, one
-          // reviewable file per attempt — never overwriting anything.
-          outDir: testCase.group === undefined ? where.dir : join(where.dir, slugify(testCase.group)),
-          onLog: (line) => emitTagged(tag, `${line}\n`),
-          agent: options.repairInvestigate ? buildInvestigationAgent(options) : null,
-          regenerateFrom: options.repairRegenerate,
-          memory: repairMemory,
-          runOptions: caseRunOptions,
-        });
-        const outcome = await loop.run(testCase.flow, slugify(testCase.name));
-        const repaired = outcome.attempts.filter((a) => a.repair);
-        for (const a of repaired) {
-          emitTagged(tag, `  autoheal   ${a.repair!.flowPath}\n  patch      ${a.repair!.patchPath}\n`);
-        }
-        bundle = outcome.attempts[outcome.attempts.length - 1]!.bundle;
-      } else {
-        bundle = await runFlow(testCase.flow, caseRunOptions);
+      const caseRun = await runCaseWithDeadline(
+        async (abortSignal) => {
+          const boundedRunOptions: RunFlowOptions = {
+            ...caseRunOptions,
+            ...(abortSignal === undefined ? {} : { abortSignal }),
+          };
+          if (!autoheal || failFast) return runFlow(testCase.flow, boundedRunOptions);
+          const loop = new FlowRepairLoop({
+            model: new LlmFlowRepairModel({ factory: options.factory }),
+            maxAttempts: options.repairAttempts,
+            outDir: testCase.group === undefined ? where.dir : join(where.dir, slugify(testCase.group)),
+            onLog: (line) => emitTagged(tag, `${line}\n`),
+            agent: options.repairInvestigate ? buildInvestigationAgent(options) : null,
+            regenerateFrom: options.repairRegenerate,
+            memory: repairMemory,
+            runOptions: boundedRunOptions,
+          });
+          const outcome = await loop.run(testCase.flow, slugify(testCase.name));
+          const repaired = outcome.attempts.filter((attempt) => attempt.repair);
+          for (const attempt of repaired) {
+            emitTagged(tag, `  autoheal   ${attempt.repair!.flowPath}\n  patch      ${attempt.repair!.patchPath}\n`);
+          }
+          return outcome.attempts[outcome.attempts.length - 1]!.bundle;
+        },
+        { timeoutMs: caseTimeoutMs, startedMs: caseStartedMs },
+      );
+      const bundle = caseRun.bundle;
+      const blockedReason = caseRun.ceilingReached
+        ? caseCeilingReason(caseTimeoutMs, caseRun.elapsedMs)
+        : undefined;
+      if (blockedReason !== undefined) {
+        bundle.notes = [...(bundle.notes ?? []), blockedReason];
+        emitTagged(
+          tag,
+          `  ⏱ case ceiling reached at ${formatElapsed(caseTimeoutMs)} — no verdict, released for --resume\n`,
+          'err',
+        );
       }
 
       // Stamp the case span before the bundle is persisted — from pickup to
@@ -1350,7 +1428,13 @@ export async function runCases(
       // the note. The lane itself never waits: waiting here is what deadlocked
       // three lanes that were stamped together. This is the honesty backstop
       // for every mis-drawn section boundary.
-      if (useSections && parallel && !isPassing(bundle.status) && bundle.status !== 'needs-review') {
+      if (
+        blockedReason === undefined &&
+        useSections &&
+        parallel &&
+        !isPassing(bundle.status) &&
+        bundle.status !== 'needs-review'
+      ) {
         const mine = { meta: metaOf(testCase, index), startedMs: caseStartedMs, endedMs: Date.now() };
         const culprits = [...windows.entries(), ...[...inFlightMeta.entries()].map(([i, l]) => [i, { ...l, endedMs: Date.now() }] as const)]
           .filter(([otherIndex, other]) => otherIndex !== index && windowsInterfere(mine, other))
@@ -1364,14 +1448,35 @@ export async function runCases(
             name: testCase.name,
             run: async () => {
               emitTagged(tag, `\nre-running alone "${testCase.name}" — first attempt ${firstStatus}, flagged as possible interference\n`);
-              inFlightMeta.set(index, { name: testCase.name, meta: metaOf(testCase, index), startedMs: Date.now() });
+              const rerunStartedMs = Date.now();
+              const rerunStartedAt = new Date(rerunStartedMs).toISOString();
+              inFlightMeta.set(index, { name: testCase.name, meta: metaOf(testCase, index), startedMs: rerunStartedMs });
               try {
-                const rerun = await runFlow(testCase.flow, caseRunOptions);
-                rerun.caseStartedAt = caseStartedAt;
-                rerun.caseDurationMs = Date.now() - caseStartedMs;
+                const rerunCase = await runCaseWithDeadline(
+                  async (abortSignal) =>
+                    runFlow(testCase.flow, {
+                      ...caseRunOptions,
+                      ...(abortSignal === undefined ? {} : { abortSignal }),
+                    }),
+                  { timeoutMs: caseTimeoutMs, startedMs: rerunStartedMs },
+                );
+                const rerun = rerunCase.bundle;
+                const rerunBlocked = rerunCase.ceilingReached
+                  ? caseCeilingReason(caseTimeoutMs, rerunCase.elapsedMs)
+                  : undefined;
+                rerun.caseStartedAt = rerunStartedAt;
+                rerun.caseDurationMs = Date.now() - rerunStartedMs;
                 if (testCase.risk) rerun.risk = testCase.risk;
                 rerun.notes = [...(rerun.notes ?? []), `${stamp} — re-ran alone (first attempt: ${firstStatus})`];
-                await settle(rerun, { notify: false });
+                if (rerunBlocked !== undefined) {
+                  rerun.notes.push(rerunBlocked);
+                  emitTagged(
+                    tag,
+                    `  ⏱ case ceiling reached at ${formatElapsed(caseTimeoutMs)} — no verdict, released for --resume\n`,
+                    'err',
+                  );
+                }
+                await settle(rerun, { notify: false, blockedReason: rerunBlocked });
               } catch (error) {
                 // The provisional verdict stands, and says why it is provisional.
                 const reason = error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error);
@@ -1387,7 +1492,7 @@ export async function runCases(
           });
         }
       }
-      await settle(bundle, { notify: true });
+      await settle(bundle, { notify: true, blockedReason });
     } catch (error) {
       // The narrower case: something threw before there was a bundle at all —
       // a report that could not be written, an unexpected engine error.
@@ -1696,6 +1801,9 @@ export async function runCases(
       }
     }
   }
+
+  const failures = providerFailureLine(options.factory.providerFailures());
+  if (failures !== null) process.stdout.write(`  ${failures}\n`);
 
   if (ledger !== null && where.ledger !== undefined) {
     const left = remaining(ledger);

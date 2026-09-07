@@ -3309,6 +3309,14 @@ export class FlowAuthor {
           );
         }
 
+        const foreignHost = foreignAuthoredHost(
+          [...(result.setup ?? []), ...result.steps],
+          url,
+        );
+        if (foreignHost !== null) {
+          refuse(foreignHostRefusal(result.name, foreignHost));
+        }
+
         const invented = ungroundedGoto(
           [...(result.setup ?? []), ...result.steps],
           this.#declaredRoutes,
@@ -5025,8 +5033,8 @@ export function ungroundedGoto(
   if (declaredRoutes.length === 0) return null;
   for (const [index, step] of steps.entries()) {
     if (step.action !== 'goto') continue;
-    const url = step.url;
-    if (url === '') continue;
+    const url = authoredStepUrl(step);
+    if (url === null) continue;
     // Another origin is not this application's routing table's business.
     if (/^https?:\/\//i.test(url) && deploymentUrl !== undefined) {
       try {
@@ -5041,6 +5049,49 @@ export function ungroundedGoto(
     return { index, url, near: nearestRoutes(path, declaredRoutes).map((one) => one.pattern) };
   }
   return null;
+}
+
+function authoredStepUrl(step: FlowStep): string | null {
+  const url = (step as { url?: unknown }).url;
+  return typeof url === 'string' && url !== '' ? url : null;
+}
+
+export function foreignAuthoredHost(
+  steps: readonly FlowStep[],
+  deploymentUrl: string | undefined,
+): { index: number; action: string; url: string; actualHost: string; expectedHost: string } | null {
+  if (deploymentUrl === undefined) return null;
+  let expectedHost: string;
+  try {
+    expectedHost = new URL(deploymentUrl).host;
+  } catch {
+    return null;
+  }
+  for (const [index, step] of steps.entries()) {
+    const url = authoredStepUrl(step);
+    if (url === null || url.includes('{{')) continue;
+    try {
+      const actualHost = new URL(url).host;
+      if (actualHost !== expectedHost) {
+        return { index, action: step.action, url, actualHost, expectedHost };
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+export function foreignHostRefusal(
+  flowName: string,
+  foreign: { action: string; url: string; actualHost: string; expectedHost: string },
+): string {
+  return (
+    `the authored flow "${flowName}" has a ${foreign.action} URL ${JSON.stringify(foreign.url)} on host ` +
+    `"${foreign.actualHost}", but this run's deployment host is "${foreign.expectedHost}". ` +
+    `The run's own host "${foreign.expectedHost}" is the only one this catalog may reach. ` +
+    `Use "${foreign.expectedHost}" for this URL, or make it relative to the deployment URL.`
+  );
 }
 
 export function loginProofAssertsLoginPage(steps: readonly FlowStep[]): number | null {
