@@ -13,6 +13,7 @@ import { describe, it } from 'node:test';
 
 import type { ApiTransport } from '../src/api/api-client.js';
 import { parseTestCaseTable, testDataPairs } from '../src/catalog/test-case-table.js';
+import { inferShape, lookupOperations, type LookupOperation, type LookupShape } from '../src/context/lookup-discovery.js';
 import {
   LookupFetcher,
   MAX_LOOKUP_PAGES,
@@ -31,8 +32,24 @@ import {
   templateTokens,
   type MasterDataLookup,
 } from '../src/context/master-data.js';
+import type { ProjectGraph } from '../src/context/types.js';
 
 const FIXTURES = resolve(import.meta.dirname, 'fixtures');
+
+interface LookupShapeCase {
+  readonly body: unknown;
+  readonly expected: LookupShape | null;
+}
+
+interface LookupDiscoveryFixture {
+  readonly graph: ProjectGraph;
+  readonly expectedOperations: readonly LookupOperation[];
+  readonly shapes: readonly LookupShapeCase[];
+}
+
+async function lookupDiscoveryFixture(): Promise<LookupDiscoveryFixture> {
+  return JSON.parse(await readFile(join(FIXTURES, 'lookup-discovery.json'), 'utf8'));
+}
 
 /** The positions lookup as the fixture declares it, for the pure tests. */
 const POSITIONS: MasterDataLookup = {
@@ -394,5 +411,71 @@ describe('master data — from a catalog to a report', () => {
       { field: ['X'], bindings: {}, status: 'ok', urls: ['http://fixture.test/x'], codes: [{ code: 'A', cases: ['C1'], sharedBy: 1, found: true, reachable: true }] },
     ]);
     assert.match(clean, /Every code was found and reachable\.$/);
+  });
+});
+
+describe('lookup discovery — pure graph and response inference', () => {
+  it('selects unique GET lookup operations in path order and derives singular fields', async () => {
+    const fixture = await lookupDiscoveryFixture();
+
+    const operations = lookupOperations(fixture.graph);
+
+    assert.deepEqual(operations, fixture.expectedOperations);
+  });
+
+  it('infers the declared paths from five hand-written response shapes', async () => {
+    const fixture = await lookupDiscoveryFixture();
+
+    const inferred = fixture.shapes.map(({ body }) => inferShape(body));
+
+    assert.deepEqual(inferred, fixture.shapes.map(({ expected }) => expected));
+  });
+});
+
+describe('a lookup field is named by its head noun, singularised by spelling and no word list', () => {
+  // Measured against the indexed application's fourteen lookups. A bare "drop
+  // a trailing s", applied to every word, gives `Companie` and `Time Statu
+  // Mapping`; the field name has to match the sheet's own Test Data column,
+  // and `Company` is exactly what the sheet writes.
+  it('reads the real segments the way the sheet writes them', () => {
+    const graph = {
+      nodes: [
+        'companies',
+        'employee-groups',
+        'payment-methods',
+        'positions',
+        'employees',
+        'time-status-mapping',
+        'time-status-master',
+        'corporate-title-info',
+        'banks',
+      ].map((seg) => ({ kind: 'operation', name: `GET /api/x/lookup/${seg}`, id: seg })),
+    } as unknown as Parameters<typeof lookupOperations>[0];
+    assert.deepEqual(
+      lookupOperations(graph).map((one) => one.field),
+      [
+        'Bank',
+        'Company',
+        'Corporate Title Info',
+        'Employee Group',
+        'Employee',
+        'Payment Method',
+        'Position',
+        'Time Status Mapping',
+        'Time Status Master',
+      ],
+    );
+  });
+
+  it('leaves a singular that merely ends in s alone, and unpicks -ies', () => {
+    const of = (seg: string): string =>
+      lookupOperations({ nodes: [{ kind: 'operation', name: `GET /lookup/${seg}`, id: seg }] } as unknown as Parameters<
+        typeof lookupOperations
+      >[0])[0]!.field;
+    assert.equal(of('status'), 'Status');
+    assert.equal(of('address'), 'Address');
+    assert.equal(of('countries'), 'Country');
+    assert.equal(of('branches'), 'Branch');
+    assert.equal(of('taxes'), 'Tax');
   });
 });

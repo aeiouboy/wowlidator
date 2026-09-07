@@ -15,7 +15,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -314,6 +314,101 @@ describe('cli — data check (master-data grounding)', () => {
     const result = await runCli(['--help']);
     assert.match(result.stdout, /wowlidator data check <catalog> --master-data <file> --url <app>/);
     assert.match(result.stdout, /--master-data <file>/);
+  });
+});
+
+interface LookupCliFixture {
+  readonly graph: unknown;
+  readonly live: {
+    readonly repoSlug: string;
+    readonly knownPath: string;
+    readonly unknownPath: string;
+    readonly knownBody: unknown;
+    readonly summary: string;
+  };
+}
+
+describe('cli — data lookups (lookup discovery)', () => {
+  const FIXTURES = join(ROOT, 'tests', 'fixtures');
+  let fixture: LookupCliFixture;
+  let server: Server;
+  let origin: string;
+  let scratch: string;
+
+  before(async () => {
+    fixture = JSON.parse(await readFile(join(FIXTURES, 'lookup-discovery.json'), 'utf8'));
+    scratch = await mkdtemp(join(tmpdir(), 'wowlidator-data-lookups-'));
+    const registry = join(scratch, '.wowlidator', 'context');
+    const repoRoot = join(scratch, 'fixture-repo');
+    await mkdir(registry, { recursive: true });
+    await mkdir(repoRoot, { recursive: true });
+    await writeFile(
+      join(registry, 'repos.json'),
+      JSON.stringify({
+        version: 1,
+        repos: [{ slug: fixture.live.repoSlug, path: repoRoot, indexedAt: new Date(0).toISOString(), nodes: 6 }],
+      }),
+      'utf8',
+    );
+    await writeFile(join(registry, `${fixture.live.repoSlug}.graph.json`), JSON.stringify(fixture.graph), 'utf8');
+    server = createServer((req, res) => {
+      const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
+      if (path === fixture.live.knownPath) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(fixture.live.knownBody));
+        return;
+      }
+      if (path === fixture.live.unknownPath) {
+        res.writeHead(200, { 'content-type': 'text/html' });
+        res.end('<!doctype html><title>Sign in</title>');
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'not found' }));
+    });
+    await new Promise<void>((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
+    origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  after(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolveClose, rejectClose) => server.close((error) => (error ? rejectClose(error) : resolveClose())));
+    await rm(scratch, { recursive: true, force: true });
+  });
+
+  it('reports every indexed lookup and writes a declaration accepted by data check', async () => {
+    const declarationPath = join(scratch, 'discovered.lookups.json');
+
+    const result = await runCli(
+      ['data', 'lookups', '--repo', fixture.live.repoSlug, '--url', origin, '--out', declarationPath],
+      {},
+      { cwd: scratch },
+    );
+
+    assert.equal(result.code, EXIT.ok, result.stderr);
+    assert.ok(result.stdout.includes(fixture.live.summary), result.stdout);
+    const declaration: unknown = JSON.parse(await readFile(declarationPath, 'utf8'));
+    assert.ok(Array.isArray(declaration));
+    assert.equal(declaration.length, 1, 'the unknown lookup is omitted');
+    const validation = await runCli(
+      [
+        'data',
+        'check',
+        join(FIXTURES, 'master-data-cases.csv'),
+        '--master-data',
+        declarationPath,
+        '--url',
+        origin,
+      ],
+      {},
+      { cwd: scratch },
+    );
+    assert.equal(validation.code, EXIT.ok, validation.stderr);
+  });
+
+  it('documents the lookup discovery command in --help', async () => {
+    const result = await runCli(['--help']);
+    assert.match(result.stdout, /wowlidator data lookups --repo <slug> --url <app>/);
   });
 });
 

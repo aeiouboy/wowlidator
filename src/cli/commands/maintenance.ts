@@ -31,6 +31,14 @@ import type { Browser } from 'playwright';
 import type { TestCaseRow } from '../../catalog/test-case-table.js';
 import type { FetchJson, LookupGrounding, MasterDataLookup } from '../../context/master-data.js';
 
+interface DataTransport {
+  readonly fetchJson: FetchJson;
+  readonly notes: string[];
+  readonly closeTransport?: (() => Promise<void>) | undefined;
+}
+
+type DataTransportBuild = DataTransport | { readonly exit: number };
+
 /**
  * Verify each role end to end: key present, provider constructs, model id
  * actually resolves against the live API. Model ids drift far faster than this
@@ -528,6 +536,169 @@ export async function cmdDb(sub: string | undefined, target: string | undefined,
   }
 }
 
+async function buildDataTransport(
+  options: CliOptions,
+  injected: FetchJson | undefined,
+  subcommand: string,
+): Promise<DataTransportBuild> {
+  if (injected !== undefined) return { fetchJson: injected, notes: [] };
+  const { BrowserTransport, FetchTransport } = await import('../../api/api-client.js');
+  const { fetchJsonThrough } = await import('../../context/master-data.js');
+  const credentials = options.credentials ?? Object.values(options.personas)[0];
+  if (credentials === undefined || options.url === undefined) {
+    return {
+      fetchJson: fetchJsonThrough(new FetchTransport()),
+      notes: [
+        "fetched over plain HTTP with no session — pass --as or --persona to use the application's own cookies",
+      ],
+    };
+  }
+
+  const { prepare, cleanupChrome } = await import('../artifacts.js');
+  const { DEFAULT_CDP_URL } = await import('../../engine/runner.js');
+  const { SIGN_IN_URL_PATTERN, performSignIn } = await import('../../engine/sign-in.js');
+  const { acceptConsentGate } = await import('../../engine/consent-gate.js');
+  const { chromium } = await import('playwright');
+  const blocked = await prepare(options, options.url);
+  if (blocked !== null) return { exit: blocked };
+  const cdpUrl = options.cdp ?? DEFAULT_CDP_URL;
+  let browser: Browser;
+  try {
+    browser = await chromium.connectOverCDP(cdpUrl);
+  } catch (error) {
+    process.stderr.write(
+      `wowlidator data ${subcommand}: could not attach to a browser at ${cdpUrl}: ` +
+        `${error instanceof Error ? error.message.split('\n')[0] : String(error)}\n`,
+    );
+    return { exit: 3 };
+  }
+  const context = await browser.newContext();
+  const closeTransport = async (): Promise<void> => {
+    await context.close().catch(() => undefined);
+    await browser.close().catch(() => undefined);
+    await cleanupChrome(options);
+  };
+  const notes: string[] = [];
+  const tab = await context.newPage();
+  try {
+    await tab.goto(options.url, { waitUntil: 'domcontentloaded' });
+    await tab.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
+    if (SIGN_IN_URL_PATTERN.test(tab.url())) {
+      process.stderr.write(`[wowlidator] signing in as ${credentials.email} so the lookups carry the application's session…\n`);
+      const outcome = await performSignIn(tab, credentials);
+      if (!outcome.ok) {
+        notes.push(`sign-in as ${credentials.email} did not take (${outcome.reason}); the lookups were sent without a session`);
+      } else if (SIGN_IN_URL_PATTERN.test(tab.url())) {
+        notes.push(`sign-in as ${credentials.email} left the tab on ${tab.url()}; the lookups may have been sent without a session`);
+      }
+    }
+    await acceptConsentGate(tab).catch(() => false);
+  } catch (error) {
+    notes.push(
+      `could not open ${options.url} first (${error instanceof Error ? error.message.split('\n')[0] : String(error)}); ` +
+        'the lookups were sent without a session',
+    );
+  }
+  return { fetchJson: fetchJsonThrough(new BrowserTransport(context)), notes, closeTransport };
+}
+
+async function cmdDataLookups(
+  options: CliOptions,
+  injected: FetchJson | undefined,
+  out: string | undefined,
+): Promise<number> {
+  if (options.repo === undefined) {
+    process.stderr.write('wowlidator data lookups: --repo <slug> is required — the saved index to inspect\n');
+    return 2;
+  }
+  if (options.url === undefined) {
+    process.stderr.write('wowlidator data lookups: --url <app> is required — the lookup paths are resolved against it\n');
+    return 2;
+  }
+  const entry = await resolveRepo(options.repo);
+  if (entry === null) {
+    process.stderr.write(
+      `wowlidator data lookups: unknown repository "${options.repo}" — see saved ones with: wowlidator context list\n`,
+    );
+    return 2;
+  }
+  const engine = new ContextEngine({
+    rootDir: entry.path,
+    cacheFile: graphFileFor(entry.slug),
+    openApiSpec: entry.openapi,
+    dbSchema: entry.dbSchema,
+    dbUrl: process.env['WOWLIDATOR_DB_URL'],
+    dbRemoteOk: process.env['WOWLIDATOR_DB_REMOTE_OK'] === '1',
+  });
+  const graph = await engine.load();
+  if (graph === null) {
+    process.stderr.write(
+      `wowlidator data lookups: no readable saved graph for ${entry.slug} — rebuild it with: wowlidator context add ${entry.path}\n`,
+    );
+    return 2;
+  }
+  const { discoverLookups, lookupOperations } = await import('../../context/lookup-discovery.js');
+  const transport = await buildDataTransport(options, injected, 'lookups');
+  if ('exit' in transport) return transport.exit;
+  let discoveries;
+  try {
+    discoveries = await discoverLookups(
+      lookupOperations(graph),
+      transport.fetchJson,
+      { baseUrl: options.url },
+    );
+  } finally {
+    await transport.closeTransport?.();
+  }
+
+  for (const discovery of discoveries) {
+    if ('shape' in discovery) {
+      process.stdout.write(
+        `${discovery.field}\t${discovery.path}\trows=${JSON.stringify(discovery.shape.rows)} ` +
+          `code=${discovery.shape.code} label=${discovery.shape.label}\n`,
+      );
+    } else {
+      process.stdout.write(`${discovery.field}\t${discovery.path}\tunknown: ${discovery.unknown}\n`);
+    }
+  }
+  const known = discoveries.filter((discovery) => 'shape' in discovery);
+  const unknown = discoveries.filter((discovery) => 'unknown' in discovery);
+  const unknownNames = unknown.length === 0 ? '' : ` (${unknown.map((item) => item.field).join(', ')})`;
+  process.stdout.write(
+    `summary: ${known.length} of ${discoveries.length} lookup(s) inferred; ${unknown.length} unknown${unknownNames}\n`,
+  );
+  for (const note of transport.notes) process.stdout.write(`note: ${note}\n`);
+
+  if (out !== undefined) {
+    const { writeFile } = await import('node:fs/promises');
+    const { MASTER_DATA_DECLARATION_SCHEMA } = await import('../../context/master-data.js');
+    const declaration = known.map((discovery) => ({
+      field: [discovery.field],
+      // The base that ANSWERED, not the app-relative path: a deployment may
+      // serve the application under a prefix, and `data check` fetching the
+      // bare path would reach the web server's 404 instead of the app.
+      url: `${discovery.base}${discovery.path}`,
+      rows: discovery.shape.rows,
+      code: discovery.shape.code,
+      label: discovery.shape.label,
+    }));
+    const parsed = MASTER_DATA_DECLARATION_SCHEMA.safeParse(declaration);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      process.stderr.write(
+        `wowlidator data lookups: cannot write ${out}: ${issue?.message ?? 'invalid master-data declaration'}\n`,
+      );
+      return 2;
+    }
+    await writeFile(resolve(out), `${JSON.stringify(parsed.data, null, 2)}\n`, 'utf8');
+    process.stdout.write(`wrote ${resolve(out)}\n`);
+    process.stdout.write(
+      "note: field names are derived from lookup URLs; edit them to match the sheet's own Test Data column names\n",
+    );
+  }
+  return 0;
+}
+
 /**
  * `wowlidator data check <catalog> --master-data <file> --url <app>` — the
  * master-data grounding rung (`src/context/master-data.ts`): which of the
@@ -551,10 +722,15 @@ export async function cmdData(
   sub: string | undefined,
   catalog: string | undefined,
   options: CliOptions,
-  extra: { masterData?: string | undefined; fetchJson?: FetchJson | undefined } = {},
+  extra: {
+    masterData?: string | undefined;
+    fetchJson?: FetchJson | undefined;
+    out?: string | undefined;
+  } = {},
 ): Promise<number> {
+  if (sub === 'lookups') return cmdDataLookups(options, extra.fetchJson, extra.out);
   if (sub !== 'check') {
-    process.stderr.write(`wowlidator data: unknown subcommand ${sub ?? '(none)'} (expected: check)\n`);
+    process.stderr.write(`wowlidator data: unknown subcommand ${sub ?? '(none)'} (expected: check or lookups)\n`);
     return 2;
   }
   if (catalog === undefined) {
@@ -576,7 +752,6 @@ export async function cmdData(
   const {
     LookupFetcher,
     describeGroundingFinding,
-    fetchJsonThrough,
     groundPlan,
     planLookups,
     readMasterDataDeclaration,
@@ -625,65 +800,9 @@ export async function cmdData(
 
   // The transport. Injected by a test; otherwise the browser's own cookies
   // when someone to sign in as was named, plain HTTP when not.
-  let fetchJson = extra.fetchJson;
-  let closeTransport: (() => Promise<void>) | undefined;
-  const notes: string[] = [];
-  if (fetchJson === undefined) {
-    const { BrowserTransport, FetchTransport } = await import('../../api/api-client.js');
-    const credentials = options.credentials ?? Object.values(options.personas)[0];
-    if (credentials === undefined || options.url === undefined) {
-      fetchJson = fetchJsonThrough(new FetchTransport());
-      notes.push("fetched over plain HTTP with no session — pass --as or --persona to use the application's own cookies");
-    } else {
-      const { prepare, cleanupChrome } = await import('../artifacts.js');
-      const { DEFAULT_CDP_URL } = await import('../../engine/runner.js');
-      const { SIGN_IN_URL_PATTERN, performSignIn } = await import('../../engine/sign-in.js');
-      const { acceptConsentGate } = await import('../../engine/consent-gate.js');
-      const { chromium } = await import('playwright');
-      const blocked = await prepare(options, options.url);
-      if (blocked !== null) return blocked;
-      const cdpUrl = options.cdp ?? DEFAULT_CDP_URL;
-      let browser: Browser;
-      try {
-        browser = await chromium.connectOverCDP(cdpUrl);
-      } catch (error) {
-        process.stderr.write(
-          `wowlidator data check: could not attach to a browser at ${cdpUrl}: ` +
-            `${error instanceof Error ? error.message.split('\n')[0] : String(error)}\n`,
-        );
-        return 3;
-      }
-      // A context of its own, so nothing this signs in as leaks into a run's
-      // session and nothing a run left behind decides what this reads.
-      const context = await browser.newContext();
-      closeTransport = async () => {
-        await context.close().catch(() => undefined);
-        await browser.close().catch(() => undefined);
-        await cleanupChrome(options);
-      };
-      const tab = await context.newPage();
-      try {
-        await tab.goto(options.url, { waitUntil: 'domcontentloaded' });
-        await tab.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
-        if (SIGN_IN_URL_PATTERN.test(tab.url())) {
-          log(`signing in as ${credentials.email} so the lookups carry the application's session…`);
-          const outcome = await performSignIn(tab, credentials);
-          if (!outcome.ok) {
-            notes.push(`sign-in as ${credentials.email} did not take (${outcome.reason}); the lookups were sent without a session`);
-          } else if (SIGN_IN_URL_PATTERN.test(tab.url())) {
-            notes.push(`sign-in as ${credentials.email} left the tab on ${tab.url()}; the lookups may have been sent without a session`);
-          }
-        }
-        await acceptConsentGate(tab).catch(() => false);
-      } catch (error) {
-        notes.push(
-          `could not open ${options.url} first (${error instanceof Error ? error.message.split('\n')[0] : String(error)}); ` +
-            'the lookups were sent without a session',
-        );
-      }
-      fetchJson = fetchJsonThrough(new BrowserTransport(context));
-    }
-  }
+  const transport = await buildDataTransport(options, extra.fetchJson, 'check');
+  if ('exit' in transport) return transport.exit;
+  const { fetchJson, notes, closeTransport } = transport;
 
   const results: LookupGrounding[] = [];
   try {

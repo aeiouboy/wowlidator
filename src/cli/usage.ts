@@ -54,6 +54,7 @@ Usage:
                                            are they called, are they free, and can
                                            the UI picker reach them? A report, exit
                                            0 always — see "data check" below
+  wowlidator data lookups --repo <slug> --url <app> [--as <email>:<pass>] [--out <file>]
   wowlidator doctor
   wowlidator mcp
 

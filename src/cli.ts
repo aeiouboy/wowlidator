@@ -545,7 +545,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     case 'db':
       return cmdDb(positionals[1], positionals[2], options);
     case 'data':
-      return cmdData(positionals[1], positionals[2], options, { masterData: values['master-data'] });
+      return cmdData(positionals[1], positionals[2], options, {
+        masterData: values['master-data'],
+        out: values.out,
+      });
     case 'mcp':
       await mcpMain();
       return 0;

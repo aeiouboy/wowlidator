@@ -1,0 +1,124 @@
+{
+  "graph": {
+    "version": 1,
+    "rootDir": "/fixture/repository",
+    "generatedAt": "2026-09-07T00:00:00.000Z",
+    "signature": "fixture",
+    "nodes": [
+      {
+        "id": "operation:get-reference-levels",
+        "kind": "operation",
+        "name": "GET /api/reference/levels",
+        "file": "openapi.json"
+      },
+      {
+        "id": "operation:get-employee-groups",
+        "kind": "operation",
+        "name": "GET /api/lookup/employee-groups",
+        "file": "openapi.json"
+      },
+      {
+        "id": "operation:get-employee-groups-duplicate",
+        "kind": "operation",
+        "name": "GET /api/lookup/employee-groups",
+        "file": "routes.ts"
+      },
+      {
+        "id": "operation:post-employee-groups",
+        "kind": "operation",
+        "name": "POST /api/lookup/employee-groups",
+        "file": "openapi.json"
+      },
+      {
+        "id": "operation:get-employees",
+        "kind": "operation",
+        "name": "GET /api/employees",
+        "file": "openapi.json"
+      },
+      {
+        "id": "route:lookup",
+        "kind": "route",
+        "name": "/api/lookup/not-an-operation",
+        "file": "page.tsx"
+      }
+    ],
+    "edges": [],
+    "sources": [
+      {
+        "id": "fixture",
+        "nodes": 6,
+        "edges": 0,
+        "warnings": []
+      }
+    ]
+  },
+  "expectedOperations": [
+    {
+      "path": "/api/lookup/employee-groups",
+      "field": "Employee Group"
+    },
+    {
+      "path": "/api/reference/levels",
+      "field": "Level"
+    }
+  ],
+  "shapes": [
+    {
+      "name": "nested rows with a unique fallback code",
+      "body": {
+        "data": {
+          "rows": [
+            { "serial": "A-01", "displayName": "Alpha" },
+            { "serial": "A-02", "displayName": "Beta" }
+          ]
+        }
+      },
+      "expected": { "rows": "data.rows", "code": "serial", "label": "displayName" }
+    },
+    {
+      "name": "root array",
+      "body": [
+        { "value": 10, "title": "Ten" },
+        { "value": 20, "title": "Twenty" }
+      ],
+      "expected": { "rows": "", "code": "value", "label": "title" }
+    },
+    {
+      "name": "locale map label",
+      "body": {
+        "items": [
+          { "key": "active", "name": { "en": "Active", "th": "ใช้งาน" } }
+        ]
+      },
+      "expected": { "rows": "items", "code": "key", "label": "name" }
+    },
+    {
+      "name": "code outranks id",
+      "body": {
+        "results": [
+          { "id": 7, "code": "C-07", "description": "Seventh" }
+        ]
+      },
+      "expected": { "rows": "results", "code": "code", "label": "description" }
+    },
+    {
+      "name": "no array",
+      "body": { "data": { "item": { "code": "none", "label": "None" } } },
+      "expected": null
+    }
+  ],
+  "live": {
+    "repoSlug": "fixture-app-a1b2",
+    "knownPath": "/api/lookup/employee-groups",
+    "unknownPath": "/api/reference/levels",
+    "knownBody": {
+      "data": {
+        "rows": [
+          { "groupCode": "G-01", "label": "Primary" },
+          { "groupCode": "G-02", "label": "Secondary" }
+        ]
+      }
+    },
+    "summary": "summary: 1 of 2 lookup(s) inferred; 1 unknown (Level)"
+  }
+}
