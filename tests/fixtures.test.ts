@@ -227,3 +227,35 @@ describe('writing under the run folder', () => {
     assert.equal(fixtureDir('', '/tmp/root'), join('/tmp/root', 'run'));
   });
 });
+
+describe('the spec an authored upload carries is minted, and a shape that will not build is caught (2026-09-07, run 15)', () => {
+  // `writeFixture` had no caller anywhere in `src/`: the author emitted
+  // `pdf:HIR-EC-001-attachment` and the runner handed that string to
+  // `attachFiles` as a PATH, which died `fixture file not found:
+  // …/e2e-01/pdf:HIR-EC-001-attachment`. It was the first errored step of run
+  // 15 and the whole case's verdict — `error`, not a defect, over a file the
+  // harness was supposed to write itself. `SmartRunner.upload` mints it now.
+  it('mints the shapes the author writes, and leaves a real path alone', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'wowlidator-mint-'));
+    for (const spec of ['pdf:HIR-EC-001-attachment', 'pdf:personal-information']) {
+      assert.equal(isFixtureSpec(spec), true, spec);
+      const written = await writeFixture(spec, { runKey: 'run-15', caseId: 'HIR-EC-001', root });
+      assert.equal(existsSync(written.path), true, written.path);
+      assert.equal(written.mediaType, 'application/pdf');
+      assert.ok(written.bytes.length > 0);
+    }
+    for (const path of ['./fixtures/real.pdf', '/tmp/a.csv', 'C:\\docs\\x.pdf', '']) {
+      assert.equal(isFixtureSpec(path), false, path);
+    }
+  });
+
+  it('a spec whose SHAPE passes but whose parts do not build is a caught error, never a throw at the step', () => {
+    // The two functions disagree on purpose — `isFixtureSpec` tests the shape
+    // and `buildFixture` validates the parts — so the runner's minting is
+    // wrapped: the string is kept and `attachFiles` reports the honest
+    // "fixture file not found" rather than an unhandled throw that reads as a
+    // browser fault.
+    assert.equal(isFixtureSpec('pdf:x!nosuchmutation'), true);
+    assert.throws(() => buildFixture('pdf:x!nosuchmutation', { runKey: 'r' }), /is not a fixture spec/);
+  });
+});

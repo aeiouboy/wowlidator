@@ -75,6 +75,7 @@ import {
 } from './video.js';
 import { CacheManager } from '../cache/cache-manager.js';
 import { measureCoverage } from '../coverage/ax-coverage.js';
+import { isFixtureSpec, writeFixture } from '../data/fixtures.js';
 import {
   DEFAULT_BASELINE_DIR,
   baselinePath,
@@ -4056,7 +4057,17 @@ export class SmartRunner {
       selector,
       intent,
       async (locator, timeout) => {
-        const result = await attachFiles(this.page, locator, files, {
+        // **A fixture SPEC is minted here, not looked up on disk.**
+        // `pdf:personal-information` is the vocabulary `src/data/fixtures.ts`
+        // owns — a file the harness writes, for a form that demands an
+        // attachment the sheet never named. `writeFixture` had no caller in
+        // `src/` at all, so every such upload reached `attachFiles` as a
+        // literal PATH and died `fixture file not found: …/pdf:HIR-EC-001-
+        // attachment`. Live (run 15) that was the first errored step and the
+        // whole case's verdict: `error`, not a defect, over a file the
+        // harness was supposed to write itself.
+        const resolved = await this.#resolveFixtures(files, detail);
+        const result = await attachFiles(this.page, locator, resolved, {
           timeout,
           ...(this.#flowDir === undefined ? {} : { baseDir: this.#flowDir }),
         });
@@ -4065,6 +4076,42 @@ export class SmartRunner {
       },
       detail,
     );
+  }
+
+  /**
+   * Every file an `upload` names, as a path on disk: a fixture spec is built
+   * and written under the run's own key; anything else is left exactly as the
+   * flow wrote it, for `attachFiles` to resolve against the flow directory.
+   *
+   * Minting is recorded on the step (`detail.minted`) because a file the
+   * harness invented is a stand-in a reader must weigh — the same rule as a
+   * generated VALUE.
+   */
+  async #resolveFixtures(files: readonly string[], detail: Record<string, unknown>): Promise<string[]> {
+    const minted: { spec: string; path: string; description: string }[] = [];
+    const out: string[] = [];
+    for (const file of files) {
+      const spec = file.trim();
+      if (!isFixtureSpec(spec)) {
+        out.push(file);
+        continue;
+      }
+      try {
+        const written = await writeFixture(spec, { runKey: this.bundle.runId });
+        minted.push({ spec, path: written.path, description: written.description });
+        out.push(written.path);
+      } catch (error) {
+        // `isFixtureSpec` tests the SHAPE and `buildFixture` validates the
+        // parts — an unknown mutation passes the first and throws the second.
+        // Keep the string: `attachFiles` then says "fixture file not found",
+        // which is the honest message, rather than an unhandled throw that
+        // reads as a browser fault.
+        detail['fixtureError'] = `${spec}: ${error instanceof Error ? error.message : String(error)}`;
+        out.push(file);
+      }
+    }
+    if (minted.length > 0) detail['minted'] = minted;
+    return out;
   }
 
   /**
