@@ -6241,21 +6241,48 @@ export function expandedControlIn(evidence: string): string | null {
 }
 
 /**
- * Requiredness is read from the tree's own `required` token, never from an
- * asterisk in the accessible name.
+ * Requiredness belongs to the SECTION, and the attachment control belongs to
+ * the section its own label names.
  *
- * Measured against the live hire form (2026-09-07, 288 nodes with the
- * sections expanded): every `*` in the tree sits on a SECTION — `region
- * "Personal Identity*"`, `heading "Contact*"` — and not one control carries
- * it. The control this rule exists for is `button "File attachment area"`,
- * whose DOM is `required` and whose name has no asterisk at all, so an
- * asterisk test found nothing and no fixture was ever minted. The tree
- * already prints the real signal: `formatAxNode` appends `required` from
- * CDP's own property (OA-6, 2026-09-03), which is the same fact the page
- * enforces at submit.
+ * The previous rule asked one line to carry both facts — a `required` token
+ * (or a `*`) AND an attachment word in its own name — and measured against
+ * the live hire form (2026-09-07, 288 nodes with the sections expanded) no
+ * line in the whole tree does. Requiredness sits on the section
+ * (`heading "Personal Information*"`, `region "Personal Identity*"`); the
+ * attachment control is `button "Upload"`, named neither required nor after
+ * its field. So the rule could not fire, HIR-EC-001 minted no fixture, and
+ * run 12's leg died on *"the page only exposes an Upload control, and no
+ * file path or selectable file is available"*.
+ *
+ * What the tree DOES render is the join between the two:
+ *
+ *     heading "Personal Information*"          ← the section, required
+ *     …
+ *     StaticText "Personal Information (Attachment)"   ← the label, naming its section
+ *     button "Upload"                          ← the control the label points at
+ *
+ * so the section is matched by NAME, not by counting lines: the label's
+ * parenthetical is the attachment word, its head is the section, and the
+ * control is the first interactive node under it. The flat tree
+ * (`formatAxNode` emits no indentation — there is no "inside" to read) makes
+ * a positional scan the only alternative, and a name join is the stronger of
+ * the two wherever the page offers it.
+ *
+ * The control's name is not unique — this form renders `button "Upload"`
+ * three times, one per section — so the position among same-named nodes rides
+ * along as `nth` and the selector carries it. Attaching to the first Upload
+ * would put the file in National ID's dropzone and call it Personal
+ * Information's.
+ *
+ * The own-line rule is kept as the fallback for a page that marks its
+ * controls properly: a tree that renders no `X (Attachment)` label at all is
+ * read exactly as before.
  */
-export function requiredAttachmentControls(evidence: string): { role: string; name: string }[] {
-  const controls: { role: string; name: string }[] = [];
+export function requiredAttachmentControls(
+  evidence: string,
+): { role: string; name: string; nth?: number; section?: string }[] {
+  type Node = { role: string; name: string; required: boolean };
+  const nodes: Node[] = [];
   for (const raw of evidence.split('\n')) {
     const match = /^\s*([a-z]+)\s+"((?:[^"\\]|\\.)*)"/i.exec(raw);
     if (match === null) continue;
@@ -6263,12 +6290,83 @@ export function requiredAttachmentControls(evidence: string): { role: string; na
     // The token the renderer appends, not a word inside the name: a control
     // called "Required documents" is not thereby required.
     const rest = raw.slice(match.index + match[0].length);
-    const required = /(?:^|\s)required(?:\s|$)/.test(rest) || name.includes('*');
-    if (!required || !AUTHORING.attachment.test(name)) continue;
-    controls.push({ role: (match[1] ?? '').toLowerCase(), name });
+    nodes.push({
+      role: (match[1] ?? '').toLowerCase(),
+      name,
+      required: /(?:^|\s)required(?:\s|$)/.test(rest),
+    });
   }
+
+  /** The 0-based position among same-role, same-name nodes, or undefined when it is the only one. */
+  const positionOf = (at: number): number | undefined => {
+    const node = nodes[at];
+    if (node === undefined) return undefined;
+    const same = nodes.filter((one) => one.role === node.role && one.name === node.name);
+    if (same.length < 2) return undefined;
+    return nodes.slice(0, at).filter((one) => one.role === node.role && one.name === node.name).length;
+  };
+
+  // Every section this tree marks required, by name. Three spellings, all
+  // seen live: the asterisk glued to the name, the asterisk as its own node
+  // after the name, and the tree's own `required` token.
+  const requiredSections = new Set<string>();
+  nodes.forEach((node, at) => {
+    const next = nodes[at + 1];
+    const asterisked = node.name.endsWith('*');
+    const followed = node.name !== '' && next?.name === '*';
+    if (!asterisked && !followed && !node.required) return;
+    const section = node.name.replace(/\*+$/, '').trim().toLowerCase();
+    if (section !== '') requiredSections.add(section);
+  });
+
+  const controls: { role: string; name: string; nth?: number; section?: string }[] = [];
+  const seen = new Set<string>();
+  const take = (at: number, section?: string): void => {
+    const node = nodes[at];
+    if (node === undefined) return;
+    const nth = positionOf(at);
+    const key = `${node.role}|${node.name}|${nth ?? ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    controls.push({
+      role: node.role,
+      name: node.name,
+      ...(nth === undefined ? {} : { nth }),
+      ...(section === undefined ? {} : { section }),
+    });
+  };
+
+  nodes.forEach((node, at) => {
+    // `Personal Information (Attachment)` — the head names the section, the
+    // parenthetical is what makes it an attachment label.
+    const label = /^(.+?)\s*\(([^()]+)\)\s*$/.exec(node.name);
+    if (label === null || !AUTHORING.attachment.test(label[2] ?? '')) return;
+    const section = (label[1] ?? '').trim();
+    if (!requiredSections.has(section.toLowerCase())) return;
+    // The control the label points at: the next interactive node, within
+    // reach. A label is followed by its control, never by a paragraph of them.
+    for (let ahead = at + 1; ahead <= at + ATTACHMENT_CONTROL_REACH && ahead < nodes.length; ahead += 1) {
+      const candidate = nodes[ahead];
+      if (candidate === undefined || candidate.name === '') continue;
+      if (candidate.role === 'statictext') continue;
+      take(ahead, section);
+      return;
+    }
+  });
+  if (controls.length > 0) return controls;
+
+  // No page-drawn labels at all: read requiredness off the control's own line,
+  // exactly as before.
+  nodes.forEach((node, at) => {
+    if (!node.required && !node.name.includes('*')) return;
+    if (!AUTHORING.attachment.test(node.name)) return;
+    take(at);
+  });
   return controls;
 }
+
+/** How far past its label an attachment control may sit before the label stops meaning it. */
+const ATTACHMENT_CONTROL_REACH = 3;
 
 function requiredChoiceControls(evidence: string): { role: string; name: string }[] {
   const controls: { role: string; name: string }[] = [];
@@ -6363,26 +6461,35 @@ export function settleAcceptedFlowInputs(
     if (note !== null) notes.push(note);
   }
   for (const control of requiredAttachmentControls(evidence)) {
-    if (attachmentControlMentioned(expected, control.name)) continue;
+    // What a reader — and the Expected output — calls this dropzone is the
+    // section it belongs to, never the word on its button: three sections of
+    // the live hire form share one `button "Upload"`.
+    const called = control.section ?? control.name;
+    if (attachmentControlMentioned(expected, called)) continue;
     const workflowSteps = flow.steps.filter((step) => step.action === 'workflow');
     const matchingAnchor = workflowSteps.find(
-      (step) => step.action === 'workflow' && attachmentControlMentioned(step.goal, control.name),
+      (step) => step.action === 'workflow' && attachmentControlMentioned(step.goal, called),
     );
     const anchor = matchingAnchor ?? workflowSteps[workflowSteps.length - 1];
     if (anchor === undefined) continue;
     const usedLateFallback = matchingAnchor === undefined;
     const fixture = `pdf:${caseId}-attachment`;
     if (!isFixtureSpec(fixture)) continue;
-    const selector = `role=${control.role}[name=${JSON.stringify(control.name)} i]`;
+    // The position is part of the address whenever the name is shared — the
+    // first Upload is another section's, and attaching there would file the
+    // document under the wrong field and call the step green.
+    const selector =
+      `role=${control.role}[name=${JSON.stringify(control.name)} i]` +
+      (control.nth === undefined ? '' : ` >> nth=${control.nth}`);
     if (flow.steps.some((step) => step.action === 'upload' && step.selector === selector)) continue;
     insertStepBefore(flow, anchor, {
       action: 'upload',
       selector,
       files: [fixture],
-      intent: markGenerated(undefined, `the sheet named no file for ${JSON.stringify(control.name)}; the harness minted one as ${fixture}`),
+      intent: markGenerated(undefined, `the sheet named no file for ${JSON.stringify(called)}; the harness minted one as ${fixture}`),
     });
     notes.push(
-      `required attachment ${JSON.stringify(control.name)} was minted by the harness because the Expected output named no file` +
+      `required attachment ${JSON.stringify(called)} was minted by the harness because the Expected output named no file` +
         (usedLateFallback ? '; inserted before the last workflow leg because no workflow goal named its control or section' : '') +
         ' (marked [generated: …])',
     );

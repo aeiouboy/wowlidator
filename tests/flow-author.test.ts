@@ -8,6 +8,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { zodSchema } from 'ai';
 
@@ -4564,5 +4566,60 @@ describe('an Expected line that names a field without a value asserts behaviour,
     // its regex can take from `ระบบกรอง Sub-District ตาม …` — enough to have
     // blocked the field before this split existed.
     assert.equal(expectedNamedFields(expected).has('sub'), true);
+  });
+});
+
+describe('a required attachment is found on the tree the run actually captured', () => {
+  // `tests/fixtures/ax-hire-form.txt` is the live SIT hire form as the harness
+  // read it (2026-09-07, 288 nodes, sections expanded), one `formatAxNode`
+  // line per node. It is here because the two previous versions of this rule
+  // were each verified against a tree written by hand for the occasion, each
+  // shipped green, and each did nothing on the real page — the repo's own rule
+  // that a reader tested only against its own writer proves nothing.
+  const tree = readFileSync(fileURLToPath(new URL('./fixtures/ax-hire-form.txt', import.meta.url)), 'utf8');
+
+  it('names the one required dropzone, and the position that tells it from the other two', () => {
+    // Three sections render an identical `button "Upload"`; only Personal
+    // Information is marked required (`heading "Personal Information*"`), and
+    // it is the second. Attaching to the first would file the document under
+    // National ID and call the step green.
+    assert.deepEqual(requiredAttachmentControls(tree), [
+      { role: 'button', name: 'Upload', nth: 1, section: 'Personal Information' },
+    ]);
+  });
+
+  it('the old rule found nothing here — no line carries both the requiredness and the attachment word', () => {
+    const lines = tree.split('\n').filter((line) => /required|\*/.test(line) && /attachment|upload/i.test(line));
+    assert.deepEqual(lines, [], 'if this ever holds a line, the fallback below is the rule that should fire');
+  });
+
+  it('mints one upload, addressed by position, before the leg whose goal names the section', () => {
+    const identity: FlowStep = { action: 'workflow', goal: 'Fill the Identity section' };
+    const personal: FlowStep = { action: 'workflow', goal: 'Fill the Personal Information section' };
+    const flow = { steps: [identity, personal] as FlowStep[], cases: undefined as undefined };
+
+    settleAcceptedFlowInputs(flow, '3.1 Employee is created with the keyed data', tree, 'HIR-EC-001');
+
+    const upload = flow.steps.find((step) => step.action === 'upload') as
+      | (FlowStep & { selector?: string; files?: readonly string[]; intent?: string })
+      | undefined;
+    assert.ok(upload, 'the sheet names no file, so the harness must supply one');
+    assert.equal(upload.selector, 'role=button[name="Upload" i] >> nth=1');
+    assert.equal(isFixtureSpec(upload.files?.[0] ?? ''), true);
+    assert.match(upload.intent ?? '', /Personal Information/);
+    assert.match(upload.intent ?? '', /\[generated:/);
+    assert.equal(flow.steps.indexOf(upload) + 1, flow.steps.indexOf(personal), 'inserted immediately before the leg that names its section');
+  });
+
+  it('does not mint one the Expected output already claims — that file is the case\'s to name', () => {
+    const leg: FlowStep = { action: 'workflow', goal: 'Fill the Personal Information section' };
+    const flow = { steps: [leg] as FlowStep[], cases: undefined as undefined };
+    settleAcceptedFlowInputs(flow, '3.1 The Personal Information attachment is uploaded', tree, 'HIR-EC-001');
+    assert.deepEqual(flow.steps, [leg]);
+  });
+
+  it('falls back to the control\'s own line on a page that marks its controls properly', () => {
+    const proper = 'main\nbutton "Upload passport" required\nbutton "Save"';
+    assert.deepEqual(requiredAttachmentControls(proper), [{ role: 'button', name: 'Upload passport' }]);
   });
 });
