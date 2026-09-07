@@ -101,6 +101,7 @@ import {
 import { LlmGeneratorModel, TestGenerator } from '../../generator/test-generator.js';
 import type { GeneratedSuite } from '../../generator/test-generator.js';
 import { captureAxNodes, captureAxTree, type AxNode } from '../../healer/jit-healer.js';
+import { DEFAULT_AUTHORING_RULES } from '../../generator/value-rules.js';
 import { performSignIn } from '../../engine/sign-in.js';
 import { acceptConsentGate } from '../../engine/consent-gate.js';
 import { probeInteractions } from '../../context/page-probe.js';
@@ -2251,6 +2252,12 @@ async function captureJourneyTree(
     const tabSelected = await selectNamedTab(extra, tabWanted, log);
     if (tabSelected !== null) landed = extra.url();
 
+    // The sections the row's script expands, expanded here — see
+    // `expandCollapsedSections`. After the tab, because a tab is a context of
+    // its own; before the tree, because a collapsed section's fields are not
+    // in it.
+    await expandCollapsedSections(extra, log);
+
     const tree = await captureAxTree(extra, DEFAULT_AUTHOR_MAX_NODES);
     if (tree.trim() === '') {
       log?.(`journey capture: ${landed} yielded an empty tree — skipped`);
@@ -2386,6 +2393,52 @@ export function journeyTreeSection(parts: {
  * no control carries the name, or the click does not land; the landing tree
  * then stands, and `captureJourneyTree` says so in the section's label.
  */
+/**
+ * Open every collapsed section of a form BEFORE the journey tree is read.
+ *
+ * Third instance of one rule (2026-09-07, HIR-EC-001): the tree must be read
+ * from the state the row's script reads it in — the tab it selects
+ * (`selectNamedTab`), the control it opens (`captureAfterOpening`), and now
+ * the disclosures it expands. A wizard renders its sections collapsed, so a
+ * landing tree names the section HEADERS and none of the fields inside; every
+ * grounding rule then declines a field the row is entirely about. Measured:
+ * the hire form's `Hire Date` and `Personal Information (Attachment) *` are
+ * absent from the captured tree, so the Expected-named split and the minted
+ * attachment (`src/generator/CLAUDE.md`) both found nothing to work with and
+ * the leg went to the agent to guess at — five turns on a date picker. The
+ * row's own Steps column says to click it ("กดปุ่ม Expand all … เพื่อกางทุกส่วน
+ * ไว้ก่อน"); the capture had not.
+ *
+ * Deterministic, $0, and never fatal: matched by accessible name from the
+ * `expandAllWords` vocabulary (data, in `value-rules.ts`), clicked once, and a
+ * click that does not land leaves the capture exactly as it was. Safe by
+ * construction — an expand-all control reveals, it never saves, submits or
+ * deletes.
+ */
+async function expandCollapsedSections(
+  tab: Page,
+  log?: ((line: string) => void) | undefined,
+): Promise<{ name: string; selector: string } | null> {
+  try {
+    const nodes = await captureAxNodes(tab, 600);
+    for (const word of DEFAULT_AUTHORING_RULES.expandAllWords) {
+      const hit = controlNamedIn(nodes, word);
+      if (hit === null) continue;
+      await tab.locator(hit.selector).first().click({ timeout: 3_000 });
+      await tab.waitForTimeout(800);
+      await tab.waitForLoadState('networkidle', { timeout: 5_000 }).catch(() => undefined);
+      log?.(`journey capture: expanded the form with "${hit.name}" (${hit.selector}) before reading`);
+      return { name: hit.name, selector: hit.selector };
+    }
+    return null;
+  } catch (error) {
+    log?.(
+      `journey capture: expanding the form did not land (${error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error)}) — the collapsed page is read`,
+    );
+    return null;
+  }
+}
+
 async function selectNamedTab(
   tab: Page,
   name: string | null,

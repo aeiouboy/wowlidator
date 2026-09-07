@@ -171,6 +171,8 @@ const DEFAULT_VALUE_VOCABULARY: Vocabulary = {
 
 export interface AuthoringRules {
   attachmentWords: readonly string[];
+  /** Controls that gate a whole form open — clicked once before the journey tree is read. */
+  expandAllWords: readonly string[];
   /** How the Steps column asks the tester to do things, by the action that performs it. */
   script: {
     /** Asks for something to be TYPED — performed only by a fill / type / upload. */
@@ -216,6 +218,7 @@ export interface AuthoringRules {
 
 export const DEFAULT_AUTHORING_RULES: AuthoringRules = {
   attachmentWords: ['attachment', 'attach file', 'file upload', 'upload', 'แนบไฟล์', 'เอกสารแนบ', 'อัปโหลด'],
+  expandAllWords: ['expand all', 'expand', 'show all', 'กางทั้งหมด', 'ขยายทั้งหมด', 'เปิดทั้งหมด', 'แสดงทั้งหมด'],
   script: {
     typing: ['กรอก', 'คีย์', 'ระบุ', 'พิมพ์', 'ใส่ค่า', 'แนบ', 'fill', 'fill in', 'fill out', 'key in', 'key-in', 'enter', 'type', 'attach'],
     choosing: ['เลือก', 'ติ๊ก', 'select', 'choose', 'pick', 'tick', 'check', 'uncheck', 'toggle'],
@@ -314,6 +317,7 @@ export const ValueRulesSchema = z
     authoring: z
       .object({
         attachmentWords: words,
+        expandAllWords: words,
         script: z.object({ typing: words, choosing: words, acting: words, routeLine: words, stepWords: words, skipWords: words }).strict().optional(),
         wordingClaim: words,
         matchClaim: z.object({ agree: words, unchanged: words, readings: words, quantities: words }).strict().optional(),

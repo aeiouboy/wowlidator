@@ -79,7 +79,17 @@ import { DEFAULT_MUTATION_POLICY, type MutationPolicy } from './test-generator.j
 import type { FlowReviewer, ReviewRecord } from './flow-review.js';
 
 /** Same budget as the generator: the AX tree dominates the prompt either way. */
-export const DEFAULT_AUTHOR_MAX_NODES = 200;
+/**
+ * The journey capture's node budget. 200 → 600 (2026-09-07, HIR-EC-001): this
+ * is `captureAxTree`'s BLIND cap — the first N nodes in capture order, not
+ * `focusTree`'s ranked selection — so on a form whose sections are now
+ * expanded before the read (`expandCollapsedSections`), 200 would keep the
+ * top of Step 1 and cut every Employment field below it, which is the same
+ * blindness one level up. Sized to the hire form's 102 controls plus their
+ * labels and structure. The cost lands on ONE call per case, where the node
+ * budget that matters for a run's bill is the agent's, paid every turn.
+ */
+export const DEFAULT_AUTHOR_MAX_NODES = 600;
 
 /**
  * Journey-tree lines kept after ranking against the row's own request —
