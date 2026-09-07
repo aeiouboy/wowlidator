@@ -97,6 +97,7 @@ import {
 } from '../src/cli/commands/authoring.js';
 import { vacuousFlow } from '../src/generator/vacuous.js';
 import type { FlowStep } from '../src/engine/runner.js';
+import { ANY_OFFERED } from '../src/engine/listbox.js';
 import { jsonModel } from './helpers.js';
 
 /** A stub that returns whatever the test hands it, and records the request. */
@@ -4338,6 +4339,63 @@ describe('a script step is performed, never read as a noun, and the last word pe
     const claimed = { steps: [claimedLeg] as FlowStep[], cases: undefined as undefined };
     settleAcceptedFlowInputs(claimed, '3.1 Personal Information (Attachment) * is uploaded', evidence, 'HIR-EC-001');
     assert.deepEqual(claimed.steps, [claimedLeg]);
+  });
+
+  it('acceptance takes any offered value only for a required unnamed choice whose sheet value is a placeholder', () => {
+    const leg: FlowStep = { action: 'workflow', goal: 'Complete the Payroll section\nPay Group = เลือกจากรายการ' };
+    const flow = { steps: [leg] as FlowStep[], cases: undefined as undefined };
+
+    const notes = settleAcceptedFlowInputs(
+      flow,
+      '3.1 Employee is created',
+      'main\n  button "Pay Group" required',
+      'HIR-EC-001',
+    );
+
+    const choice = flow.steps[0] as FlowStep & { selector?: string; value?: string; intent?: string; valueSource?: { kind: string } };
+    assert.equal(choice.action, 'selectOption');
+    assert.equal(choice.selector, 'role=button[name="Pay Group" i]');
+    assert.equal(choice.value, ANY_OFFERED);
+    assert.equal(choice.valueSource?.kind, 'generated');
+    assert.match(choice.intent ?? '', /\[generated:/);
+    assert.match(notes.join('; '), /required choice "Pay Group"/);
+  });
+
+  it('acceptance leaves a required choice alone when the sheet gives a real value', () => {
+    const leg: FlowStep = { action: 'workflow', goal: 'Complete Payroll' };
+    const flow = { steps: [leg] as FlowStep[], cases: undefined as undefined };
+
+    settleAcceptedFlowInputs(flow, '3.1 Employee is created', 'button "Pay Group" required', 'HIR-EC-001', [
+      { phase: null, key: 'Pay Group', value: 'Monthly' },
+    ]);
+
+    assert.deepEqual(flow.steps, [leg]);
+  });
+
+  it('acceptance never invents a choice for a field named by Expected output', () => {
+    const leg: FlowStep = { action: 'workflow', goal: 'Complete Payroll' };
+    const flow = { steps: [leg] as FlowStep[], cases: undefined as undefined };
+
+    settleAcceptedFlowInputs(flow, '3.1 Pay Group = Monthly', 'button "Pay Group" required', 'HIR-EC-001', [
+      { phase: null, key: 'Pay Group', value: 'เลือกจากรายการ' },
+    ]);
+
+    assert.deepEqual(flow.steps, [leg]);
+  });
+
+  it('acceptance never invents a choice for a control the tree does not mark required', () => {
+    const leg: FlowStep = { action: 'workflow', goal: 'Pay Group = เลือกจากรายการ' };
+    const flow = { steps: [leg] as FlowStep[], cases: undefined as undefined };
+
+    settleAcceptedFlowInputs(flow, '3.1 Employee is created', 'button "Pay Group"', 'HIR-EC-001');
+
+    assert.deepEqual(flow.steps, [leg]);
+  });
+
+  it('reads offered-choice placeholder words from the authoring vocabulary', () => {
+    const rules = compileAuthoringRules(withOverride({ authoring: { offeredChoiceWords: ['fixture placeholder'] } }).authoring);
+    assert.equal(rules.offeredChoice.test('fixture placeholder'), true);
+    assert.equal(rules.offeredChoice.test('เลือกจากรายการ'), false);
   });
 
   it('places a required attachment before the workflow leg that names its section', () => {

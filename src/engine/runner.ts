@@ -147,7 +147,7 @@ import {
   sanitizeSelector, containsRoleName } from './selector.js';
 // The wave-1 helpers (2026-09-03): each is deterministic and $0, and each is
 // the engine half of a shape the HR workbook meets on nearly every case.
-import { selectFromListbox } from './listbox.js';
+import { ANY_OFFERED, ListboxOptionMissingError, selectFromListbox } from './listbox.js';
 import { pickDateInDialog } from './calendar.js';
 import { readFieldError } from './field-error.js';
 import { attachFiles, captureDownload } from './upload.js';
@@ -2684,7 +2684,7 @@ export class SmartRunner {
    * `click` can only open one; this is the action that completes it.
    */
   async selectOption(selector: string, value: string, intent?: string, valueSource?: StepValueSource): Promise<void> {
-    const detail: Record<string, unknown> = this.#withValueSource({ value }, valueSource);
+    const detail: Record<string, unknown> = value === ANY_OFFERED ? { value } : this.#withValueSource({ value }, valueSource);
     await this.#step(
       'selectOption',
       selector,
@@ -2696,21 +2696,44 @@ export class SmartRunner {
         // an ordinary resolution failure, not as a missing option.
         const tag = await locator.first().evaluate((el) => el.tagName, undefined, { timeout });
         detail['via'] = tag === 'SELECT' ? 'native' : 'custom';
-        if (tag === 'SELECT') await this.#selectNative(locator, value, timeout);
-        else await this.#selectCustom(locator, selector, value, timeout, detail);
+        const chosen = tag === 'SELECT'
+          ? await this.#selectNative(locator, value, timeout)
+          : await this.#selectCustom(locator, selector, value, timeout, detail);
+        if (value === ANY_OFFERED) {
+          detail['actual'] = chosen;
+          Object.assign(detail, this.#withValueSource(detail, {
+            kind: 'generated',
+            detail: `the sheet named no value; took the first option the control offered: ${JSON.stringify(chosen)}`,
+          }));
+        }
       },
       detail,
     );
   }
 
   /** Native `<select>`: match the visible label first, the value attribute second. */
-  async #selectNative(locator: Locator, value: string, timeout: number): Promise<void> {
+  async #selectNative(locator: Locator, value: string, timeout: number): Promise<string> {
+    if (value === ANY_OFFERED) {
+      const offered = locator.locator('option:not([disabled])');
+      const count = await offered.count();
+      for (let index = 0; index < count; index += 1) {
+        const option = offered.nth(index);
+        const optionValue = await option.getAttribute('value', { timeout });
+        if (optionValue === null || optionValue === '') continue;
+        const label = ((await option.textContent({ timeout })) ?? '').trim();
+        await locator.selectOption(optionValue, { timeout });
+        return label;
+      }
+      const shown = (await locator.locator('option').allTextContents()).map((label) => label.trim()).filter((label) => label !== '');
+      throw new ListboxOptionMissingError('the select', value, shown, '');
+    }
     try {
       await locator.selectOption({ label: value }, { timeout });
     } catch {
       // The author may have quoted the value attribute instead of the label.
       await locator.selectOption(value, { timeout });
     }
+    return value;
   }
 
   /**
@@ -2735,7 +2758,7 @@ export class SmartRunner {
     value: string,
     timeout: number,
     detail: Record<string, unknown>,
-  ): Promise<void> {
+  ): Promise<string> {
     void selector;
     // `record`, not `require`: a trigger whose text is its LABEL ("City")
     // never shows the pick, and demanding it failed a listbox that had
@@ -2752,6 +2775,7 @@ export class SmartRunner {
     detail['waitedMs'] = result.waitedMs;
     if (result.typed !== undefined) detail['typed'] = result.typed;
     if (result.via === 'checkbox') detail['via'] = 'multi-select';
+    return result.picked[0] ?? value;
   }
 
   /** Tick a checkbox, radio, or ARIA toggle — see `#setChecked`. */

@@ -75,6 +75,7 @@ import { isFixtureSpec } from '../data/fixtures.js';
 import { multiPersonaGoal } from '../orchestrator/agent-guards.js';
 import { goalOutcomes } from '../orchestrator/goal-evidence.js';
 import type { Flow, FlowStep, StepValueSource } from '../engine/runner.js';
+import { ANY_OFFERED } from '../engine/listbox.js';
 import { DEFAULT_MUTATION_POLICY, type MutationPolicy } from './test-generator.js';
 import type { FlowReviewer, ReviewRecord } from './flow-review.js';
 
@@ -4039,6 +4040,7 @@ export class FlowAuthor {
       sectionOf(extra.caseText ?? trimmed, 'expected') ?? '',
       acceptedEvidence,
       extra.caseId ?? 'case',
+      extra.testDataPairs ?? testDataPairsOfCaseText(extra.caseText ?? trimmed),
     );
     if (acceptedNotes.length > 0) {
       const note = acceptedNotes.join('; ');
@@ -6242,6 +6244,28 @@ export function requiredAttachmentControls(evidence: string): { role: string; na
   return controls;
 }
 
+function requiredChoiceControls(evidence: string): { role: string; name: string }[] {
+  const controls: { role: string; name: string }[] = [];
+  for (const raw of evidence.split('\n')) {
+    const match = /^\s*([a-z]+)\s+"((?:[^"\\]|\\.)*)"/i.exec(raw);
+    if (match === null) continue;
+    const name = (match[2] ?? '').replace(/\\(.)/g, '$1').trim();
+    const rest = raw.slice(match.index + match[0].length);
+    if (!/(?:^|\s)required(?:\s|$)/.test(rest)) continue;
+    const control = { role: (match[1] ?? '').toLowerCase(), name };
+    if (entryStepFor(control, ANY_OFFERED, '')?.action === 'selectOption') controls.push(control);
+  }
+  return controls;
+}
+
+function pairForControl(controlName: string, pairs: readonly TestDataPair[]): TestDataPair | undefined {
+  const control = squash(controlName.replace(/\*/g, ' '));
+  return pairs.find((pair) => {
+    const field = squash(pair.key);
+    return field !== '' && (field === control || control.includes(field) || field.includes(control));
+  });
+}
+
 function attachmentText(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s+/g, ' ');
 }
@@ -6260,6 +6284,7 @@ export function settleAcceptedFlowInputs(
   expected: string,
   evidence: string,
   caseId: string,
+  testData: readonly TestDataPair[] = [],
 ): string[] {
   const notes: string[] = [];
   // **The click that opened the form the tree was read from.** Every entry
@@ -6311,6 +6336,42 @@ export function settleAcceptedFlowInputs(
     notes.push(
       `required attachment ${JSON.stringify(control.name)} was minted by the harness because the Expected output named no file` +
         (usedLateFallback ? '; inserted before the last workflow leg because no workflow goal named its control or section' : '') +
+        ' (marked [generated: …])',
+    );
+  }
+  const workflowSteps = flow.steps.filter((step) => step.action === 'workflow');
+  const goalPairs = workflowSteps.flatMap((step) => pairsOnLine(step.goal).map((pair) => ({ phase: null, ...pair })));
+  for (const control of requiredChoiceControls(evidence)) {
+    const field = squash(control.name.replace(/\*/g, ' '));
+    // **The rule the whole change rests on, read the cautious way.** A value
+    // the harness chose must never be able to satisfy a field the Expected
+    // output asserts, so the match is containment in EITHER direction rather
+    // than equality: an Expected line naming "Employee Group" also protects
+    // the control the tree calls "Employee Group Code". Erring here costs
+    // nothing — the case simply behaves as it did before this rule existed —
+    // while erring the other way puts our own value under someone's claim.
+    if ([...named].some((name) => {
+      const asked = squash(name);
+      return asked !== '' && (asked === field || field.includes(asked) || asked.includes(field));
+    })) continue;
+    const pair = pairForControl(control.name, [...goalPairs, ...testData]);
+    if (pair === undefined || !AUTHORING.offeredChoice.test(pair.value)) continue;
+    const matchingAnchor = workflowSteps.find((step) => squash(step.goal).includes(field));
+    const anchor = matchingAnchor ?? workflowSteps[workflowSteps.length - 1];
+    if (anchor === undefined) continue;
+    const selector = `role=${control.role}[name=${JSON.stringify(control.name)} i]`;
+    if (flow.steps.some((step) => step.action === 'selectOption' && step.selector === selector)) continue;
+    const detail = `the sheet named no value; took the first option the control offered`;
+    insertStepBefore(flow, anchor, {
+      action: 'selectOption',
+      selector,
+      value: ANY_OFFERED,
+      valueSource: { kind: 'generated', detail },
+      intent: markGenerated(undefined, `${detail} for ${JSON.stringify(control.name)}`),
+    });
+    notes.push(
+      `required choice ${JSON.stringify(control.name)} takes the first option the control offers because the Expected output names no value` +
+        (matchingAnchor === undefined ? '; inserted before the last workflow leg because no workflow goal named its control or section' : '') +
         ' (marked [generated: …])',
     );
   }

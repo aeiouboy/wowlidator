@@ -43,6 +43,13 @@ import type { Locator, Page } from 'playwright';
 import { codeAndLabelOf, foldedMatch, type FoldedMatch } from './normalise.js';
 import { optionNamePatterns } from './selector.js';
 
+/**
+ * Ask the harness to choose the first enabled option the control offers.
+ * The angle-bracketed sentinel is deliberately not a plausible option label,
+ * so it cannot collide with sheet data or a real choice.
+ */
+export const ANY_OFFERED = '<<any offered>>';
+
 export interface SelectFromListboxOptions {
   /** Budget for opening, for the list to fill, and for the pick. Default 2 000 ms. */
   timeout?: number | undefined;
@@ -363,7 +370,7 @@ export async function selectFromListbox(
   for (const part of parts) {
     const candidates = optionCandidates(part);
     // 3. Type-to-filter, the stable head first.
-    const box = options.typeToFilter === false ? null : await searchBoxOf(container, list);
+    const box = part === ANY_OFFERED || options.typeToFilter === false ? null : await searchBoxOf(container, list);
     // What the miss below may say about the list: whether `state` is the
     // whole list or a typed narrowing of it, and which head the list's own
     // empty row answered. Read by the agent loop's enumerated-listbox judge.
@@ -394,16 +401,27 @@ export async function selectFromListbox(
     }
     // 4. Match: whole name, then whole word — for the whole value, then its halves.
     let hit: { option: Locator; name: string; disabled: boolean } | null = null;
-    for (const candidate of candidates) {
-      const [exact, contains] = optionNamePatterns(candidate.text);
-      hit = (await findOption(container, exact)) ?? (await findOption(page.locator('body'), exact));
-      if (hit === null || hit.disabled) {
-        const word = (await findOption(container, contains)) ?? (await findOption(page.locator('body'), contains));
-        if (word !== null && (!word.disabled || hit === null)) hit = word;
+    if (part === ANY_OFFERED) {
+      for (const offered of state.options) {
+        const [exact] = optionNamePatterns(offered);
+        const candidate = (await findOption(container, exact)) ?? (await findOption(page.locator('body'), exact));
+        if (candidate !== null && !candidate.disabled) {
+          hit = candidate;
+          break;
+        }
       }
-      if (hit !== null && !hit.disabled) {
-        matchedBy = candidate.by;
-        break;
+    } else {
+      for (const candidate of candidates) {
+        const [exact, contains] = optionNamePatterns(candidate.text);
+        hit = (await findOption(container, exact)) ?? (await findOption(page.locator('body'), exact));
+        if (hit === null || hit.disabled) {
+          const word = (await findOption(container, contains)) ?? (await findOption(page.locator('body'), contains));
+          if (word !== null && (!word.disabled || hit === null)) hit = word;
+        }
+        if (hit !== null && !hit.disabled) {
+          matchedBy = candidate.by;
+          break;
+        }
       }
     }
     // Last resort before a miss: the ONE option that starts with the value.
@@ -413,7 +431,7 @@ export async function selectFromListbox(
     // wrong guess is visible in the proof rather than silent. Measured live
     // (humi, 2026-09-05): "Thai" against a list whose only match was
     // "Thailand - Thailand" cost the agent a miss, a settle, and a turn.
-    if (hit === null || hit.disabled) {
+    if (part !== ANY_OFFERED && (hit === null || hit.disabled)) {
       const unique = uniquePrefixMatch(state.options, part);
       if (unique !== null) {
         const [exact] = optionNamePatterns(unique);

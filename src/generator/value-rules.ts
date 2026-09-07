@@ -171,6 +171,7 @@ const DEFAULT_VALUE_VOCABULARY: Vocabulary = {
 
 export interface AuthoringRules {
   attachmentWords: readonly string[];
+  offeredChoiceWords: readonly string[];
   /** Controls that gate a whole form open — clicked once before the journey tree is read. */
   expandAllWords: readonly string[];
   /** How the Steps column asks the tester to do things, by the action that performs it. */
@@ -218,6 +219,7 @@ export interface AuthoringRules {
 
 export const DEFAULT_AUTHORING_RULES: AuthoringRules = {
   attachmentWords: ['attachment', 'attach file', 'file upload', 'upload', 'แนบไฟล์', 'เอกสารแนบ', 'อัปโหลด'],
+  offeredChoiceWords: ['เลือกจากรายการ', 'เลือกธนาคารจากรายการ', 'จากรายการ', 'choose from the list', 'select from the list', 'from the list', 'ที่ระบบให้'],
   expandAllWords: ['expand all', 'expand', 'show all', 'กางทั้งหมด', 'ขยายทั้งหมด', 'เปิดทั้งหมด', 'แสดงทั้งหมด'],
   script: {
     typing: ['กรอก', 'คีย์', 'ระบุ', 'พิมพ์', 'ใส่ค่า', 'แนบ', 'fill', 'fill in', 'fill out', 'key in', 'key-in', 'enter', 'type', 'attach'],
@@ -317,6 +319,7 @@ export const ValueRulesSchema = z
     authoring: z
       .object({
         attachmentWords: words,
+        offeredChoiceWords: words,
         expandAllWords: words,
         script: z.object({ typing: words, choosing: words, acting: words, routeLine: words, stepWords: words, skipWords: words }).strict().optional(),
         wordingClaim: words,
@@ -404,6 +407,7 @@ const scriptVerb = (w: string): string => (hasThai(w) ? `(?:^|[\\s\\-•\\d.)])$
 
 export interface CompiledAuthoringRules {
   attachment: RegExp;
+  offeredChoice: RegExp;
   script: {
     /** The verbs of each tier, in the order they are judged: typing, choosing, acting. */
     typing: RegExp;
@@ -436,6 +440,7 @@ export function compileAuthoringRules(rules: AuthoringRules = DEFAULT_AUTHORING_
   const skipWord = wordAlternation(s.skipWords);
   return {
     attachment: new RegExp(wordAlternation(rules.attachmentWords), 'iu'),
+    offeredChoice: new RegExp(wordAlternation(rules.offeredChoiceWords), 'iu'),
     script: {
       typing: new RegExp(wordAlternation(s.typing, scriptVerb), 'iu'),
       choosing: new RegExp(wordAlternation(s.choosing, scriptVerb), 'iu'),

@@ -42,6 +42,7 @@ import {
 } from '../src/engine/dates.js';
 import { headRoleOf, optionNamePatterns, targetsPopupContent } from '../src/engine/selector.js';
 import {
+  ANY_OFFERED,
   ListboxOptionDisabledError,
   ListboxOptionMissingError,
   optionCandidates,
@@ -748,6 +749,25 @@ describe('engine helpers against a real page (CDP)', { skip: skipBrowser }, () =
       const result = await selectFromListbox(page, page.locator('#gender'), 'Male');
       assert.deepEqual(result.picked, ['Male']);
       assert.equal(await page.locator('#status').innerText(), 'gender:Male');
+    });
+  });
+
+  it('listbox: ANY_OFFERED takes the first enabled option and reports its label', async () => {
+    await withPage(async (page) => {
+      await page.locator('#gender-list').evaluate((element) => element.insertAdjacentHTML('afterbegin', '<li role="option" aria-disabled="true">Unavailable</li>'));
+      const result = await selectFromListbox(page, page.locator('#gender'), ANY_OFFERED);
+      assert.deepEqual(result.picked, ['Female']);
+    });
+  });
+
+  it('listbox: ANY_OFFERED still throws the enumerated missing-option error for an empty list', async () => {
+    await withPage(async (page) => {
+      await page.locator('#gender-list').evaluate((element) => element.replaceChildren());
+      await assert.rejects(selectFromListbox(page, page.locator('#gender'), ANY_OFFERED, { timeout: 50 }), (error: unknown) => {
+        assert.ok(error instanceof ListboxOptionMissingError);
+        assert.deepEqual(error.shown, []);
+        return true;
+      });
     });
   });
 

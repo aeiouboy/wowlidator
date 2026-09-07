@@ -46,6 +46,7 @@ import {
   type Flow,
 } from '../src/engine/runner.js';
 import { SessionVault } from '../src/engine/session-vault.js';
+import { ANY_OFFERED } from '../src/engine/listbox.js';
 
 const CDP_URL = process.env['WOWLIDATOR_CDP_URL'] ?? 'http://localhost:9222';
 
@@ -226,6 +227,12 @@ const FIXTURE_HTML = `<!doctype html>
     </div>
     <input id="group-code" aria-label="Group code" value="A — Permanent">
     <p id="group-badge">Employee Group: A — Permanent</p>
+    <select id="native-choice">
+      <option value="">Choose one</option>
+      <option value="blocked" disabled>Unavailable</option>
+      <option value="alpha">Alpha</option>
+      <option value="beta">Beta</option>
+    </select>
 
     <!-- a closed popup whose options carry aria-disabled -->
     <button id="gender" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Gender">Select Gender</button>
@@ -472,6 +479,23 @@ describe('the wave-2 rungs and steps against a real page (CDP)', { skip: skipBro
     const step = bundle.steps.find((s) => s.action === 'selectOption');
     assert.deepEqual(step?.detail?.['selected'], ['A — Permanent']);
     assert.equal(step?.detail?.['readBack'], 'A — Permanent');
+  });
+
+  it('selectOption records the first non-placeholder native option chosen for ANY_OFFERED', async () => {
+    const bundle = await run({
+      name: 'native any offered',
+      steps: [
+        { action: 'goto', url: '/' },
+        { action: 'selectOption', selector: '#native-choice', value: ANY_OFFERED },
+      ],
+    });
+    assert.equal(bundle.status, 'passed', bundle.error ?? '');
+    const detail = bundle.steps.find((step) => step.action === 'selectOption')?.detail;
+    assert.equal(detail?.['actual'], 'Alpha');
+    assert.deepEqual(detail?.['valueSource'], {
+      kind: 'generated',
+      detail: 'the sheet named no value; took the first option the control offered: "Alpha"',
+    });
   });
 
   it('a disabled option is a state verdict in seconds, never a dead end (EH-01/EH-14)', async () => {
