@@ -34,6 +34,7 @@ import {
   withRelaxedRoleName,
   withStableGreeting,
   withoutGreeting,
+  withLabelForNonAriaRole,
 } from '../src/engine/selector.js';
 import { parseRoleSelector } from '../src/coverage/ax-coverage.js';
 import { toFlowStep } from '../src/generator/test-generator.js';
@@ -439,5 +440,34 @@ describe('case-relaxed resolution (CDP)', { skip: skipBrowser }, () => {
     // The CSS selector stays unattributed — that is the existing
     // understate-never-overstate rule, not fallout from case handling.
     assert.deepEqual(coverage.unattributed, ['#status']);
+  });
+});
+
+describe('a role the ARIA vocabulary does not hold is addressed by its label (HIR-EC-001, 2026-09-07)', () => {
+  it('rewrites a native date input, in both spellings, and keeps the chain', () => {
+    assert.equal(withLabelForNonAriaRole('role=date[name="Hire Date" i]'), 'internal:label="Hire Date"i');
+    assert.equal(withLabelForNonAriaRole('Date "Hire Date"'), 'internal:label="Hire Date"i');
+    assert.equal(withLabelForNonAriaRole('role=date[name="Hire Date" i] >> nth=0'), 'internal:label="Hire Date"i >> nth=0');
+  });
+
+  it('leaves every ARIA role exactly as it was', () => {
+    for (const selector of [
+      'role=textbox[name="First Name (EN)" i]',
+      'role=button[name="Company" i]',
+      'role=spinbutton[name="Day Day" i]',
+      'text=Hire Date',
+      'input[type="date"]',
+    ]) {
+      assert.equal(withLabelForNonAriaRole(selector), selector);
+    }
+  });
+
+  it('leaves a non-ARIA role that is not an input alone rather than trading one wrong selector for another', () => {
+    assert.equal(withLabelForNonAriaRole('StaticText "10300"'), 'StaticText "10300"');
+    assert.equal(withLabelForNonAriaRole('RootWebArea "Add New Employee"'), 'RootWebArea "Add New Employee"');
+  });
+
+  it('is part of the agent normaliser', () => {
+    assert.equal(normaliseAgentSelector('role=date[name="Date of Birth" i]'), 'internal:label="Date of Birth"i');
   });
 });

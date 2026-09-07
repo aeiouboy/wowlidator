@@ -34,7 +34,7 @@ import { BACKEND_TIER_ACTIONS } from '../engine/proof-bundle.js';
 import { SELECTOR_SYNTAX_RULES, captureAxTree } from '../healer/jit-healer.js';
 import { DETERMINISM_RULES, procedure } from '../providers/prompt-discipline.js';
 import { fence, sanitizeInline } from '../providers/model-fence.js';
-import { withQualifiedRole, withRelaxedRoleName, withStableGreeting } from '../engine/selector.js';
+import { withQualifiedRole, withRelaxedRoleName, withStableGreeting, withLabelForNonAriaRole } from '../engine/selector.js';
 import {
   PLACEHOLDER_TOKEN,
   fieldLabelOf,
@@ -1801,7 +1801,7 @@ function toFlowStep(
   // (`withoutGreeting`; ec10, 2026-09-02: six false failures on one line).
   const selector = needsSelector
     ? ''
-    : withStableGreeting(withRelaxedRoleName(withQualifiedRole(fromTreeNotation(raw.selector.replace(/‑/g, '-')))));
+    : withLabelForNonAriaRole(withStableGreeting(withRelaxedRoleName(withQualifiedRole(fromTreeNotation(raw.selector.replace(/‑/g, '-'))))));
 
   switch (raw.action) {
     case 'goto':
@@ -1912,7 +1912,7 @@ function toFlowStep(
       // one alternative written in tree notation would otherwise resolve
       // nothing and silently narrow the claim to the other branch.
       const selectors = splitSelectorList(raw.value).map((one) =>
-        withStableGreeting(withRelaxedRoleName(withQualifiedRole(fromTreeNotation(one.replace(/‑/g, '-'))))),
+        withLabelForNonAriaRole(withStableGreeting(withRelaxedRoleName(withQualifiedRole(fromTreeNotation(one.replace(/‑/g, '-')))))),
       );
       if (selectors.length < 2) return null;
       return { action: 'expectAnyVisible', selectors, intent, ...wait };

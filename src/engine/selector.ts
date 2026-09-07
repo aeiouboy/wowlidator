@@ -430,9 +430,72 @@ export function fromAxNotation(selector: string): string | null {
 }
 
 /**
+ * A `role=` selector naming a role that is not in the ARIA vocabulary can
+ * never resolve — addressed by its LABEL instead.
+ *
+ * Chrome's accessibility tree reports native controls with roles of its own:
+ * `<input type="date">` is `Date`, and the tree prints `Date "Hire Date"`
+ * with three `spinbutton` children (`Day Day`, `Month Month`, `Year Year`)
+ * that are the browser's internal segments and exist in no DOM the page can
+ * query. `fromAxNotation` already refuses to build a role selector from such
+ * a token, but a selector that arrives ALREADY spelled `role=date[name="Hire
+ * Date" i]` passed every guard: live (HIR-EC-001, 2026-09-07) the ladder
+ * spent 297 seconds — five attempts and a heal — on a selector that was
+ * unresolvable the moment it was written, for a control sitting in plain
+ * sight.
+ *
+ * Measured against the page itself: `role=date[name="Hire Date" i]` and
+ * `[aria-label="Hire Date"]` each match nothing, `input[type="date"]` matches
+ * five, and `internal:label="Hire Date"i` matches exactly one and fills to
+ * `2027-09-01` — the label the AX name comes from (`<label for="hire-date">
+ * Hire Date*`) is the thing that identifies it. So the rewrite is to the
+ * label, not to a different role: there is no ARIA role for a date input to
+ * be rewritten to.
+ *
+ * Only a role OUTSIDE `ARIA_ROLES` is touched, so every ordinary selector
+ * passes through byte-identical, and a chained tail rides along.
+ */
+/**
+ * The roles Chrome's accessibility tree gives native inputs that the ARIA
+ * vocabulary has no name for, and that a person still types a value into.
+ * Deliberately short: a role outside it keeps whatever it was, because a
+ * `StaticText` or a `RootWebArea` is not a labelled control and rewriting it
+ * to a label lookup would trade one wrong selector for another.
+ */
+const NATIVE_INPUT_ROLES: ReadonlySet<string> = new Set([
+  'date',
+  'datetime',
+  'datetime-local',
+  'inputtime',
+  'time',
+  'month',
+  'week',
+  'color',
+]);
+
+export function withLabelForNonAriaRole(selector: string): string {
+  const trimmed = selector.trim();
+  const chain = /\s*>>.*$/.exec(trimmed);
+  const head = chain === null ? trimmed : trimmed.slice(0, chain.index).trim();
+  const tail = chain === null ? '' : trimmed.slice(chain.index);
+  // Both spellings of the same mistake: the selector form the model writes,
+  // and the tree's own line copied back verbatim.
+  const asRole = /^role=([A-Za-z]+)\[name=(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')(\s+i)?\]$/.exec(head);
+  const asLine = asRole === null ? /^([A-Za-z]+)\s+"((?:[^"\\]|\\.)+)"$/.exec(head) : null;
+  const match = asRole ?? asLine;
+  if (match === null) return selector;
+  const role = match[1]!.toLowerCase();
+  if (ARIA_ROLES.has(role) || !NATIVE_INPUT_ROLES.has(role)) return selector;
+  const name = (match[2] ?? match[3] ?? '').replace(/\\(.)/g, '$1');
+  if (name.trim() === '') return selector;
+  return `internal:label=${JSON.stringify(name)}i${tail}`;
+}
+
+/**
  * Every free, deterministic repair a model-written selector gets before it
- * reaches Playwright: tree notation, the `role=` it forgot, the case flag.
+ * reaches Playwright: tree notation, the `role=` it forgot, the case flag,
+ * and a role the ARIA vocabulary does not hold.
  */
 export function normaliseAgentSelector(selector: string): string {
-  return withRelaxedRoleName(withQualifiedRole(fromAxNotation(selector) ?? selector));
+  return withLabelForNonAriaRole(withRelaxedRoleName(withQualifiedRole(fromAxNotation(selector) ?? selector)));
 }
