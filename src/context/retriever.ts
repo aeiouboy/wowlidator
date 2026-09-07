@@ -111,17 +111,39 @@ export function focusTreeText(
   query: string,
   maxLines: number,
   keepHead = 0,
+  alwaysKeep?: RegExp,
 ): { text: string; kept: number; total: number } {
   const all = tree.split('\n');
   const head = all.slice(0, keepHead);
   const body = all.slice(keepHead).filter((line) => line.trim() !== '');
   if (body.length <= maxLines) return { text: tree, kept: body.length, total: body.length };
 
+  // Lines that carry STRUCTURE rather than a control, kept whatever they
+  // score. A journey tree's evidence is not only its nodes: the line saying
+  // which control was clicked to reach the page below it is what tells the
+  // reader — and the acceptance — that these controls are on a page the flow
+  // has not arrived at. Ranked as ordinary text it loses to any node that
+  // shares a word with the query, and losing it turns a second page's
+  // controls into the first page's. Live (HIR-EC-001, 2026-09-07): eight
+  // fields were written before the click that reaches them, and no click at
+  // all was written.
+  const pinned = new Set<number>();
+  if (alwaysKeep !== undefined) {
+    body.forEach((line, index) => {
+      if (alwaysKeep.test(line)) pinned.add(index);
+    });
+  }
+
   const scores = bm25(body, query);
-  const keptIndexes = body
-    .map((_, index) => index)
-    .sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0) || a - b)
-    .slice(0, maxLines)
+  const keptIndexes = [
+    ...new Set([
+      ...pinned,
+      ...body
+        .map((_, index) => index)
+        .sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0) || a - b)
+        .slice(0, Math.max(0, maxLines - pinned.size)),
+    ]),
+  ]
     // Document order restored — the tree still reads as the page.
     .sort((a, b) => a - b);
 

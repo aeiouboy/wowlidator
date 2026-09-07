@@ -89,6 +89,8 @@ import {
   advancedControlIn,
   ADVANCED_MARKER,
   JOURNEY_TREE_MAX_LINES,
+  journeyTreeMaxLines,
+  STRUCTURAL_EVIDENCE_LINE,
 } from '../src/generator/flow-author.js';
 import { isFixtureSpec } from '../src/data/fixtures.js';
 import { focusTreeText } from '../src/context/retriever.js';
@@ -4770,17 +4772,32 @@ describe('the acceptance reads the whole tree, because narrowing drops the marke
     return flow.steps;
   };
 
-  it('narrowed to the prompt\'s budget, the wizard marker is ranked away and the ordering silently disappears', () => {
-    // The hazard, pinned: `focusTreeText` keeps only the head line verbatim,
-    // so `WIZARD ADVANCED` is just another line to rank — and without it every
-    // page-2 control reads as a page-1 control. Live, that put Position, Cost
-    // Center and six more BEFORE the click that reaches their page.
-    const narrowed = focusTreeText(twoPage, expected, JOURNEY_TREE_MAX_LINES, 1).text;
-    assert.equal(narrowed.includes(ADVANCED_MARKER), false, 'if this ever holds, say so — the hazard is gone');
-    assert.equal(advancedControlIn(narrowed), null);
-    const steps = lift(narrowed);
+  it('a marker ranked away turns page 2 into page 1 — the hazard the pin closes', () => {
+    // Unpinned and cut hard, `WIZARD ADVANCED` is just another line to rank,
+    // and without it every page-2 control reads as a page-1 control. Live,
+    // that put Position, Cost Center and six more BEFORE the click that
+    // reaches their page, with no click written at all.
+    const unpinned = focusTreeText(twoPage, expected, 80, 1).text;
+    assert.equal(unpinned.includes(ADVANCED_MARKER), false);
+    assert.equal(advancedControlIn(unpinned), null);
+    const steps = lift(unpinned);
     assert.ok(steps.some((s) => s.action === 'selectOption'), 'the fields are still lifted…');
     assert.equal(steps.some((s) => s.action === 'click'), false, '…but nothing reaches their page');
+  });
+
+  it('the marker survives narrowing at any budget once it is pinned', () => {
+    for (const budget of [20, 80, JOURNEY_TREE_MAX_LINES]) {
+      const kept = focusTreeText(twoPage, expected, budget, 1, STRUCTURAL_EVIDENCE_LINE).text;
+      assert.equal(advancedControlIn(kept), 'role=button[name="Next" i]', `budget ${budget}`);
+    }
+  });
+
+  it('the budget shows the whole form, and the environment may lower it', () => {
+    // 80 of 743 was 11% of the page, and the review said so in its own words.
+    assert.equal(focusTreeText(twoPage, expected, journeyTreeMaxLines(), 1, STRUCTURAL_EVIDENCE_LINE).text, twoPage);
+    assert.equal(journeyTreeMaxLines({ WOWLIDATOR_JOURNEY_TREE_MAX_LINES: '120' }), 120);
+    assert.equal(journeyTreeMaxLines({ WOWLIDATOR_JOURNEY_TREE_MAX_LINES: 'lots' }), JOURNEY_TREE_MAX_LINES);
+    assert.equal(journeyTreeMaxLines({}), JOURNEY_TREE_MAX_LINES);
   });
 
   it('given the whole tree, every page-2 field sits behind the click that reaches it', () => {

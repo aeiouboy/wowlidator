@@ -99,8 +99,38 @@ export const DEFAULT_AUTHOR_MAX_NODES = 600;
  * see the narrowing in `author()`. The start tree is never narrowed this way:
  * it is the page the flow's first steps are written against, and on a catalog
  * it is the one section shared across rows.
+ *
+ * **800, not 80** (2026-09-07). Measured on run 13: the hire form's two pages
+ * are 743 nodes and the model was shown 80 of them — 11%. `Event Reason`,
+ * `Hire Date`, `Position` and every Employment control fell outside the cut,
+ * and the review answered `unsure` four times in a row with the reason
+ * printed in its own words: *"the captured hire-page tree is explicitly
+ * narrowed (80 of 743 nodes) … there is no evidence to replace it with, only
+ * insufficient evidence to confirm it."* A budget that hides the form from
+ * the author saves tokens on a flow that cannot be written.
+ *
+ * The captures it is spent on are each already capped at
+ * `DEFAULT_AUTHOR_MAX_NODES`, so this is a ceiling over an evidence set that
+ * is bounded anyway — it shows a whole ordinary form and still cuts a
+ * pathological page. `WOWLIDATOR_JOURNEY_TREE_MAX_LINES` lowers it for a run
+ * that would rather pay less than see more.
  */
-export const JOURNEY_TREE_MAX_LINES = 80;
+export const JOURNEY_TREE_MAX_LINES = 800;
+
+/**
+ * The lines of a journey tree that are kept through narrowing whatever they
+ * score: the markers that say a page was reached by a click, and so which
+ * page the controls under them belong to. See `focusTreeText`'s `alwaysKeep`.
+ */
+export const STRUCTURAL_EVIDENCE_LINE = /WIZARD ADVANCED BEFORE READING|FORM EXPANDED BEFORE READING/;
+
+/** The journey-tree budget for this process — the constant unless the environment lowers it. */
+export function journeyTreeMaxLines(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env['WOWLIDATOR_JOURNEY_TREE_MAX_LINES'];
+  if (raw === undefined || raw.trim() === '') return JOURNEY_TREE_MAX_LINES;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : JOURNEY_TREE_MAX_LINES;
+}
 
 /**
  * Total authoring attempts, including the first. Same shape and same reason
@@ -2666,7 +2696,7 @@ export class FlowAuthor {
     const journeyTree =
       rawJourneyTree === undefined
         ? undefined
-        : focusTreeText(rawJourneyTree, trimmed, JOURNEY_TREE_MAX_LINES, 1).text;
+        : focusTreeText(rawJourneyTree, trimmed, journeyTreeMaxLines(), 1, STRUCTURAL_EVIDENCE_LINE).text;
 
     const startedMs = Date.now();
     const url = page?.url();
