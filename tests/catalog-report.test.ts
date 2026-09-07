@@ -244,7 +244,7 @@ describe('embedded evidence and the budget', () => {
 });
 
 describe('export', () => {
-  it('a proved case exports to its own workbook, relative to this file, beside the recording', () => {
+  it('a case exports to its own workbook, relative to this file, beside the recording', () => {
     const html = renderCatalogReport({ title: 't', runKey: 'pl-02@2026-08-31T04:00:00.000Z', generatedAt: null, cases: [kase({})] });
     assert.match(html, /<a class="btn export-case" download href="pl-02-2026-08-31t04-00-00-000z-media\/pl-02-01\.xlsx"/);
     assert.match(html, /Export \(Excel\)/);
@@ -252,14 +252,13 @@ describe('export', () => {
     assert.match(html, /export-case" download href="[^"]+" onclick="event\.stopPropagation\(\)"/);
   });
 
-  it('a case that did not pass has the button DISABLED — there is no proof to hand over', () => {
+  it('failed, blocked, and review cases link their own workbooks too', () => {
     for (const verdict of ['failed', 'blocked', 'review'] as const) {
       const html = renderCatalogReport({
         title: 't', runKey: null, generatedAt: null,
         cases: [kase({ verdict, status: 'failed', bundle: bundle([step({ status: 'failed' })]) })],
       });
-      assert.match(html, /<button class="btn export-case" type="button" disabled/, verdict);
-      assert.ok(!html.includes('pl-02-01.xlsx'), `${verdict} must not link a workbook`);
+      assert.match(html, /<a class="btn export-case" download href="t-media\/pl-02-01\.xlsx"/, verdict);
     }
     // A never-ran case has no section at all, so no button either — and no workbook link.
     const folded = renderCatalogReport({ title: 't', runKey: null, generatedAt: null, cases: [kase({ verdict: 'never-ran', status: null, bundle: null })] });
@@ -271,7 +270,7 @@ describe('export', () => {
     const html = renderCatalogReport({ title: 't', runKey: 'pl-02@2026-08-31T04:00:00.000Z', generatedAt: null, cases: [kase({})] });
     assert.match(html, /function exportCatalog\(/);
     assert.match(html, /Export catalog/);
-    assert.match(html, /href="pl-02-2026-08-31t04-00-00-000z-passed\.xlsx"/);
+    assert.match(html, /href="pl-02-2026-08-31t04-00-00-000z-cases\.xlsx"/);
   });
 
   it('a live report says it is in progress and reloads itself; a finished one does neither', () => {

@@ -25,14 +25,13 @@
  *   how long it has been broken, whether the same step shape failed before);
  *   RIGHT the time record — one bar per step against the fast-path budget,
  *   with the slowest steps called out.
- * - **Export from the page itself**: every PROVED case has an `Export (Excel)`
+ * - **Export from the page itself**: every reported case has an `Export (Excel)`
  *   button that downloads the case's own workbook — one row per step, the
  *   step's log in a Proof column, its screenshot in a Photo column, the
  *   recording linked under every step (`excel-export.ts` writes it beside
- *   this file as the run goes). A case that did not pass has the button
- *   DISABLED: the export is the proof, and a failed case has none to hand
- *   over. The header exports the whole catalog file (client-side Blob +
- *   anchor, no server) and links the run's all-passed workbook.
+ *   this file as the run goes). The header exports the whole catalog file
+ *   (client-side Blob + anchor, no server) and links the run's all-case
+ *   workbook.
  * - **It is written when the run STARTS and rewritten after every case**
  *   (2026-09-02, `cli/catalog-live-report.ts`): the file exists — every
  *   planned case a `never ran` row — before the first case has a verdict,
@@ -408,18 +407,12 @@ function timePane(steps: readonly ProofStep[]): string {
 }
 
 /**
- * The per-case export: a download link to the case's own workbook when the
- * case PASSED, a disabled button otherwise. Relative to this file, so it works
- * wherever the reports folder travels — and via wowUI's `/reports/` route,
- * which serves the folder as a folder for exactly this reason.
+ * The per-case export: a download link to the case's own workbook. Relative
+ * to this file, so it works wherever the reports folder travels — and via
+ * wowUI's `/reports/` route, which serves the folder as a folder for exactly
+ * this reason.
  */
 function exportControl(c: CatalogReportCase, input: CatalogReportInput): string {
-  if (c.verdict !== 'passed') {
-    return (
-      `<button class="btn export-case" type="button" disabled` +
-      ` title="Only a proved case exports — this one ${c.verdict === 'never-ran' ? 'never ran' : 'did not pass'}, so there is no proof to hand over">Export (Excel)</button>`
-    );
-  }
   const href = `${catalogMediaDirName(input.runKey, input.title)}/${catalogCaseExportName(c.id)}.xlsx`;
   return (
     `<a class="btn export-case" download href="${esc(href)}" onclick="event.stopPropagation()"` +
@@ -818,11 +811,11 @@ export function renderCatalogReport(input: CatalogReportInput): string {
     `<div class="meta">${esc(input.runKey ?? '')}${input.generatedAt ? ` · authored ${esc(input.generatedAt)}` : ''} · ${input.cases.length} case(s)` +
     ` <button class="btn" onclick="exportCatalog()">Export catalog</button>` +
     // The run writes this workbook beside the report (see `excel-export.ts`):
-    // only the passed cases, one row per step, the screenshot in a Photo
+    // every planned case, one row per step, the screenshot in a Photo
     // column and a video row under every step. A relative link, so it works
     // wherever the reports folder travels as a whole.
-    ` <a class="btn" download href="${esc(`${catalogReportBase(input.runKey, input.title)}-passed.xlsx`)}"` +
-    ` title="Written beside this report: passed cases only, one step per row, photos embedded, video linked under every step">Passed cases (Excel)</a></div>` +
+    ` <a class="btn" download href="${esc(`${catalogReportBase(input.runKey, input.title)}-cases.xlsx`)}"` +
+    ` title="Written beside this report: every planned case, one step per row, photos embedded within budget, video linked under every step">Cases (Excel)</a></div>` +
     liveNote +
     `<div class="tally">${[...tally.entries()].map(([label, n]) => `<span>${esc(label)}: <b>${n}</b></span>`).join('')}</div>` +
     findingsSection(findings) +

@@ -477,7 +477,6 @@ export async function runCases(
   // same run key recorded), and rewritten after each case — so the panel's
   // Report button opens the current state of the catalog at any point of the
   // run, and a rerun updates the same file rather than minting another.
-  // Beside it, the per-case workbook of each case that passed. Never fatal.
   const liveReport =
     ledger === null || where.ledger === undefined
       ? null
@@ -1836,9 +1835,9 @@ export async function runCases(
         const { htmlPath, excel } = artifacts;
         process.stdout.write(
           `  catalog report ${htmlPath}\n` +
-            `  passed xlsx ${excel.xlsxPath} — ${excel.passedCases} passed case(s)` +
-            (excel.caseXlsxPaths.length > 0 ? `, one workbook per proved case in ${dirname(excel.caseXlsxPaths[0]!)}` : '') +
-            (excel.removed.length > 0 ? `, ${excel.removed.length} stale export(s) of cases that no longer pass removed` : '') +
+            `  cases xlsx ${excel.xlsxPath} — ${excel.cases} case(s), ${excel.embeddedImages} image(s) embedded, ${excel.omittedImages} omitted` +
+            (excel.caseXlsxPaths.length > 0 ? `, one workbook per case in ${dirname(excel.caseXlsxPaths[0]!)}` : '') +
+            (excel.removed.length > 0 ? `, ${excel.removed.length} stale export(s) removed` : '') +
             '\n',
         );
       }

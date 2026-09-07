@@ -2086,7 +2086,7 @@ function catalogReportUrl(run) {
 function catalogReportButton(run, size) {
   return el('button', {
     type: 'button', class: 'btn' + (size ? ' ' + size : ''),
-    title: 'Open the catalog report — every planned case with its verdict and evidence, grouped by scenario; each proved case exports to Excel from there. Updated after every case while the run is going.',
+    title: 'Open the catalog report — every planned case with its verdict and evidence, grouped by scenario; each case exports to Excel from there. Updated after every case while the run is going.',
     text: 'Report',
     onclick: function (e) { e.stopPropagation(); window.open(catalogReportUrl(run), '_blank'); }
   });

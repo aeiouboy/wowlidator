@@ -36,7 +36,7 @@ Usage:
                                            test executed is still recallable
   wowlidator report [<ledger.progress.json> | <dir>]
                                            rebuild each catalog run's HTML report
-                                           and its passed-cases Excel export
+                                           and its all-cases Excel export
                                            (one step per row, photos embedded,
                                            video linked under every step) from
                                            the ledgers on disk — no re-run

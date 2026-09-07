@@ -199,37 +199,40 @@ always been stable per key; now the rows are too, each case replacing its own.
 `wowlidator report` rebuilds through the same `buildCatalogReportCases` +
 `writeCatalogArtifacts`, so the two can never disagree on shape.
 
-**The Excel exports (`excel-export.ts`, 2026-09-02; per case the same day).**
-Beside every catalog report the run writes `<runKey slug>-passed.xlsx` — ONLY
-the cases whose verdict is `passed` (`pass**` included — it IS a pass, and the
-Result column says which) — and under `<runKey slug>-media/` **one workbook per
-proved case**, `<case id slug>.xlsx`, beside that case's recording. The
-per-case workbook is what the report's `Export (Excel)` button on each case
-downloads (a relative `<a download>`, `event.stopPropagation()` so the case
-does not toggle); a case that did NOT pass — failed, blocked, review, never ran
-— has the button **disabled** with the reason in its title, because the export
-is the proof and a failed case has none to hand over. Both shapes: one row per
-step (superseded attempts excluded, same rule as the HTML), a **Proof column**
-carrying the step's own log (`stepProof`: expected vs actual, how the selector
-resolved, a heal, an agent summary, the URL, the first line of an error), the
-step's screenshot embedded in a Photo column, and under every step a video row
-hyperlinking into the case's recording with the step's own `videoOffsetMs`
-named. **A rerun updates, never accumulates**: names derive from the run key and
-the case id, so a re-run case overwrites its own workbook, and
-`writePassedCasesExcel` REMOVES the workbook and recording of any case on the
-report that is not passed — a case that passed once and failed on the rerun
-must not keep a "proof" file the report contradicts. Excel cannot play an embedded webm, so each passed
-case's recording is written out as a real file under `<runKey slug>-media/`
-and the rows link it RELATIVELY — the reports folder travels as a whole. A
-step with no still says "see the video row below" rather than sitting blank
-(filming drops stills to on-failure, so passing steps mostly have none); a run
-with no passed cases still gets a workbook that says so, never a dead link.
-The container is hand-written (`node:zlib` deflate + crc32, inline strings, no
-sharedStrings), the `extract.ts` decision pointed the other way — and it is
-tested against `extract.ts`'s own independent zip READER plus validated with
-openpyxl, on the same "a writer tested only against its own reader proves
-nothing" rule. The report's header carries a relative `Passed cases (Excel)`
-link to the sibling file. `wowlidator report [<ledger>|<dir>]`
+**The Excel exports (`excel-export.ts`, 2026-09-02; widened 2026-09-07).**
+Beside every catalog report the run writes `<runKey slug>-cases.xlsx` — one
+workbook for EVERY planned case, ordered failed, review, blocked, then passed,
+with catalog order stable inside each verdict. A never-ran case sits with the
+no-verdict cases before passes. The sheet adds **Verdict** immediately after
+Case so a reader can filter it; each case band also says `failed`, `blocked
+(no verdict)`, `proved-? (a human must rule)`, `recorded only`, or `passed`,
+and a blocked band carries its reason. Under `<runKey slug>-media/` every case
+also gets `<case id slug>.xlsx`, beside its recording when one exists, and the
+report's per-case `Export (Excel)` link downloads it. A bundle-less case still
+gets its band and verdict instead of disappearing.
+
+Both shapes keep one row per step (superseded attempts excluded, same rule as
+the HTML), the **Proof column** carrying the step's own log (`stepProof`:
+expected vs actual, how the selector resolved, a heal, an agent summary, the
+URL, the first line of an error), the screenshot embedded in the **Photo**
+column, and a video row beneath every filmed step with its own `videoOffsetMs`.
+`EXCEL_IMAGE_BUDGET_BYTES` gives routine stills the same 15MB allowance as the
+HTML report: failing-step stills always win, and a routine still beyond the
+budget becomes `omitted for size — it stays in the proof bundle`; the first
+row states the omitted count. Excel cannot play an embedded webm, so every
+recording is a real relative file under `<runKey slug>-media/`. A step with no
+still says `see the video row below` rather than sitting blank.
+
+**A rerun updates, never accumulates.** Names derive from the run key and case
+id, so every case workbook is overwritten in place; `writeRunExcel` removes a
+legacy sibling `<runKey slug>-passed.xlsx`, but never deletes a non-passing
+case's workbook or recording. `preserveVideoCaseIds` protects a recording the
+HTML spill sink already wrote. The container is hand-written (`node:zlib`
+deflate + crc32, inline strings, no sharedStrings), the `extract.ts` decision
+pointed the other way — and it is tested against `extract.ts`'s own independent
+zip READER, on the same "a writer tested only against its own reader proves
+nothing" rule. The report's header carries a relative `Cases (Excel)` link to
+the sibling file. `wowlidator report [<ledger>|<dir>]`
 (`cmdCatalogReport` in `cli/commands/maintenance.ts`) rebuilds report + Excel
 from ledgers on disk without re-running anything — with one guard: a ledger
 whose EVERY recorded proof bundle is gone is skipped rather than overwriting a

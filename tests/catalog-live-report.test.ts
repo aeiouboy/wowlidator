@@ -4,8 +4,8 @@
  * Entirely unit-tier: a ledger in memory, proof bundles as JSON in a temp
  * directory, the report and workbooks written under a temp `reports/`. What
  * is proved here is the LIFECYCLE — the file exists before any verdict, each
- * finished case replaces its row, a rerun updates in place and takes a
- * no-longer-passing case's export with it, concurrent refreshes never tear
+ * finished case replaces its row, a rerun updates every case in place,
+ * concurrent refreshes never tear
  * the file — not the rendering, which `catalog-report.test.ts` covers.
  */
 
@@ -77,9 +77,8 @@ describe('the report exists before any verdict', () => {
     assert.match(html, /never ran: <b>3<\/b>/);
     assert.match(html, /in progress — 0 of 3/);
     assert.match(html, /http-equiv="refresh"/);
-    // The run workbook exists too, saying there is nothing in it yet; no media folder.
     assert.ok(existsSync(first.excel.xlsxPath));
-    assert.ok(!existsSync(mediaDir(cwd)));
+    assert.equal(readdirSync(mediaDir(cwd)).filter((file) => file.endsWith('.xlsx')).length, 3);
     // And the findings export, beside the report from the first write.
     assert.equal(first.findings.markdownPath, join(cwd, 'reports', 'be100-csv-2026-09-02t04-00-00-000z-findings.md'));
     assert.ok(existsSync(first.findings.markdownPath));
@@ -241,7 +240,7 @@ describe('each finished case replaces its row', () => {
     assert.deepEqual(readdirSync(join(cwd, 'reports')).filter((f) => f.endsWith('.html')), ['be100-csv-2026-09-02t04-00-00-000z.html']);
   });
 
-  it('a failure gets its row and a disabled export, and no workbook', async () => {
+  it('a failure gets its row, export link, and workbook', async () => {
     const { cwd, ledger, live } = fixture();
     const failed = bundle('BE_01_02 delete a plan', 'failed');
     recordOutcome(ledger, { name: failed.name, verdict: 'failed', bundle: failed, reason: 'step 0 broke' }, {});
@@ -249,8 +248,8 @@ describe('each finished case replaces its row', () => {
     await live.refresh();
     const html = readFileSync(reportPath(cwd), 'utf8');
     assert.match(html, /test failed: <b>1<\/b>/);
-    assert.match(html, /<button class="btn export-case" type="button" disabled/);
-    assert.ok(!existsSync(join(mediaDir(cwd), 'be-01-02.xlsx')));
+    assert.match(html, /<a class="btn export-case" download href="be100-csv-2026-09-02t04-00-00-000z-media\/be-01-02\.xlsx"/);
+    assert.ok(existsSync(join(mediaDir(cwd), 'be-01-02.xlsx')));
   });
 
   it('the final refresh drops the in-progress marker', async () => {
@@ -264,7 +263,7 @@ describe('each finished case replaces its row', () => {
 });
 
 describe('a rerun updates in place', () => {
-  it('a case that passed and now fails loses its export; the report is still one file', async () => {
+  it('a case that passed and now fails updates its export; the report is still one file', async () => {
     const { cwd, ledger, live } = fixture();
     const passed = bundle('BE_01_01 create a plan', 'passed');
     recordOutcome(ledger, { name: passed.name, verdict: 'passed', bundle: passed }, {});
@@ -277,8 +276,8 @@ describe('a rerun updates in place', () => {
     live.record(failed.name, failed);
     const result = await live.refresh();
     assert.ok(result !== null);
-    assert.deepEqual(result.excel.removed, [join(mediaDir(cwd), 'be-01-01.xlsx')]);
-    assert.ok(!existsSync(join(mediaDir(cwd), 'be-01-01.xlsx')));
+    assert.deepEqual(result.excel.removed, []);
+    assert.ok(existsSync(join(mediaDir(cwd), 'be-01-01.xlsx')));
     const html = readFileSync(reportPath(cwd), 'utf8');
     assert.match(html, /test failed: <b>1<\/b>/);
     assert.ok(!html.includes('passed: <b>'));

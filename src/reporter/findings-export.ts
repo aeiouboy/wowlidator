@@ -18,7 +18,7 @@
  *   the engine stored it under is an innocent `value`.
  *
  * The workbook goes through the same hand-written zip writer as the
- * passed-cases export (`buildTextWorkbook` in `excel-export.ts`) and is read
+ * all-cases export (`buildTextWorkbook` in `excel-export.ts`) and is read
  * back in tests through `catalog/extract.ts`'s independent reader.
  */
 

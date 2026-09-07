@@ -1,16 +1,12 @@
 /**
- * The passed-cases Excel export (asked for 2026-09-02, per case the same day).
+ * The catalog-run Excel export (asked for 2026-09-02, widened 2026-09-07).
  *
- * Two shapes of the same workbook, both holding ONLY cases whose verdict is
- * `passed` (`pass**` included — it IS a pass, and the Result column says
- * which):
+ * Two shapes of the same workbook, both covering every planned case:
  *
- * - **one workbook per PROVED CASE**, `<report>-media/<case id>.xlsx` — what
- *   the catalog report's per-case `Export (Excel)` button downloads. A case
- *   that did not pass has no file and a disabled button: the export is the
- *   proof, and there is no proof to hand over for a case that failed.
- * - **one workbook per RUN**, `<report>-passed.xlsx`, every passed case in
- *   one sheet — the header link on the report.
+ * - **one workbook per CASE**, `<report>-media/<case id>.xlsx` — what the
+ *   catalog report's per-case `Export (Excel)` button downloads.
+ * - **one workbook per RUN**, `<report>-cases.xlsx`, every case in one sheet
+ *   with failed, review and blocked cases before passed cases.
  *
  * Each step is one row: what it did (action, description, selector), the
  * **Target column** — what that selector WAS on the page: role, name, where
@@ -25,10 +21,8 @@
  * a dead control pretending to be evidence.
  *
  * **A rerun updates, never accumulates.** Every name is derived from the run
- * key and the case id, so re-running a case overwrites its own workbook — and
- * a case that passed once and fails on the rerun loses its file, because the
- * report now says it did not pass and a stale "proof" beside it would say
- * otherwise.
+ * key and the case id, so re-running a case overwrites its own workbook. The
+ * old `<report>-passed.xlsx` is removed when the all-case workbook is written.
  *
  * The container is written by hand, same decision as `catalog/extract.ts`
  * reading one and `engine/webm.ts` cutting one: `node:zlib` supplies deflate
@@ -38,12 +32,12 @@
  * itself can decode fails the suite.
  */
 
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { crc32, deflateRawSync } from 'node:zlib';
 
 import { describeDbChanges, describeTarget, describeValueSource, expectedActual, type ProofStep } from '../engine/proof-bundle.js';
-import { catalogCaseExportName, type CatalogReportCase, type CatalogReportInput } from './catalog-report.js';
+import { catalogCaseExportName, verdictChipOf, type CatalogReportCase, type CatalogReportInput } from './catalog-report.js';
 import { describeAgentAction, describeResolution, observedEvidence, stepKindFacts, stepTarget } from './step-facts.js';
 
 /* ------------------------------------------------------------- zip writer */
@@ -125,12 +119,18 @@ function xmlEsc(value: unknown): string {
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ' ');
 }
 
-const COLS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'] as const;
+const COLS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'] as const;
 const LAST_COL = COLS[COLS.length - 1];
 /** 0-based index of the Photo column — where each screenshot is anchored. */
 const PHOTO_COL = COLS.length - 1;
 /** Height (points) of a row carrying an embedded screenshot. */
 const PHOTO_ROW_HT = 110;
+/**
+ * Matches the HTML report's 15 MB routine-still allowance: it keeps the file
+ * portable while failing-step screenshots remain exempt as the evidence a
+ * reader needs first.
+ */
+export const EXCEL_IMAGE_BUDGET_BYTES = 15_000_000;
 
 function fmtMs(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -178,11 +178,11 @@ function rowXml(r: number, cells: string, ht?: number): string {
   return `<row r="${r}"${height}>${cells}</row>`;
 }
 
-/** A row of one merged cell spanning B..H (A keeps the case id column clear). */
+/** A row of one merged cell spanning C..K (A and B keep Case and Verdict clear). */
 function bandRow(build: SheetBuild, r: number, text: string, style: number, link?: string): void {
-  const ref = `B${r}`;
+  const ref = `C${r}`;
   build.rows.push(rowXml(r, textCell(ref, text, style)));
-  build.merges.push(`B${r}:${LAST_COL}${r}`);
+  build.merges.push(`C${r}:${LAST_COL}${r}`);
   if (link !== undefined) build.links.push({ ref, target: link });
 }
 
@@ -196,6 +196,39 @@ export interface CaseVideoFile {
 /** The passed cases of a catalog run — `pass**` included, it IS a pass. */
 export function passedCases(input: CatalogReportInput): CatalogReportCase[] {
   return input.cases.filter((c) => c.verdict === 'passed');
+}
+
+export function reportedCases(input: CatalogReportInput): CatalogReportCase[] {
+  const ordered = ['failed', 'review', 'blocked', 'never-ran', 'passed'] as const;
+  const known = ordered.flatMap((verdict) => input.cases.filter((c) => c.verdict === verdict));
+  const other = input.cases.filter((c) => !ordered.some((verdict) => c.verdict === verdict));
+  return [...known, ...other];
+}
+
+interface ImagePlan {
+  included: ReadonlySet<ProofStep>;
+  omitted: number;
+}
+
+function imagePlan(cases: readonly CatalogReportCase[]): ImagePlan {
+  const included = new Set<ProofStep>();
+  let routineLeft = EXCEL_IMAGE_BUDGET_BYTES;
+  let omitted = 0;
+  const steps = cases.flatMap((c) => (c.bundle?.steps ?? []).filter((step) => !step.superseded));
+  for (const step of steps) {
+    if (!step.screenshot || step.status === 'passed' || step.status === 'skipped') continue;
+    included.add(step);
+  }
+  for (const step of steps) {
+    if (!step.screenshot || included.has(step)) continue;
+    if (routineLeft >= step.screenshot.length) {
+      routineLeft -= step.screenshot.length;
+      included.add(step);
+    } else {
+      omitted += 1;
+    }
+  }
+  return { included, omitted };
 }
 
 /**
@@ -256,21 +289,30 @@ function stepRows(
   step: ProofStep,
   r: number,
   videoHref: string | null,
+  images: ImagePlan,
 ): number {
-  const hasPhoto = typeof step.screenshot === 'string' && step.screenshot !== '';
+  const hasScreenshot = typeof step.screenshot === 'string' && step.screenshot !== '';
+  const hasPhoto = hasScreenshot && images.included.has(step);
   const cells =
     textCell(`A${r}`, c.id, S.wrap) +
-    numberCell(`B${r}`, step.index, S.wrap) +
-    textCell(`C${r}`, step.action, S.wrap) +
-    textCell(`D${r}`, step.intent ?? '', S.wrap) +
+    textCell(`B${r}`, c.verdict, S.wrap) +
+    numberCell(`C${r}`, step.index, S.wrap) +
+    textCell(`D${r}`, step.action, S.wrap) +
+    textCell(`E${r}`, step.intent ?? '', S.wrap) +
     // The Selector column says what the step was aimed at — for a kind with
     // no single selector, the record's own account (`stepTarget`), never blank.
-    textCell(`E${r}`, stepTarget(step) ?? '', S.wrap) +
-    textCell(`F${r}`, describeTarget(step.target) ?? '', S.wrap) +
-    textCell(`G${r}`, step.status + (step.heal ? ' (healed)' : ''), S.wrap) +
-    textCell(`H${r}`, fmtMs(step.durationMs), S.wrap) +
-    textCell(`I${r}`, stepProof(step), S.wrap) +
-    (hasPhoto ? '' : textCell(`J${r}`, videoHref === null ? '—' : 'see the video row below', S.wrap));
+    textCell(`F${r}`, stepTarget(step) ?? '', S.wrap) +
+    textCell(`G${r}`, describeTarget(step.target) ?? '', S.wrap) +
+    textCell(`H${r}`, step.status + (step.heal ? ' (healed)' : ''), S.wrap) +
+    textCell(`I${r}`, fmtMs(step.durationMs), S.wrap) +
+    textCell(`J${r}`, stepProof(step), S.wrap) +
+    (hasPhoto
+      ? ''
+      : textCell(
+          `K${r}`,
+          hasScreenshot ? 'omitted for size — it stays in the proof bundle' : videoHref === null ? '—' : 'see the video row below',
+          S.wrap,
+        ));
   build.rows.push(rowXml(r, cells, hasPhoto ? PHOTO_ROW_HT : undefined));
   if (hasPhoto) {
     build.images.push({
@@ -293,7 +335,9 @@ function stepRows(
 export interface WorkbookBuild {
   xlsx: Buffer;
   videos: CaseVideoFile[];
-  passedCases: number;
+  cases: number;
+  embeddedImages: number;
+  omittedImages: number;
 }
 
 /** `<case id slug>.webm` — the recording's file name inside the media directory. */
@@ -301,22 +345,33 @@ export function caseVideoFile(caseId: string): string {
   return `${catalogCaseExportName(caseId)}.webm`;
 }
 
-function headerRow(build: SheetBuild): void {
+function headerRow(build: SheetBuild, r: number): void {
   build.rows.push(
     rowXml(
-      1,
-      textCell('A1', 'Case', S.bold) +
-        textCell('B1', 'Step', S.bold) +
-        textCell('C1', 'Action', S.bold) +
-        textCell('D1', 'Description', S.bold) +
-        textCell('E1', 'Selector', S.bold) +
-        textCell('F1', 'Target', S.bold) +
-        textCell('G1', 'Result', S.bold) +
-        textCell('H1', 'Duration', S.bold) +
-        textCell('I1', 'Proof', S.bold) +
-        textCell('J1', 'Photo', S.bold),
+      r,
+      textCell(`A${r}`, 'Case', S.bold) +
+        textCell(`B${r}`, 'Verdict', S.bold) +
+        textCell(`C${r}`, 'Step', S.bold) +
+        textCell(`D${r}`, 'Action', S.bold) +
+        textCell(`E${r}`, 'Description', S.bold) +
+        textCell(`F${r}`, 'Selector', S.bold) +
+        textCell(`G${r}`, 'Target', S.bold) +
+        textCell(`H${r}`, 'Result', S.bold) +
+        textCell(`I${r}`, 'Duration', S.bold) +
+        textCell(`J${r}`, 'Proof', S.bold) +
+        textCell(`K${r}`, 'Photo', S.bold),
     ),
   );
+}
+
+function bandVerdict(c: CatalogReportCase): string {
+  const chip = verdictChipOf(c).label;
+  if (c.verdict === 'blocked') return 'blocked (no verdict)';
+  if (c.verdict === 'review') return chip === 'recorded only' ? chip : 'proved-? (a human must rule)';
+  if (c.verdict === 'never-ran') return 'never ran (no verdict)';
+  if (c.verdict === 'failed') return chip === 'system error' ? 'failed (system error)' : 'failed';
+  if (c.verdict === 'passed' && chip === 'pass**') return 'passed (pass**)';
+  return chip;
 }
 
 /**
@@ -325,7 +380,14 @@ function headerRow(build: SheetBuild): void {
  * column and the video row beneath. `videoDir` is where the recording will
  * sit RELATIVE to the workbook — `''` when they share a folder.
  */
-function caseRows(build: SheetBuild, videos: CaseVideoFile[], c: CatalogReportCase, videoDir: string, r: number): number {
+function caseRows(
+  build: SheetBuild,
+  videos: CaseVideoFile[],
+  c: CatalogReportCase,
+  videoDir: string,
+  r: number,
+  images: ImagePlan,
+): number {
   const video = c.bundle?.video;
   let videoHref: string | null = null;
   if (typeof video?.data === 'string' && video.data !== '') {
@@ -333,58 +395,84 @@ function caseRows(build: SheetBuild, videos: CaseVideoFile[], c: CatalogReportCa
     videos.push({ caseId: c.id, file, bytes: Buffer.from(video.data, 'base64') });
     videoHref = videoDir === '' ? file : `${videoDir}/${file}`;
   }
-  const status = c.status === 'passed-with-issues' ? 'pass**' : (c.status ?? 'passed');
-  bandRow(build, r, `${c.id === c.name ? c.id : `${c.id} — ${c.name}`} (${status})`, S.bold);
+  const verdict = bandVerdict(c);
+  const reason = c.verdict === 'blocked' && c.reason ? ` — ${c.reason}` : '';
+  const trimmedName = c.name.trim();
+  const name = trimmedName === c.id || trimmedName.startsWith(`${c.id} `) ? trimmedName : `${c.id} — ${trimmedName}`;
+  const cells = textCell(`A${r}`, c.id, S.bold) + textCell(`B${r}`, c.verdict, S.bold) + textCell(`C${r}`, `${name} — ${verdict}${reason}`, S.bold);
+  build.rows.push(rowXml(r, cells));
+  build.merges.push(`C${r}:${LAST_COL}${r}`);
   r += 1;
   const steps = (c.bundle?.steps ?? []).filter((s) => !s.superseded);
   if (steps.length === 0) {
     bandRow(build, r, 'No steps were recorded for this case.', S.wrap);
     r += 1;
   }
-  for (const step of steps) r = stepRows(build, c, step, r, videoHref);
+  for (const step of steps) r = stepRows(build, c, step, r, videoHref, images);
   return r;
 }
 
 /**
- * The run's workbook: header row, then every passed case in turn. The
+ * The run's workbook: header row, then every case in attention order. The
  * recordings live in `<mediaDirName>/` beside the workbook, so the links
  * point down into it.
  */
-export function buildPassedCasesWorkbook(input: CatalogReportInput, mediaDirName: string): WorkbookBuild {
-  const cases = passedCases(input);
+export function buildRunWorkbook(input: CatalogReportInput, mediaDirName: string): WorkbookBuild {
+  const cases = reportedCases(input);
   const build: SheetBuild = { rows: [], merges: [], images: [], links: [] };
   const videos: CaseVideoFile[] = [];
-  headerRow(build);
-  let r = 2;
-  if (cases.length === 0) {
-    bandRow(build, r, 'No passed cases in this run.', S.wrap);
+  const images = imagePlan(cases);
+  let r = 1;
+  if (images.omitted > 0) {
+    build.rows.push(rowXml(r, textCell(`A${r}`, `${images.omitted} routine screenshot(s) omitted for size — every one stays in its proof bundle.`, S.wrap)));
+    build.merges.push(`A${r}:${LAST_COL}${r}`);
     r += 1;
   }
-  for (const c of cases) r = caseRows(build, videos, c, mediaDirName, r);
-  return { xlsx: buildZip(workbookParts(build, 'Passed cases')), videos, passedCases: cases.length };
+  headerRow(build, r);
+  r += 1;
+  if (cases.length === 0) {
+    bandRow(build, r, 'No cases in this run.', S.wrap);
+    r += 1;
+  }
+  for (const c of cases) r = caseRows(build, videos, c, mediaDirName, r, images);
+  return {
+    xlsx: buildZip(workbookParts(build, 'Run cases')),
+    videos,
+    cases: cases.length,
+    embeddedImages: build.images.length,
+    omittedImages: images.omitted,
+  };
 }
 
 /**
- * One proved case as its own workbook — the file the report's per-case
+ * One case as its own workbook — the file the report's per-case
  * `Export (Excel)` button downloads. It sits IN the media directory, beside
  * the case's own recording, so the video rows link by bare file name.
  *
- * Only a passed case has one; asking for any other verdict is a programming
- * error, not a case to render — the report disables the button instead.
  */
 export function buildCaseWorkbook(c: CatalogReportCase): WorkbookBuild {
-  if (c.verdict !== 'passed') {
-    throw new Error(`buildCaseWorkbook: ${c.id} did not pass (${c.verdict}) — only a proved case exports`);
-  }
   const build: SheetBuild = { rows: [], merges: [], images: [], links: [] };
   const videos: CaseVideoFile[] = [];
-  headerRow(build);
-  caseRows(build, videos, c, '', 2);
-  return { xlsx: buildZip(workbookParts(build, catalogCaseExportName(c.id).slice(0, 31))), videos, passedCases: 1 };
+  const images = imagePlan([c]);
+  let r = 1;
+  if (images.omitted > 0) {
+    build.rows.push(rowXml(r, textCell(`A${r}`, `${images.omitted} routine screenshot(s) omitted for size — every one stays in its proof bundle.`, S.wrap)));
+    build.merges.push(`A${r}:${LAST_COL}${r}`);
+    r += 1;
+  }
+  headerRow(build, r);
+  caseRows(build, videos, c, '', r + 1, images);
+  return {
+    xlsx: buildZip(workbookParts(build, catalogCaseExportName(c.id).slice(0, 31))),
+    videos,
+    cases: 1,
+    embeddedImages: build.images.length,
+    omittedImages: images.omitted,
+  };
 }
 
-/** The column widths of the step workbooks — Case, Step, Action, Description, Selector, Target, Result, Duration, Proof, Photo. */
-const STEP_SHEET_WIDTHS = [14, 6, 16, 44, 36, 34, 14, 10, 46, 45] as const;
+/** The column widths of the step workbooks — Case, Verdict, Step, Action, Description, Selector, Target, Result, Duration, Proof, Photo. */
+const STEP_SHEET_WIDTHS = [14, 12, 6, 16, 44, 36, 34, 14, 10, 46, 45] as const;
 
 export interface TextWorkbookInput {
   sheetName: string;
@@ -575,64 +663,68 @@ function workbookParts(build: SheetBuild, sheetName: string, widths: readonly nu
 export interface ExcelExportResult {
   xlsxPath: string;
   videoPaths: string[];
-  /** One workbook per proved case, under the media directory. */
+  /** One workbook per planned case, under the media directory. */
   caseXlsxPaths: string[];
-  /** Per-case files removed because the case no longer passes (a rerun went red). */
+  /** Legacy run workbooks removed after the all-case workbook is written. */
   removed: string[];
-  passedCases: number;
+  cases: number;
+  embeddedImages: number;
+  omittedImages: number;
 }
 
 /** `reports/<base>.html` → the names its Excel export uses. */
 export function excelExportNames(htmlReportPath: string): { xlsxPath: string; mediaDir: string; mediaDirName: string } {
   const base = htmlReportPath.replace(/\.html$/, '');
-  return { xlsxPath: `${base}-passed.xlsx`, mediaDir: `${base}-media`, mediaDirName: `${basename(base)}-media` };
+  return { xlsxPath: `${base}-cases.xlsx`, mediaDir: `${base}-media`, mediaDirName: `${basename(base)}-media` };
 }
 
 /**
  * Writes, beside the HTML report:
- * - `<base>-passed.xlsx` — the run's workbook, every passed case;
- * - `<base>-media/<case id>.xlsx` — one workbook per proved case, what the
+ * - `<base>-cases.xlsx` — the run's workbook, every planned case;
+ * - `<base>-media/<case id>.xlsx` — one workbook per case, what the
  *   report's per-case button downloads;
- * - `<base>-media/<case id>.webm` — each passed case's recording as a real
+ * - `<base>-media/<case id>.webm` — each case's recording as a real
  *   file both workbooks hyperlink to (relative, so the folder travels whole).
  *
- * And removes the per-case workbook and recording of any case on the report
- * that is NOT passed: a case that passed on an earlier pass and failed on the
- * rerun must not keep a "proof" file the report contradicts. The media
- * directory is created only when there is something to put in it.
+ * The legacy `<base>-passed.xlsx` is removed so two run workbooks cannot
+ * disagree. Per-case workbooks and recordings are retained for every verdict.
  */
-export async function writePassedCasesExcel(
+export async function writeRunExcel(
   htmlReportPath: string,
   input: CatalogReportInput,
   preserveVideoCaseIds: ReadonlySet<string> = new Set(),
 ): Promise<ExcelExportResult> {
   const { xlsxPath, mediaDir, mediaDirName } = excelExportNames(htmlReportPath);
-  const { xlsx, videos, passedCases: count } = buildPassedCasesWorkbook(input, mediaDirName);
+  const workbook = buildRunWorkbook(input, mediaDirName);
+  const { xlsx, videos } = workbook;
   await mkdir(dirname(xlsxPath), { recursive: true });
   await writeFile(xlsxPath, xlsx);
   const videoPaths: string[] = [];
   const caseXlsxPaths: string[] = [];
-  const passed = passedCases(input);
-  if (videos.length > 0 || passed.length > 0) await mkdir(mediaDir, { recursive: true });
+  const cases = reportedCases(input);
+  if (videos.length > 0 || cases.length > 0) await mkdir(mediaDir, { recursive: true });
   for (const video of videos) {
     const path = join(mediaDir, video.file);
-    await writeFile(path, video.bytes);
+    const alreadyPreserved = preserveVideoCaseIds.has(video.caseId) && await access(path).then(() => true, () => false);
+    if (!alreadyPreserved) await writeFile(path, video.bytes);
     videoPaths.push(path);
   }
-  for (const c of passed) {
+  for (const c of cases) {
     const path = join(mediaDir, `${catalogCaseExportName(c.id)}.xlsx`);
     await writeFile(path, buildCaseWorkbook(c).xlsx);
     caseXlsxPaths.push(path);
   }
   const removed: string[] = [];
-  for (const c of input.cases) {
-    if (c.verdict === 'passed') continue;
-    const stalePaths = [join(mediaDir, `${catalogCaseExportName(c.id)}.xlsx`)];
-    if (!preserveVideoCaseIds.has(c.id)) stalePaths.push(join(mediaDir, caseVideoFile(c.id)));
-    for (const stale of stalePaths) {
-      const gone = await rm(stale, { force: false }).then(() => true, () => false);
-      if (gone) removed.push(stale);
-    }
-  }
-  return { xlsxPath, videoPaths, caseXlsxPaths, removed, passedCases: count };
+  const stalePassedPath = htmlReportPath.replace(/\.html$/, '-passed.xlsx');
+  const staleRemoved = await rm(stalePassedPath, { force: false }).then(() => true, () => false);
+  if (staleRemoved) removed.push(stalePassedPath);
+  return {
+    xlsxPath,
+    videoPaths,
+    caseXlsxPaths,
+    removed,
+    cases: workbook.cases,
+    embeddedImages: workbook.embeddedImages,
+    omittedImages: workbook.omittedImages,
+  };
 }

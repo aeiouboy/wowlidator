@@ -5,9 +5,8 @@
  * from the moment the run starts — every planned case a `never ran` row — and
  * is rewritten after each case finishes, so the panel's Report button opens
  * the current state of the catalog at any point of the run, not a file that
- * appears an hour later. Alongside it, `excel-export.ts` writes the per-case
- * workbook of every case that passed and removes the workbook of any case
- * that no longer does.
+ * appears an hour later. Alongside it, `excel-export.ts` writes the run
+ * workbook and one workbook per planned case.
  *
  * Everything is derived from the LEDGER (`suite-progress.ts`): the plan, each
  * verdict, where each proof bundle landed. A bundle is read from memory when
@@ -38,7 +37,7 @@ import {
   type CatalogReportCase,
   type CatalogReportInput,
 } from '../reporter/catalog-report.js';
-import { caseVideoFile, writePassedCasesExcel, type ExcelExportResult } from '../reporter/excel-export.js';
+import { caseVideoFile, writeRunExcel, type ExcelExportResult } from '../reporter/excel-export.js';
 import { writeFindingsExports, type FindingsExportResult } from '../reporter/findings-export.js';
 import { caseIdOf, type SuiteLedger } from './suite-progress.js';
 
@@ -106,7 +105,7 @@ export async function writeCatalogArtifacts(input: CatalogReportInput, cwd?: str
   const shotsDir = join(dirname(htmlPath), mediaDirName, 'shots');
   const excelVideoCases = new Set(
     input.cases
-      .filter((c) => c.verdict === 'passed' && typeof c.bundle?.video?.data === 'string' && c.bundle.video.data !== '')
+      .filter((c) => typeof c.bundle?.video?.data === 'string' && c.bundle.video.data !== '')
       .map((c) => c.id),
   );
   const spilledRecordingCases = new Set<string>();
@@ -139,7 +138,7 @@ export async function writeCatalogArtifacts(input: CatalogReportInput, cwd?: str
     }
   };
   await writeCatalogReport(htmlPath, renderCatalogReport({ ...input, spillScreenshot, spillRecording }));
-  const excel = await writePassedCasesExcel(htmlPath, input, spilledRecordingCases);
+  const excel = await writeRunExcel(htmlPath, input, spilledRecordingCases);
   const findings = await writeFindingsExports(htmlPath, input);
   return { htmlPath, excel, findings };
 }

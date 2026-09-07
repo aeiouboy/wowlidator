@@ -359,7 +359,7 @@ export async function cmdContext(
 
 /**
  * `wowlidator report [<ledger.progress.json> | <dir>]` — rebuild the catalog
- * report and its passed-cases Excel export from a suite ledger on disk,
+ * report and its all-cases Excel export from a suite ledger on disk,
  * without re-running anything. Exists so the exports added after a run can be
  * applied to the runs already in the folders: the ledger names every planned
  * case and where its proof bundle landed, which is all the report is built
@@ -429,7 +429,7 @@ export async function cmdCatalogReport(target: string | undefined, _options: Cli
       });
       process.stdout.write(
         `  catalog report ${htmlPath}\n` +
-          `  passed xlsx ${excel.xlsxPath} — ${excel.passedCases} passed case(s), ${excel.caseXlsxPaths.length} per-case workbook(s), ${excel.videoPaths.length} recording(s)` +
+          `  cases xlsx ${excel.xlsxPath} — ${excel.cases} case(s), ${excel.embeddedImages} image(s) embedded, ${excel.omittedImages} omitted, ${excel.caseXlsxPaths.length} per-case workbook(s), ${excel.videoPaths.length} recording(s)` +
           (excel.removed.length > 0 ? ` · ${excel.removed.length} stale export(s) removed` : '') +
           (missingProofs > 0 ? ` · ${missingProofs} proof bundle(s) no longer exist; those cases carry no evidence` : '') +
           '\n',
