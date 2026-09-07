@@ -4961,6 +4961,33 @@ function assertedText(step: FlowStep): string | null {
 }
 
 /**
+ * The part of a case whose words decide whether it CLAIMS something about
+ * wording: its Expected output, or the whole case when it has none.
+ *
+ * Narrowing from the prompt to the case (2026-09-02) was the first half of
+ * this; run 14 showed the second. HIR-EC-001 is a data-entry case with
+ * nineteen Expected lines and not one of them mentions wording — but its Test
+ * data carries the aside *"ถ้าไม่แนบแล้วกด Next ให้บันทึกข้อความที่ระบบแสดง"*
+ * ("if you skip the attachment and press Next, record the message the system
+ * shows"), and `ข้อความ` in it classified the whole row as a wording claim.
+ * The lint then refused the flow's Employee-ID assertion as "a value the case
+ * never states" — while `unassertedExpectedItems` refused the next attempt for
+ * dropping it. Two lints, opposite demands, and the row could not be written
+ * on any of three attempts.
+ *
+ * What a case CLAIMS is its Expected output. Test data is input material and a
+ * Note is an aside; both routinely describe what a tester should observe, and
+ * neither makes the case about spelling. A genuine wording claim says so where
+ * the claim lives — PL_02_02's driver, `ข้อความสะกดถูกต้องตรงตาม Spec`, is an
+ * Expected line.
+ */
+function wordingHaystack(caseText: string | undefined): string | undefined {
+  if (caseText === undefined) return undefined;
+  const expected = sectionOf(caseText, 'expected');
+  return expected !== null && expected.trim() !== '' ? expected : caseText;
+}
+
+/**
  * A wording claim asserted on a data row instead of on the page's own labels.
  *
  * Live (be100 PL_02_02, 2026-08-25): the claim "ข้อความสะกดถูกต้องตรงตาม Spec"
@@ -4998,7 +5025,7 @@ export function wordingClaimAssertsDataValue(
    */
   caseText?: string | undefined,
 ): { index: number; value: string } | null {
-  if (!WORDING_CLAIM.test(caseText ?? prompt)) return null;
+  if (!WORDING_CLAIM.test(wordingHaystack(caseText) ?? prompt)) return null;
   // No tree, no opinion. Ungrounded authoring has nothing to tell a label
   // from a row with, and a lint that refuses on absent evidence refuses
   // every honest wording flow too (caught by the echo-pipeline test, whose
@@ -5020,6 +5047,13 @@ export function wordingClaimAssertsDataValue(
     if (text === null) continue;
     const needle = fold(text);
     if (needle.length < 3 || claim.includes(needle)) continue;
+    // A REGEX asserts a form, not a row. `/\b2[0-9]{7}\b/` is HIR-EC-001's
+    // Expected line 14.1 — "an 8-digit Employee ID whose first digit is 2" —
+    // written as the only thing that can check it, and there is no page to
+    // quote it from: a pattern is never "a value the case never states" when
+    // the case states the pattern in words. Refusing it left the row with no
+    // way to assert 14.1 at all.
+    if (/^\/.*\/[a-z]*$/i.test(text.trim())) continue;
     if (labelLines.some((line) => line.includes(needle))) continue;
     return { index, value: text };
   }

@@ -4810,3 +4810,41 @@ describe('the acceptance reads the whole tree, because narrowing drops the marke
     }
   });
 });
+
+describe('a wording claim is read from what the case CLAIMS, and a pattern is not a data row (2026-09-07, HIR-EC-001)', () => {
+  const tree = readFileSync(fileURLToPath(new URL('./fixtures/ax-hire-form-2page.txt', import.meta.url)), 'utf8');
+  // Run 14, three attempts, no flow. The row is a data-entry case whose
+  // nineteen Expected lines never mention wording — but its Test data carries
+  // the aside "ถ้าไม่แนบแล้วกด Next ให้บันทึกข้อความที่ระบบแสดง", and `ข้อความ`
+  // in it classified the whole row as a claim about spelling.
+  const hirCase = [
+    'Test case: HIR-EC-001 New Hire Key-in success',
+    'Test data:',
+    '- Attachment: (ช่องนี้มีเครื่องหมายบังคับ ถ้าไม่แนบแล้วกด Next ให้บันทึกข้อความที่ระบบแสดง)',
+    'Expected output:',
+    '14.1 ระบบสร้าง Employee ID เป็นตัวเลข 8 หลัก โดยหลักแรกเป็น 2',
+    '14.2 Employee Status = Active',
+  ].join('\n');
+  const wordingCase = ['Test case: PL_02_02 ตรวจสอบการสะกด', 'Expected output:', '1.1 ข้อความสะกดถูกต้องตรงตาม Spec'].join('\n');
+  const pattern: FlowStep[] = [{ action: 'expectText', selector: 'role=textbox[name="Employee ID" i]', value: '/\\b2[0-9]{7}\\b/', intent: '14.1' }];
+  const literal: FlowStep[] = [{ action: 'expectVisible', selector: 'text=Medical Reimbursement', intent: '1.1' }];
+  const refused = (steps: FlowStep[], text: string): boolean =>
+    wordingClaimAssertsDataValue(text, steps, tree, undefined, text) !== null;
+
+  it('an aside in Test data does not make a data-entry case a claim about spelling', () => {
+    assert.equal(refused(literal, hirCase), false);
+    assert.equal(refused(pattern, hirCase), false);
+  });
+
+  it('a regex asserts a FORM, and no page can be quoted for one', () => {
+    // Expected 14.1 states the pattern in words; the regex is the only thing
+    // that checks it. Refusing it left the row with nothing to assert for
+    // 14.1 — which `unassertedExpectedItems` then refused it for. Two lints,
+    // opposite demands, three attempts, no flow.
+    assert.equal(refused(pattern, wordingCase), false);
+  });
+
+  it('still refuses a data value on a case that really is about wording (PL_02_02)', () => {
+    assert.equal(refused(literal, wordingCase), true);
+  });
+});
