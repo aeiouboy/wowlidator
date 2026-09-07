@@ -48,16 +48,57 @@ npm run cli -- context build --db-schema ./schema.sql  # index tables too (or sc
 npm run cli -- catalog order.mmd --claims-only         # a sequence diagram is a catalog: one claim per message, no model call
 npm run cli -- generate --api                          # write API tests from that spec (policy defaults to mutations; --policy forms|read-only to narrow)
 npm run cli -- run checkout.api.json                   # browser-free: never opens Chrome
-npm run cli -- report # rebuild each catalog run's HTML report + passed-cases Excel export from the ledgers on disk, no re-run
+npm run cli -- report [<ledger.progress.json>|<dir>]  # rebuild a catalog run's HTML report + Excel exports from the ledger on disk, no re-run (bare, it reads .wowlidator/catalogs/ — name the ledger when it lives elsewhere)
 npm run cli -- db restore [<baseline.json>|<runKey>|<ledger.progress.json>]  # put the tables back to the run's pre-run snapshot (needs WOWLIDATOR_DB_RESTORE_URL)
 npm run cli -- catalog cases.xlsx --sheet EC --category Hiring --run   # one worksheet / one Category column of a workbook
 npm run cli -- catalog cases.xlsx --run --concurrency 8 --browsers 3   # parallel lanes spread over three Chromes
 npm run cli -- catalog cases.xlsx --run --resume                       # continue a run that stopped short, under its run key (also --rerun-failed / --rerun-errors / --rerun-vacuous / --rerun-case <id>)
+npm run cli -- catalog cases.xlsx --run --case-timeout 1200             # a case that outlives the ceiling is cut, sealed `blocked`, and left for the next --resume (0/off disables; default 20m)
 npm run cli -- run multi.flow.json --persona MANAGER=m@x.com:pw --no-headless --browsers 2  # one Chrome per person the flow signs in as
 npm run cli -- doctor  # one real one-token call per role: the only proof a default model id still resolves
 npm run mcp           # serve MCP over stdio
 bin/wow <anything>    # engine + wowUI on one port; unknown subcommands pass straight through to the CLI
 ```
+
+### Testing a real application from the CLI
+
+Every path below is relative to the repo root or a variable — nothing in this
+file, in `docs/`, or in a command handed to someone else may carry an absolute
+path from one machine.
+
+```bash
+CATALOG=../<pipeline-repo>/outputs/<stamp>/<Cases>.csv   # the sheet under test
+APP_URL=https://<host>/<path>                            # the deployment under test
+
+pkill -f "remote-debugging-port=93"                      # start from a clean pool
+npm run cli -- doctor                                    # prove every role's model id still resolves
+npm run cli -- catalog "$CATALOG" --url "$APP_URL" --run --resume \
+  --concurrency 8 --browsers 8 --headless --video on \
+  > .wowlidator/reports/catalogs/<run>.log 2>&1
+npm run cli -- report .wowlidator/reports/catalogs/<claims>.progress.json
+```
+
+Four rules the 309-case EC run paid for, 2026-09-05 → 09-07:
+
+- **A resume is the default, a re-run is a decision.** `--resume` skips
+  everything that already holds a verdict. `--rerun-errors` / `--rerun-failed`
+  first *reset* those cases to unrun — so a run that then stops short leaves the
+  ledger poorer than it found it. It cost 55 sealed `failed` verdicts in one
+  afternoon. Only pass them when the run will finish.
+- **Authored flows survive a resume and are the expensive part.** The same
+  catalog re-entered with 188 of 284 flows reused and only 96 rows to author. A
+  resume is not a re-run; it is nearly free by comparison.
+- **Point `report` at the ledger.** Bare `wowlidator report` reads
+  `.wowlidator/catalogs/`; a catalog run's ledger lives beside its claims file
+  (`.wowlidator/reports/catalogs/<claims>.progress.json`). The rebuild needs no
+  browser and no model, so it is the way to re-render a run after a reporter
+  change — and a long-lived run keeps the code it started with, so a report fix
+  merged mid-run only reaches the run after this.
+- **A provider is chosen per run, by env, not by editing config.** Every role
+  takes `WOWLIDATOR_<ROLE>_PROVIDER` / `_MODEL` / `_EFFORT` on the command's own
+  environment; `doctor` is the only proof the ids still resolve. Measured:
+  `codex-cli` sustained ~14 h without a quota wall, `agy-cli` allows roughly 18
+  minutes of 8-lane work per 5 hours and poisoned 191 cases across two attempts.
 
 Single test:
 
