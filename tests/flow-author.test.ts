@@ -81,6 +81,8 @@ import {
   switchesPersona,
   groundPersonaSwitches,
   baseUrlOf,
+  EXPANDED_MARKER,
+  expandedControlIn,
 } from '../src/generator/flow-author.js';
 import { isFixtureSpec } from '../src/data/fixtures.js';
 import { compileAuthoringRules, openQuestionIdsIn, withOverride, DEFAULT_VALUE_RULES } from '../src/generator/value-rules.js';
@@ -4413,5 +4415,52 @@ describe('requiredness is the tree\'s own token, not an asterisk in the name (HI
     assert.deepEqual(requiredAttachmentControls('button "Personal Information (Attachment) *"'), [
       { role: 'button', name: 'Personal Information (Attachment) *' },
     ]);
+  });
+});
+
+describe('a flow written from an expanded tree opens the form the same way (HIR-EC-001, 2026-09-07)', () => {
+  const evidence = [
+    `${EXPANDED_MARKER} role=button[name="Expand all" i]`,
+    'main',
+    '  button "Select Salutation" required',
+  ].join('\n');
+
+  it('inserts the click before the first step that touches a control', () => {
+    const flow = {
+      steps: [
+        { action: 'goto', url: 'https://x/hire' },
+        { action: 'selectOption', selector: 'role=button[name="Event Reason" i]', value: 'New Hire' },
+      ] as FlowStep[],
+      cases: undefined as undefined,
+    };
+
+    settleAcceptedFlowInputs(flow, '', evidence, 'HIR-EC-001');
+
+    assert.equal(flow.steps.length, 3);
+    const inserted = flow.steps[1] as FlowStep & { selector?: string; intent?: string };
+    assert.equal(inserted.action, 'click');
+    assert.equal(inserted.selector, 'role=button[name="Expand all" i]');
+    assert.match(inserted.intent ?? '', /\[generated: the journey tree was read with the form expanded/);
+  });
+
+  it('adds nothing when the flow already clicks it, or when the capture expanded nothing', () => {
+    const already = {
+      steps: [
+        { action: 'click', selector: 'role=button[name="Expand all" i]' },
+        { action: 'selectOption', selector: 'role=button[name="X" i]', value: 'y' },
+      ] as FlowStep[],
+      cases: undefined as undefined,
+    };
+    settleAcceptedFlowInputs(already, '', evidence, 'C');
+    assert.equal(already.steps.length, 2);
+
+    const noMarker = { steps: [{ action: 'selectOption', selector: 'role=button[name="X" i]', value: 'y' }] as FlowStep[], cases: undefined as undefined };
+    settleAcceptedFlowInputs(noMarker, '', 'main\n  button "X"', 'C');
+    assert.equal(noMarker.steps.length, 1);
+  });
+
+  it('expandedControlIn reads the selector back, and nothing from a tree without the marker', () => {
+    assert.equal(expandedControlIn(evidence), 'role=button[name="Expand all" i]');
+    assert.equal(expandedControlIn('main\n  button "Expand all"'), null);
   });
 });

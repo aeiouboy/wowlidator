@@ -96,6 +96,7 @@ import {
   LOGIN_URL_PATTERN,
   LlmFlowAuthorModel,
   caseFlows,
+  EXPANDED_MARKER,
   type AuthoredFlow,
 } from '../../generator/flow-author.js';
 import { LlmGeneratorModel, TestGenerator } from '../../generator/test-generator.js';
@@ -2256,7 +2257,7 @@ async function captureJourneyTree(
     // `expandCollapsedSections`. After the tab, because a tab is a context of
     // its own; before the tree, because a collapsed section's fields are not
     // in it.
-    await expandCollapsedSections(extra, log);
+    const expanded = await expandCollapsedSections(extra, log);
 
     const tree = await captureAxTree(extra, DEFAULT_AUTHOR_MAX_NODES);
     if (tree.trim() === '') {
@@ -2301,7 +2302,7 @@ async function captureJourneyTree(
         'This is the ONLY landing path you may expectUrl, and only for that same account; any ' +
         'other persona\'s landing is unknown, so its proof of sign-in is expectHidden of the ' +
         'submit control (see SIGNING IN), never a path inferred from a route or role name.\n\n';
-    return landing + journeyTreeSection({ landed, tree, tabWanted, tabSelected, opened });
+    return landing + journeyTreeSection({ landed, tree, tabWanted, tabSelected, opened, expanded });
   } catch (error) {
     // Diagnostic, and swallowed: authoring without this section is exactly
     // what authoring did before it existed.
@@ -2359,8 +2360,9 @@ export function journeyTreeSection(parts: {
   tabWanted: string | null;
   tabSelected: { name: string; selector: string } | null;
   opened: { name: string; selector: string; url: string; tree: string } | null;
+  expanded?: { name: string; selector: string } | null | undefined;
 }): string {
-  const { landed, tree, tabWanted, tabSelected, opened } = parts;
+  const { landed, tree, tabWanted, tabSelected, opened, expanded } = parts;
   const tabNote =
     tabSelected !== null
       ? ` This tree was read WITH the tab "${tabSelected.name}" selected (${tabSelected.selector}), as the row's script ` +
@@ -2372,7 +2374,18 @@ export function journeyTreeSection(parts: {
           'is not listed below as NOT CAPTURED rather than absent — a workflow goal in the script\'s own words is the honest ' +
           'shape for that leg, never a control of another panel that merely resembles the name.'
         : '';
+  // Machine-readable on purpose: `expandedControlIn` reads this back at
+  // acceptance and inserts the click, because a tree read expanded is
+  // evidence for a page the flow has not reached until it clicks the same
+  // control. The sentence is also for the model, which sees this section.
+  const expandNote =
+    expanded == null
+      ? ''
+      : `\n\n${EXPANDED_MARKER} ${expanded.selector}\nThis tree was read AFTER clicking "${expanded.name}" ` +
+        `(${expanded.selector}), which opens every collapsed section of the form — the row's own script clicks it. ` +
+        'Write that click before the first field: the controls below are inside sections that are CLOSED until it happens.';
   return (
+    expandNote +
     `ANOTHER PAGE IN THIS JOURNEY — the accessibility tree of ${landed}, which the request ` +
     'describes. It is NOT the page this run starts on: a selector taken from here resolves ' +
     'only after the flow has navigated to that page, so write the goto or the click that ' +

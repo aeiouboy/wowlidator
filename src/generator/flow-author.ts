@@ -6192,6 +6192,27 @@ function settleWorkflowPairs(
 }
 
 /**
+ * The line `journeyTreeSection` writes when the capture expanded the form,
+ * and `expandedControlIn` reads back. A tree read expanded is evidence for a
+ * page the FLOW has not reached until it clicks the same control — live
+ * (HIR-EC-001, 2026-09-07) the expanded capture turned thirteen fields into
+ * deterministic steps and every one of them targeted a control still inside
+ * a closed section, because nothing had told the flow to open them.
+ */
+export const EXPANDED_MARKER = 'FORM EXPANDED BEFORE READING — click first:';
+
+/** The selector the capture clicked to expand the form, from the evidence it wrote, or null. */
+export function expandedControlIn(evidence: string): string | null {
+  for (const line of evidence.split('\n')) {
+    const at = line.indexOf(EXPANDED_MARKER);
+    if (at === -1) continue;
+    const selector = line.slice(at + EXPANDED_MARKER.length).trim();
+    if (selector !== '') return selector;
+  }
+  return null;
+}
+
+/**
  * Requiredness is read from the tree's own `required` token, never from an
  * asterisk in the accessible name.
  *
@@ -6241,6 +6262,28 @@ export function settleAcceptedFlowInputs(
   caseId: string,
 ): string[] {
   const notes: string[] = [];
+  // **The click that opened the form the tree was read from.** Every entry
+  // step below was written from an EXPANDED page; on a page nobody expanded,
+  // each one targets a control inside a closed section. Live (HIR-EC-001,
+  // 2026-09-07): thirteen deterministic fields, and the first of them —
+  // `button "Select Salutation"` — could not resolve after five attempts and
+  // 145 s, because the section holding it was shut. Inserted before the first
+  // step that touches a control, never when the flow already clicks it.
+  const expandSelector = expandedControlIn(evidence);
+  if (expandSelector !== null) {
+    const touches = (step: FlowStep): boolean =>
+      'selector' in step && typeof (step as { selector?: unknown }).selector === 'string' && (step as { selector: string }).selector !== '';
+    const already = flow.steps.some((step) => step.action === 'click' && (step as { selector?: string }).selector === expandSelector);
+    const first = flow.steps.find(touches);
+    if (!already && first !== undefined) {
+      insertStepBefore(flow, first, {
+        action: 'click',
+        selector: expandSelector,
+        intent: markGenerated(undefined, `the journey tree was read with the form expanded by ${expandSelector}; the flow opens it the same way before the first field`),
+      });
+      notes.push(`the form is expanded by ${expandSelector} before the first field, because the tree these steps were written from was read that way (marked [generated: …])`);
+    }
+  }
   const named = expectedNamedFields(expected);
   for (const step of [...flow.steps]) {
     const note = settleWorkflowPairs(flow, step, evidence, (field) => named.has(field.toLowerCase().replace(/\s+/g, ' ').trim()));
