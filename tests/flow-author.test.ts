@@ -4393,3 +4393,25 @@ describe('a script step is performed, never read as a noun, and the last word pe
     assert.ok(log.some((l) => /weak claim, accepted with a note/.test(l)), 'accepted on the first ask, nothing refused');
   });
 });
+
+describe('requiredness is the tree\'s own token, not an asterisk in the name (HIR-EC-001, 2026-09-07)', () => {
+  it('finds a required attachment whose name carries no asterisk', () => {
+    const tree = [
+      'region "Personal Identity*"',
+      'heading "Contact*"',
+      'button "File attachment area" required',
+    ].join('\n');
+    assert.deepEqual(requiredAttachmentControls(tree), [{ role: 'button', name: 'File attachment area' }]);
+  });
+
+  it('ignores an attachment control the page does not require, and a name that merely says "required"', () => {
+    const tree = ['button "File attachment area"', 'textbox "Required documents note" required'].join('\n');
+    assert.deepEqual(requiredAttachmentControls(tree), []);
+  });
+
+  it('still accepts the asterisked spelling, for a page that puts it on the control', () => {
+    assert.deepEqual(requiredAttachmentControls('button "Personal Information (Attachment) *"'), [
+      { role: 'button', name: 'Personal Information (Attachment) *' },
+    ]);
+  });
+});

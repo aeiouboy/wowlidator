@@ -6191,13 +6191,31 @@ function settleWorkflowPairs(
   return `workflow goal ${JSON.stringify(step.goal.slice(0, 60))}: ${done.join(', ')} performed deterministically before the leg (marked [generated: …])`;
 }
 
+/**
+ * Requiredness is read from the tree's own `required` token, never from an
+ * asterisk in the accessible name.
+ *
+ * Measured against the live hire form (2026-09-07, 288 nodes with the
+ * sections expanded): every `*` in the tree sits on a SECTION — `region
+ * "Personal Identity*"`, `heading "Contact*"` — and not one control carries
+ * it. The control this rule exists for is `button "File attachment area"`,
+ * whose DOM is `required` and whose name has no asterisk at all, so an
+ * asterisk test found nothing and no fixture was ever minted. The tree
+ * already prints the real signal: `formatAxNode` appends `required` from
+ * CDP's own property (OA-6, 2026-09-03), which is the same fact the page
+ * enforces at submit.
+ */
 export function requiredAttachmentControls(evidence: string): { role: string; name: string }[] {
   const controls: { role: string; name: string }[] = [];
   for (const raw of evidence.split('\n')) {
     const match = /^\s*([a-z]+)\s+"((?:[^"\\]|\\.)*)"/i.exec(raw);
     if (match === null) continue;
     const name = (match[2] ?? '').replace(/\\(.)/g, '$1').trim();
-    if (!name.includes('*') || !AUTHORING.attachment.test(name)) continue;
+    // The token the renderer appends, not a word inside the name: a control
+    // called "Required documents" is not thereby required.
+    const rest = raw.slice(match.index + match[0].length);
+    const required = /(?:^|\s)required(?:\s|$)/.test(rest) || name.includes('*');
+    if (!required || !AUTHORING.attachment.test(name)) continue;
     controls.push({ role: (match[1] ?? '').toLowerCase(), name });
   }
   return controls;
