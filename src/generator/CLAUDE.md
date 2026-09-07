@@ -871,3 +871,44 @@ a typo in an origin is authored evidence failure, not an application environment
 error, and applies equally to `goto`, `signIn`, `request`, and any future step
 that carries a string `url`. Tests: `tests/flow-author.test.ts` ("authored
 absolute URLs stay on the deployment host").
+
+## The Expected output is the measure; a Test data gap is a means, not an end (2026-09-07, HIR-EC-001)
+
+A sheet's Test data column is written by a person under time pressure and is
+routinely incomplete. Its Expected output column is not: that is what the case
+claims, and it is the only thing a verdict may rest on. So the two columns
+carry different authority, and a required field is routed by which one names
+it:
+
+- **A field the Expected output names** is the claim. It takes the sheet's
+  value exactly, as a deterministic entry step — never a goal handed to the
+  agent to satisfy however it can. HIR-EC-001's `Hire Date = 01 Sep 2027` is
+  Expected line 3.1; authored as part of a forty-field workflow goal, the
+  agent spent five consecutive turns guessing at a segmented date picker
+  (`paste` on the date node, `click` "Show date picker", `paste` by
+  aria-label, `click` "Select date", `fill` `spinbutton "Day Day"`) and the
+  stall judge ended the leg. A `fill` with the resolved value would have taken
+  one action.
+- **A required field no Expected line names** is a turnstile on the way to the
+  claim. The harness supplies a valid value itself and records that it did —
+  it must never stop because the sheet was silent. HIR-EC-001 is blocked at
+  `Personal Information (Attachment) *` with "no file path or file is
+  available", and not one of its nineteen Expected lines mentions an
+  attachment. `src/data/fixtures.ts` already mints exactly this
+  (`pdf:medical-certificate` and its vocabulary) and `engine/upload.ts`
+  already drives the dropzone; what is missing is the author emitting the
+  `upload` step when the sheet names no file, because the sheet naming a file
+  is not the reason the step exists.
+
+The report keeps the distinction visible: a value from the sheet and a value
+the harness minted are both evidence, and a reader must be able to tell them
+apart. This is the same rule as **Values the sheet left as tokens are
+resolved, and a stand-in is flagged** above, widened from "the sheet wrote a
+token" to "the sheet wrote nothing at all".
+
+**A workflow leg cannot attach a file.** `AgentModel`'s action vocabulary has
+no `upload`, so once a form section is handed to a leg, a required attachment
+is unreachable by construction, not merely unlikely — the agent clicks the
+Upload button and the dropzone correctly and then has nothing left to try.
+Either the author emits the `upload` step outside the leg, or the leg can
+never finish a section that has one.

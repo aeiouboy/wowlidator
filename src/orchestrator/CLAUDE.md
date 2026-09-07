@@ -501,3 +501,37 @@ failed workflow leg is classed by the source of its evidence"),
 `tests/exit.test.ts` (the wording and the exit code), and
 `tests/artifact-schemas.test.ts` (a hand-written bundle with and without the
 fields, the refused vocabulary, the mirror).
+
+## The prompt's node budget, measured against a real form (2026-09-07, HIR-EC-001)
+
+`FORM_AGENT_MAX_NODES` went 60 → 120 on 2026-09-03 because "a hire form's tree
+is well over sixty nodes, and the focused tree cut the very controls the goal
+named". Four days later the same form outgrew 120 the same way. Two runs of
+HIR-EC-001, identical in every flag but the budget:
+
+| | 120 nodes | 500 nodes |
+|---|---|---|
+| turns spent before the leg ended | 57 | 7 (leg 1), 12, 20 |
+| actions taken / of those, entering data | 37 / 10 | 15 / 9 |
+| reasonings citing a truncated tree | 15 of 59 | **0 of 8** |
+| a workflow leg that reached its goal | none | one (49.9 s, four fields) |
+| authoring attempts | 3 of 3, 4 m 33 s | **1 of 3, 1 m 39 s** |
+
+At 120 the agent reported `National ID / Tax ID`, `Firstname (TH)`,
+`Lastname (TH)` and `House No.` "absent from the current truncated
+accessibility tree" — for controls the step's own screenshot shows filled and
+on screen — and toggled the same accordions open and shut (Personal
+Information\* four times, Identity\* three) hunting for them. Every section it
+opened pushed more of what it was looking for out of the window, so the action
+it believed would help was the one making it worse.
+
+`WOWLIDATOR_FORM_AGENT_MAX_NODES` (`formAgentMaxNodes()`) overrides the
+default for one run. **It is a measuring instrument, not the fix.** A goal
+naming forty `field = value` pairs flattens `focusTree`'s ranking whatever the
+budget — nearly every control on the form hits one of its hundreds of terms,
+scores tie, and the tie-break falls back to document order, which is why the
+top of the page kept winning. Raising the number moved the wall and revealed
+what stood behind it: a date picker the ladder cannot drive, and a required
+attachment no agent action can satisfy. Both belong to the authoring plane —
+see **The Expected output is the measure; a Test data gap is a means, not an
+end** in `src/generator/CLAUDE.md`.
