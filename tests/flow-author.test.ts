@@ -91,6 +91,8 @@ import {
   JOURNEY_TREE_MAX_LINES,
   journeyTreeMaxLines,
   STRUCTURAL_EVIDENCE_LINE,
+  fillsReadOnlyNode,
+  ignoresMenuPath,
 } from '../src/generator/flow-author.js';
 import { isFixtureSpec } from '../src/data/fixtures.js';
 import { focusTreeText } from '../src/context/retriever.js';
@@ -4846,5 +4848,47 @@ describe('a wording claim is read from what the case CLAIMS, and a pattern is no
 
   it('still refuses a data value on a case that really is about wording (PL_02_02)', () => {
     assert.equal(refused(literal, wordingCase), true);
+  });
+});
+
+describe('a refusal names the field\'s real input, and a sign-in reaches the sign-in page (2026-09-07, run 15)', () => {
+  const tree = readFileSync(fileURLToPath(new URL('./fixtures/ax-hire-form-2page.txt', import.meta.url)), 'utf8');
+
+  it('points at the same field under another role, not at six unrelated textboxes', () => {
+    // The hire form renders `textbox "Hire Date" readonly` — the picker's
+    // display — beside `Date "Hire Date"`, the input. The remedy used to list
+    // the first six writable textboxes on the page, none of them this
+    // field's: it told the model to fill "Username" for a Hire Date.
+    const steps: FlowStep[] = [{ action: 'fill', selector: 'role=textbox[name="Hire Date" i]', value: '2027-09-01' }];
+    const hit = fillsReadOnlyNode(steps, tree);
+    assert.deepEqual(hit?.input, { role: 'date', name: 'Hire Date' });
+  });
+
+  it('says nothing when the field has no other input to offer', () => {
+    const flat = 'main\ntextbox "Reference" readonly\ntextbox "Notes"';
+    const steps: FlowStep[] = [{ action: 'fill', selector: 'role=textbox[name="Reference" i]', value: 'x' }];
+    assert.equal(fillsReadOnlyNode(steps, flat)?.input, null);
+  });
+
+  it('a Destination that is the sign-in page is reached by signing in, and setup counts', () => {
+    const caseText = 'Destination: https://app.example.com/en/login\nSteps:\n1. sign in';
+    assert.equal(ignoresMenuPath([{ action: 'signIn', as: 'HR_ADMIN_ACCOUNT' }], caseText), null);
+    assert.equal(
+      ignoresMenuPath([{ action: 'goto', url: 'https://app.example.com/en/login' }, { action: 'click', selector: 'x' }], caseText),
+      null,
+      'the opening goto belongs in setup, and setup is passed in with the body',
+    );
+    assert.deepEqual(ignoresMenuPath([{ action: 'click', selector: 'x' }], caseText), {
+      kind: 'destination',
+      wanted: 'https://app.example.com/en/login',
+    });
+  });
+
+  it('a Destination that is NOT the sign-in page still has to be navigated to', () => {
+    const caseText = 'Destination: https://app.example.com/en/admin/hire';
+    assert.deepEqual(ignoresMenuPath([{ action: 'signIn', as: 'HR_ADMIN_ACCOUNT' }], caseText), {
+      kind: 'destination',
+      wanted: 'https://app.example.com/en/admin/hire',
+    });
   });
 });

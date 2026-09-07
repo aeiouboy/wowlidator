@@ -3243,15 +3243,39 @@ export class FlowAuthor {
 
         const readOnlyFill = fillsReadOnlyNode([...(result.setup ?? []), ...result.steps], evidenceTree);
         if (readOnlyFill !== null) {
+          const input = readOnlyFill.input;
           refuse(
             `the authored flow "${result.name}" fills textbox ${JSON.stringify(readOnlyFill.name)} (step ` +
               `${readOnlyFill.index}), which the tree marks READONLY — that is the picker's display, not its ` +
-              'input, and a fill there waits out its timeout and enters nothing. The input is the textbox named ' +
-              "by the field's LABEL" +
-              (readOnlyFill.writable.length > 0
-                ? ` — the tree offers: ${readOnlyFill.writable.map((w) => JSON.stringify(w)).join(', ')}`
-                : '') +
-              '. Fill that one, and give a date input its value as YYYY-MM-DD.',
+              'input, and a fill there waits out its timeout and enters nothing. ' +
+              (input !== null
+                ? `The input is the same field under another role — the tree names it ${input.role} ` +
+                  `${JSON.stringify(input.name)}: write \`role=${input.role}[name=${JSON.stringify(input.name)} i]\`, ` +
+                  'and give a date input its value as YYYY-MM-DD.'
+                : "The input is the textbox named by the field's LABEL" +
+                  (readOnlyFill.writable.length > 0
+                    ? ` — the tree offers: ${readOnlyFill.writable.map((w) => JSON.stringify(w)).join(', ')}`
+                    : '') +
+                  '. Fill that one, and give a date input its value as YYYY-MM-DD.'),
+            input === null
+              ? {}
+              : {
+                  // The tree holds the answer, so the last word performs it
+                  // rather than losing the flow over a selector.
+                  settle: () => {
+                    const all = [...(result.setup ?? []), ...result.steps];
+                    const step = all[readOnlyFill.index];
+                    if (step === undefined || !('selector' in step)) return null;
+                    const rewritten = entryStepFor(input, (step as { value?: string }).value ?? '', '');
+                    if (rewritten === null || !('selector' in rewritten)) return null;
+                    (step as { selector: string }).selector = (rewritten as { selector: string }).selector;
+                    (step as { intent?: string }).intent = markGenerated(
+                      (step as { intent?: string }).intent,
+                      `repointed to ${input.role} ${JSON.stringify(input.name)} — the textbox of that name is the picker's read-only display`,
+                    );
+                    return `step ${readOnlyFill.index} repointed to the field's real input, ${input.role} ${JSON.stringify(input.name)}`;
+                  },
+                },
           );
         }
 
@@ -3768,7 +3792,10 @@ export class FlowAuthor {
           );
         }
 
-        const route = ignoresMenuPath(result.steps, extra.caseText ?? trimmed);
+        // Setup as well as the body: a flow's opening `goto` belongs in setup,
+        // and judging the body alone said "never navigates there" of a flow
+        // whose first step is exactly that navigation.
+        const route = ignoresMenuPath([...(result.setup ?? []), ...result.steps], extra.caseText ?? trimmed);
         if (route !== null) {
           refuse(
             route.kind === 'destination'
@@ -4769,7 +4796,7 @@ export function skipsAuthoredScript(
 export function fillsReadOnlyNode(
   steps: readonly FlowStep[],
   axTree: string | undefined,
-): { index: number; name: string; writable: string[] } | null {
+): { index: number; name: string; writable: string[]; input: { role: string; name: string } | null } | null {
   if (!axTree) return null;
   const lines = axTree.split('\n').map((l) => l.trim()).filter(Boolean);
   const readOnly = new Set<string>();
@@ -4788,7 +4815,38 @@ export function fillsReadOnlyNode(
     const m = /^role=textbox\[name=(?:"([^"]+)"|'([^']+)')(?:\s+i)?\]/.exec(step.selector.trim());
     const name = (m?.[1] ?? m?.[2] ?? '').toLowerCase();
     if (name === '' || !readOnly.has(name) || writableNames.has(name)) continue;
-    return { index, name: m?.[1] ?? m?.[2] ?? '', writable: [...new Set(writable)].slice(0, 6) };
+    const asked = m?.[1] ?? m?.[2] ?? '';
+    // **The field's REAL input, by the same name under another role.**
+    // Live (HIR-EC-001, run 15): the hire form renders `textbox "Hire Date"
+    // readonly` — the picker's display — beside `Date "Hire Date"`, which is
+    // the input. The remedy was a list of the first six writable textboxes on
+    // the page, none of them this field's: it told the model to fill
+    // "Username" for a Hire Date, three runs running. A node of the same name
+    // that something can be entered into is the answer, and the tree has it.
+    const input = sameNamedInput(lines, asked);
+    return {
+      index,
+      name: asked,
+      writable: [...new Set(writable)].slice(0, 6),
+      input,
+    };
+  }
+  return null;
+}
+
+/** A non-readonly node of this name, under whatever role the tree gives it, that an entry step can drive. */
+function sameNamedInput(lines: readonly string[], field: string): { role: string; name: string } | null {
+  const needle = squash(field);
+  if (needle === '') return null;
+  for (const line of lines) {
+    const m = /^([a-z-]+)\s+"((?:[^"\\]|\\.)*)"(.*)$/i.exec(line);
+    if (m === null) continue;
+    const role = (m[1] ?? '').toLowerCase();
+    const name = (m[2] ?? '').replace(/\\(.)/g, '$1').trim();
+    if (role === 'textbox' || squash(name) !== needle) continue;
+    if (/\b(readonly|disabled)\b/.test(m[3] ?? '')) continue;
+    const control = { role, name };
+    if (entryStepFor(control, 'x', '') !== null) return control;
   }
   return null;
 }
@@ -8056,7 +8114,14 @@ export function ignoresMenuPath(
     const reached = steps.some(
       (step) =>
         (step.action === 'goto' && (step.url.includes(path) || destination.includes(step.url))) ||
-        (step.action === 'workflow' && step.goal.toLowerCase().includes(path.toLowerCase())),
+        (step.action === 'workflow' && step.goal.toLowerCase().includes(path.toLowerCase())) ||
+        // **A Destination that IS the sign-in page is reached by signing in.**
+        // Live (HIR-EC-001, runs 13–15): the sheet's Destination is the login
+        // URL, the flow's setup goes there and signs in, and the remedy told
+        // the model to `goto` the login page AFTER the sign-in — back to the
+        // form it had just left. A `signIn` is a navigation to the sign-in
+        // page and through it.
+        (step.action === 'signIn' && LOGIN_URL_PATTERN.test(destination)),
     );
     return reached ? null : { kind: 'destination', wanted: destination };
   }
