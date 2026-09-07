@@ -4023,6 +4023,17 @@ export class FlowAuthor {
       result.notes = result.notes === '' ? weak.note : `${result.notes}; ${weak.note}`;
       this.#onLog?.(`weak claim: ${weak.note}`);
     }
+    const acceptedEvidence = [evidenceTree, interactions].filter((text): text is string => typeof text === 'string').join('\n');
+    const acceptedNotes = settleAcceptedFlowInputs(
+      result,
+      sectionOf(extra.caseText ?? trimmed, 'expected') ?? '',
+      acceptedEvidence,
+      extra.caseId ?? 'case',
+    );
+    if (acceptedNotes.length > 0) {
+      const note = acceptedNotes.join('; ');
+      result.notes = result.notes === '' ? note : `${result.notes}; ${note}`;
+    }
     this.#onLog?.(
       `  authored   ${result.steps.length} step(s)` +
         (acceptedOnAttempt > 0 ? ` on attempt ${acceptedOnAttempt}/${this.#attempts}` : ` (weak, budget spent)`) +
@@ -5967,6 +5978,21 @@ function pairsOnLine(line: string): { key: string; value: string }[] {
   return out;
 }
 
+export function expectedNamedFields(expected: string): Set<string> {
+  const names = new Set<string>();
+  for (const raw of expected.split('\n')) {
+    const line = raw.replace(/^\s*\d+(?:\.\d+)*[.)]?\s*/, '').trim();
+    const pairs = pairsOnLine(line);
+    for (const pair of pairs) names.add(pair.key.toLowerCase().replace(/\s+/g, ' ').trim());
+    if (pairs.length > 0) continue;
+    for (const mention of line.matchAll(/(?:^|[^\p{L}\p{N}])((?:\p{Lu}[\p{L}\p{N}]*)(?:\s+\p{Lu}[\p{L}\p{N}]*){0,3})/gu)) {
+      const name = (mention[1] ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+      if (name !== '') names.add(name);
+    }
+  }
+  return names;
+}
+
 /**
  * The value at the head of prose after `=`: up to a clause mark (`,` `;`
  * `.` `(`), and — read from casing, never a word list — up to the first
@@ -6129,19 +6155,95 @@ export function settleScriptDemand(
  * grounded, null: the weak note stands.
  */
 export function settleWorkflowGoal(flow: SettleableFlow, step: FlowStep, evidence: string | undefined): string | null {
+  return settleWorkflowPairs(flow, step, evidence, () => true);
+}
+
+function settleWorkflowPairs(
+  flow: SettleableFlow,
+  step: FlowStep,
+  evidence: string | undefined,
+  include: (field: string) => boolean,
+): string | null {
   if (step.action !== 'workflow') return null;
   const done: string[] = [];
   for (const pair of pairsOnLine(step.goal)) {
+    if (!include(pair.key)) continue;
     const control = treeControlNamed(pair.key, evidence);
     if (control === null) continue;
     const entry = entryStepFor(control, pair.value, markGenerated(`${pair.key} = ${pair.value}`, `split out of the workflow goal: ${control.role} ${JSON.stringify(control.name)} is in the tree`));
     if (entry === null) continue;
+    if (flow.steps.some((candidate) => JSON.stringify(candidate) === JSON.stringify(entry))) continue;
     insertStepBefore(flow, step, entry);
     done.push(`${control.role} ${JSON.stringify(control.name)} = ${JSON.stringify(pair.value)}`);
   }
   if (done.length === 0) return null;
   annotateStep(step, `${done.length} control(s) the tree names were split out before this leg: ${done.join(', ')}`);
   return `workflow goal ${JSON.stringify(step.goal.slice(0, 60))}: ${done.join(', ')} performed deterministically before the leg (marked [generated: …])`;
+}
+
+export function requiredAttachmentControls(evidence: string): { role: string; name: string }[] {
+  const controls: { role: string; name: string }[] = [];
+  for (const raw of evidence.split('\n')) {
+    const match = /^\s*([a-z]+)\s+"((?:[^"\\]|\\.)*)"/i.exec(raw);
+    if (match === null) continue;
+    const name = (match[2] ?? '').replace(/\\(.)/g, '$1').trim();
+    if (!name.includes('*') || !AUTHORING.attachment.test(name)) continue;
+    controls.push({ role: (match[1] ?? '').toLowerCase(), name });
+  }
+  return controls;
+}
+
+function attachmentText(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim().replace(/\s+/g, ' ');
+}
+
+function attachmentControlMentioned(text: string, controlName: string): boolean {
+  const haystack = attachmentText(text);
+  const withoutRequired = controlName.replace(/\*/g, ' ');
+  const fullName = attachmentText(withoutRequired);
+  const sectionName = attachmentText(withoutRequired.split('(')[0] ?? '');
+  const significant = attachmentText(withoutRequired.replace(AUTHORING.attachment, ' '));
+  return [fullName, sectionName, significant].some((name) => name !== '' && haystack.includes(name));
+}
+
+export function settleAcceptedFlowInputs(
+  flow: SettleableFlow,
+  expected: string,
+  evidence: string,
+  caseId: string,
+): string[] {
+  const notes: string[] = [];
+  const named = expectedNamedFields(expected);
+  for (const step of [...flow.steps]) {
+    const note = settleWorkflowPairs(flow, step, evidence, (field) => named.has(field.toLowerCase().replace(/\s+/g, ' ').trim()));
+    if (note !== null) notes.push(note);
+  }
+  for (const control of requiredAttachmentControls(evidence)) {
+    if (attachmentControlMentioned(expected, control.name)) continue;
+    const workflowSteps = flow.steps.filter((step) => step.action === 'workflow');
+    const matchingAnchor = workflowSteps.find(
+      (step) => step.action === 'workflow' && attachmentControlMentioned(step.goal, control.name),
+    );
+    const anchor = matchingAnchor ?? workflowSteps[workflowSteps.length - 1];
+    if (anchor === undefined) continue;
+    const usedLateFallback = matchingAnchor === undefined;
+    const fixture = `pdf:${caseId}-attachment`;
+    if (!isFixtureSpec(fixture)) continue;
+    const selector = `role=${control.role}[name=${JSON.stringify(control.name)} i]`;
+    if (flow.steps.some((step) => step.action === 'upload' && step.selector === selector)) continue;
+    insertStepBefore(flow, anchor, {
+      action: 'upload',
+      selector,
+      files: [fixture],
+      intent: markGenerated(undefined, `the sheet named no file for ${JSON.stringify(control.name)}; the harness minted one as ${fixture}`),
+    });
+    notes.push(
+      `required attachment ${JSON.stringify(control.name)} was minted by the harness because the Expected output named no file` +
+        (usedLateFallback ? '; inserted before the last workflow leg because no workflow goal named its control or section' : '') +
+        ' (marked [generated: …])',
+    );
+  }
+  return notes;
 }
 
 /**

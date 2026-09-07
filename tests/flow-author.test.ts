@@ -66,6 +66,9 @@ import {
   settleSelectorRole,
   settleScriptDemand,
   settleWorkflowGoal,
+  expectedNamedFields,
+  requiredAttachmentControls,
+  settleAcceptedFlowInputs,
   scriptDemand,
   GENERATED_STEP_MARKER,
   type AuthorRequest,
@@ -79,6 +82,7 @@ import {
   groundPersonaSwitches,
   baseUrlOf,
 } from '../src/generator/flow-author.js';
+import { isFixtureSpec } from '../src/data/fixtures.js';
 import { compileAuthoringRules, openQuestionIdsIn, withOverride, DEFAULT_VALUE_RULES } from '../src/generator/value-rules.js';
 import { exclusivityClaimIn, unprovedExclusivity } from '../src/generator/exclusivity.js';
 import {
@@ -4278,6 +4282,100 @@ describe('a script step is performed, never read as a noun, and the last word pe
     assert.equal(flow.steps[0]!.action, 'selectOption');
     assert.equal(flow.steps[1], leg);
     assert.match((leg as { intent?: string }).intent ?? '', /\[generated: 1 control\(s\) the tree names were split out/);
+  });
+
+  it('expectedNamedFields reads Expected pairs without reading fields found only in Test data', () => {
+    const named = expectedNamedFields('3.1 Hire Date = Today');
+
+    assert.deepEqual([...named], ['hire date']);
+    assert.equal(named.has('employee name'), false);
+  });
+
+  it('acceptance splits only Expected-named grounded workflow pairs before the leg', () => {
+    const leg: FlowStep = {
+      action: 'workflow',
+      goal: 'Hire Date = 01 Sep 2027\nEmployee Name = Test User',
+    };
+    const flow = { steps: [leg] as FlowStep[], cases: undefined as undefined };
+
+    settleAcceptedFlowInputs(
+      flow,
+      '3.1 Hire Date = Today ตามค่าที่กรอก',
+      'main\n  textbox "Hire Date"\n  textbox "Employee Name"',
+      'HIR-EC-001',
+    );
+
+    const entry = flow.steps[0] as FlowStep & { selector?: string; value?: string };
+    assert.equal(entry.action, 'fill');
+    assert.equal(entry.selector, 'role=textbox[name="Hire Date" i]');
+    assert.equal(entry.value, '01 Sep 2027');
+    assert.equal(flow.steps[1], leg);
+    assert.match((leg as { goal: string }).goal, /Employee Name = Test User/);
+    assert.match((leg as { intent?: string }).intent ?? '', /1 control\(s\) the tree names were split out/);
+  });
+
+  it('acceptance mints an unnamed required attachment but never satisfies an Expected claim with an invented file', () => {
+    const evidence = 'main\n  button "Personal Information (Attachment) *"';
+    assert.deepEqual(requiredAttachmentControls(evidence), [
+      { role: 'button', name: 'Personal Information (Attachment) *' },
+    ]);
+    const unnamedLeg: FlowStep = { action: 'workflow', goal: 'Complete the Personal Information form' };
+    const unnamed = { steps: [unnamedLeg] as FlowStep[], cases: undefined as undefined };
+
+    settleAcceptedFlowInputs(unnamed, '3.1 Employee is created', evidence, 'HIR-EC-001');
+
+    const upload = unnamed.steps[0] as FlowStep & { selector?: string; files?: readonly string[]; intent?: string };
+    assert.equal(upload.action, 'upload');
+    assert.equal(upload.selector, 'role=button[name="Personal Information (Attachment) *" i]');
+    assert.equal(upload.files?.length, 1);
+    assert.equal(isFixtureSpec(upload.files?.[0] ?? ''), true);
+    assert.match(upload.intent ?? '', /sheet named no file.*harness minted one/i);
+    assert.match(upload.intent ?? '', /\[generated:/);
+
+    const claimedLeg: FlowStep = { action: 'workflow', goal: 'Complete the Personal Information form' };
+    const claimed = { steps: [claimedLeg] as FlowStep[], cases: undefined as undefined };
+    settleAcceptedFlowInputs(claimed, '3.1 Personal Information (Attachment) * is uploaded', evidence, 'HIR-EC-001');
+    assert.deepEqual(claimed.steps, [claimedLeg]);
+  });
+
+  it('places a required attachment before the workflow leg that names its section', () => {
+    const first: FlowStep = { action: 'workflow', goal: 'Complete Employment Information' };
+    const matching: FlowStep = { action: 'workflow', goal: 'Complete the Personal Information section' };
+    const last: FlowStep = { action: 'workflow', goal: 'Review and submit the hire' };
+    const flow = { steps: [first, matching, last] as FlowStep[], cases: undefined as undefined };
+
+    settleAcceptedFlowInputs(
+      flow,
+      '3.1 Employee is created',
+      'main\n  button "Personal Information (Attachment) *"',
+      'HIR-EC-001',
+    );
+
+    assert.equal(flow.steps[0], first);
+    assert.equal(flow.steps[1]?.action, 'upload');
+    assert.equal(flow.steps[2], matching);
+  });
+
+  it('mints only the required attachment that Expected does not name', () => {
+    const personal: FlowStep = { action: 'workflow', goal: 'Complete Personal Information' };
+    const tax: FlowStep = { action: 'workflow', goal: 'Complete Tax Documents' };
+    const flow = { steps: [personal, tax] as FlowStep[], cases: undefined as undefined };
+    const evidence = [
+      'main',
+      '  button "Personal Information (Attachment) *"',
+      '  button "Tax Document Upload *"',
+    ].join('\n');
+
+    settleAcceptedFlowInputs(
+      flow,
+      '3.1 Personal Information Attachment is uploaded',
+      evidence,
+      'HIR-EC-001',
+    );
+
+    const uploads = flow.steps.filter((step) => step.action === 'upload');
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0]?.selector, 'role=button[name="Tax Document Upload *" i]');
   });
 
   it('the pipeline ships the ML_01_04 shape on attempt 1 of 1: the workflow legs perform the script, the weak declared-controls note settles into a split', async () => {

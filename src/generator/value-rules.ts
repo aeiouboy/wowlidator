@@ -170,6 +170,7 @@ const DEFAULT_VALUE_VOCABULARY: Vocabulary = {
 // other is a rule that works for one sheet's wording only.
 
 export interface AuthoringRules {
+  attachmentWords: readonly string[];
   /** How the Steps column asks the tester to do things, by the action that performs it. */
   script: {
     /** Asks for something to be TYPED — performed only by a fill / type / upload. */
@@ -214,6 +215,7 @@ export interface AuthoringRules {
 }
 
 export const DEFAULT_AUTHORING_RULES: AuthoringRules = {
+  attachmentWords: ['attachment', 'attach file', 'file upload', 'upload', 'แนบไฟล์', 'เอกสารแนบ', 'อัปโหลด'],
   script: {
     typing: ['กรอก', 'คีย์', 'ระบุ', 'พิมพ์', 'ใส่ค่า', 'แนบ', 'fill', 'fill in', 'fill out', 'key in', 'key-in', 'enter', 'type', 'attach'],
     choosing: ['เลือก', 'ติ๊ก', 'select', 'choose', 'pick', 'tick', 'check', 'uncheck', 'toggle'],
@@ -311,6 +313,7 @@ export const ValueRulesSchema = z
       .optional(),
     authoring: z
       .object({
+        attachmentWords: words,
         script: z.object({ typing: words, choosing: words, acting: words, routeLine: words, stepWords: words, skipWords: words }).strict().optional(),
         wordingClaim: words,
         matchClaim: z.object({ agree: words, unchanged: words, readings: words, quantities: words }).strict().optional(),
@@ -396,6 +399,7 @@ export function wordAlternation(list: readonly string[], each: (w: string) => st
 const scriptVerb = (w: string): string => (hasThai(w) ? `(?:^|[\\s\\-•\\d.)])${escapeRe(w)}` : boundedWord(w));
 
 export interface CompiledAuthoringRules {
+  attachment: RegExp;
   script: {
     /** The verbs of each tier, in the order they are judged: typing, choosing, acting. */
     typing: RegExp;
@@ -427,6 +431,7 @@ export function compileAuthoringRules(rules: AuthoringRules = DEFAULT_AUTHORING_
   const stepWord = wordAlternation(s.stepWords);
   const skipWord = wordAlternation(s.skipWords);
   return {
+    attachment: new RegExp(wordAlternation(rules.attachmentWords), 'iu'),
     script: {
       typing: new RegExp(wordAlternation(s.typing, scriptVerb), 'iu'),
       choosing: new RegExp(wordAlternation(s.choosing, scriptVerb), 'iu'),
