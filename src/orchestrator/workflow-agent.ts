@@ -49,6 +49,7 @@ import {
   multiPersonaGoal,
   multiPersonaSummary,
   renderTree,
+  REACHING_ACTIONS,
   repeatedToggleClick,
   activationKey,
   reactivation,
@@ -1498,6 +1499,12 @@ export class WorkflowAgent {
     // through, which resets both `doneHere` (the tree changes each time) and
     // the per-URL state (see `repeatedToggleClick`).
     const okClicks = new Map<string, number>();
+    // Every ATTEMPT to reach a control, ok or failed, per selector for the
+    // whole run. `okClicks` cannot see a control the agent keeps missing, and
+    // the no-progress judge cannot see one whose misses are interleaved with
+    // successes — HIR-EC-001's Position combobox was both (see
+    // `repeatedToggleClick`).
+    const touches = new Map<string, number>();
     // Interstitials this loop has already cleared-and-returned from — once
     // per distinct accept, so a gate that will not stay cleared becomes a
     // recorded stall rather than a loop (spec F2's guard).
@@ -1781,7 +1788,7 @@ export class WorkflowAgent {
               `${[...allowedActions].filter((one) => one !== 'finish' && one !== 'fail').join(', ')}. ` +
               'Use one of those, or answer now with finish or fail'
             : null) ??
-          this.#refuse(candidate, axTree, doneHere, okClicks, destination, page.url(), ask, goal);
+          this.#refuse(candidate, axTree, doneHere, okClicks, touches, destination, page.url(), ask, goal);
         if (refusal === null) {
           decision = candidate;
         } else if (ask === 0) {
@@ -2073,6 +2080,12 @@ export class WorkflowAgent {
         ) {
           const sel = current.selector.trim();
           okClicks.set(sel, (okClicks.get(sel) ?? 0) + 1);
+        }
+        // Counted whether or not it worked: a miss repeated on one control is
+        // the louder half of the same signal.
+        const reached = 'selector' in current ? current.selector.trim() : '';
+        if (reached !== '' && REACHING_ACTIONS.has(current.action)) {
+          touches.set(reached, (touches.get(reached) ?? 0) + 1);
         }
         if (ok && current.action === 'goto' && !CONSENT_GATE_URL_PATTERN.test(current.url)) intendedUrl = current.url;
         if (ok && INTERACTION_ACTIONS.has(current.action)) interactedEver = true;
@@ -2726,6 +2739,7 @@ export class WorkflowAgent {
     axTree: string,
     doneHere: ReadonlySet<string>,
     okClicks: ReadonlyMap<string, number>,
+    touches: ReadonlyMap<string, number>,
     destination: string | null,
     currentUrl: string,
     ask: number,
@@ -2744,7 +2758,7 @@ export class WorkflowAgent {
     if (destructive !== null) return destructive;
     // A control clicked past TOGGLE_CLICK_LIMIT this run is a toggle being
     // thrashed (PL_03_02's 38-turn dropdown), whatever the tree did since.
-    const circling = repeatedToggleClick(decision, okClicks);
+    const circling = repeatedToggleClick(decision, okClicks, touches);
     if (circling !== null) return circling;
     // `scroll` is in this list (2026-08-25): scrolling to a name the tree
     // does not show waited the full action timeout, three turns running, on

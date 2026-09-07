@@ -225,6 +225,34 @@ describe('repeatedToggleClick', () => {
     assert.equal(repeatedToggleClick({ ...press, selector: '' }, counts), null, 'a bare keypress with no selector is not an activation of a control');
   });
 
+  it('counts a FAILED reach too, so misses interleaved with successes cannot circle for ever (HIR-EC-001 run 12)', () => {
+    // Measured on the run: one Position combobox, eight touches on one leg —
+    // 2 ok click, 1 ok press, 6 failed selectOption. `okClicks` saw three, one
+    // short of the limit, and the no-progress judge saw no five consecutive
+    // fruitless turns because each ok click reset it. The leg ran 415 s.
+    const position = { action: 'selectOption', selector: 'role=combobox[name="Position" i]', value: 'Staff', url: '' };
+    const okClicks = new Map([[position.selector, TOGGLE_CLICK_LIMIT - 1]]);
+    const touches = new Map([[position.selector, 8]]);
+    assert.equal(repeatedToggleClick(position, okClicks), null, 'without the attempt count nothing refuses it — the defect');
+    const refusal = repeatedToggleClick(position, okClicks, touches);
+    assert.match(refusal ?? '', /^circling:/);
+    assert.match(refusal ?? '', /8 times/);
+    assert.match(refusal ?? '', /counting the attempts that failed/);
+    assert.match(refusal ?? '', /the route is wrong, not the number of tries/);
+  });
+
+  it('leaves text entry alone — typing a different value into one field is ordinary work', () => {
+    const field = { action: 'fill', selector: 'role=textbox[name="Search" i]', value: 'again', url: '' };
+    const touches = new Map([[field.selector, 9]]);
+    assert.equal(repeatedToggleClick(field, new Map(), touches), null);
+  });
+
+  it('lets a control be reached for up to the limit before refusing', () => {
+    const pick = { action: 'selectOption', selector: 'role=combobox[name="Position" i]', value: 'Staff', url: '' };
+    assert.equal(repeatedToggleClick(pick, new Map(), new Map([[pick.selector, TOGGLE_CLICK_LIMIT - 1]])), null);
+    assert.notEqual(repeatedToggleClick(pick, new Map(), new Map([[pick.selector, TOGGLE_CLICK_LIMIT]])), null);
+  });
+
   it('says nothing about other actions, other selectors, or an empty selector', () => {
     const counts = new Map([[click.selector, 99]]);
     assert.equal(repeatedToggleClick({ ...click, action: 'scroll' }, counts), null);

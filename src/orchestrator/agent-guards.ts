@@ -290,26 +290,61 @@ export const TOGGLE_CLICK_LIMIT = 3;
  * faster route (type the year, jump via a year/month picker), never more of
  * the same press — which is exactly what the refusal below tells the model
  * to do.
+ *
+ * **A FAILED reach counts too, since 2026-09-07** — the third escape hatch,
+ * and the widest. Live (HIR-EC-001 run 12): one Position combobox was reached
+ * for eight times on a single leg — 2 ok `click`, 1 ok `press`, 6 FAILED
+ * `selectOption` — and nothing refused any of them. `okClicksThisRun` counts
+ * ok click/press only, so it saw three and stopped exactly one short of the
+ * limit; and the no-progress judge counts CONSECUTIVE fruitless turns, which
+ * the ok clicks between the failures reset every time. The leg ran 415 s.
+ *
+ * A failure is not a lesser signal than a fruitless success — it is a
+ * stronger one. Six identical misses say the route is wrong, and a seventh
+ * attempt cannot discover that. So `touchesThisRun` counts every ATTEMPT at a
+ * selector, ok or not, over the actions that reach for a named control
+ * (`click`, `press`, `selectOption`) — deliberately not `fill`/`type`, where
+ * re-entering a different value into one field is ordinary work.
  */
 export function repeatedToggleClick(
   decision: DecisionLike,
   okClicksThisRun: ReadonlyMap<string, number>,
+  touchesThisRun: ReadonlyMap<string, number> = new Map(),
 ): string | null {
-  if (
-    (decision.action !== 'click' && decision.action !== 'press') ||
-    decision.selector.trim() === ''
-  )
-    return null;
-  const count = okClicksThisRun.get(decision.selector.trim()) ?? 0;
-  if (count < TOGGLE_CLICK_LIMIT) return null;
+  if (decision.selector.trim() === '') return null;
+  const selector = decision.selector.trim();
+  if (decision.action === 'click' || decision.action === 'press') {
+    const count = okClicksThisRun.get(selector) ?? 0;
+    if (count >= TOGGLE_CLICK_LIMIT) {
+      return (
+        `circling: you have already activated "${decision.selector}" ${count} times this run (click or press) ` +
+        `and it has not produced what the goal needs — it likely toggles open and closed, or is a stepper ` +
+        `too far from the target to reach one step at a time. Do something different: type the value directly ` +
+        `if the control accepts typed input, look for a faster jump (a month/year picker, a search box) instead ` +
+        `of stepping to it, act on another control the tree shows, or call fail and say what the page will not reveal`
+      );
+    }
+  }
+  if (!REACHING_ACTIONS.has(decision.action)) return null;
+  const touches = touchesThisRun.get(selector) ?? 0;
+  if (touches < TOGGLE_CLICK_LIMIT) return null;
   return (
-    `circling: you have already activated "${decision.selector}" ${count} times this run (click or press) ` +
-    `and it has not produced what the goal needs — it likely toggles open and closed, or is a stepper ` +
-    `too far from the target to reach one step at a time. Do something different: type the value directly ` +
-    `if the control accepts typed input, look for a faster jump (a month/year picker, a search box) instead ` +
-    `of stepping to it, act on another control the tree shows, or call fail and say what the page will not reveal`
+    `circling: you have already reached for "${decision.selector}" ${touches} times this run ` +
+    `(click, press or selectOption, counting the attempts that failed) and it has still not given the goal ` +
+    `what it needs. Another attempt at the same control will fail the same way: the route is wrong, not the ` +
+    `number of tries. Do something different: open the control and act on the option the tree names, type the ` +
+    `value if the control accepts typed input, act on another control the tree shows, or call fail and say ` +
+    `what the page will not reveal`
   );
 }
+
+/**
+ * The actions that REACH FOR a named control — the ones a repeated attempt on
+ * one selector says nothing new about. `fill`/`type`/`paste` are excluded on
+ * purpose: typing a different value into the same field three times is
+ * ordinary work, not circling.
+ */
+export const REACHING_ACTIONS: ReadonlySet<string> = new Set(['click', 'press', 'selectOption']);
 
 /**
  * The actions that activate a named control — the loop's INTERACTION_ACTIONS
