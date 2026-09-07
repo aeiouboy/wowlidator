@@ -352,8 +352,20 @@ export const DEFAULT_AGENT_MAX_NODES = 60;
  * asterisked field. A hire form's tree is well over sixty nodes, and the
  * focused tree cut the very controls the goal named. Applies only when the
  * instance runs on the default budget — a caller that set its own keeps it.
+ *
+ * 120 → 500 (2026-09-07). 120 was itself a rescue of 60 four days earlier and
+ * the same hire form outgrew it the same way: HIR-EC-001 spent 57 turns to
+ * fill ten fields, fifteen of its reasonings citing a truncated tree, and no
+ * workflow leg reached its goal. At 500 the truncation complaint disappears
+ * entirely (0 of 8 reasonings), seven of twelve legs reach their goal, and
+ * authoring is accepted on the first attempt instead of the third.
+ *
+ * The cost is small because `focusTree` returns `min(nodes.length, maxNodes)`
+ * — the budget is a ceiling the page rarely fills. Measured over the two runs:
+ * the agent's prompt averaged 5,380 tokens at 120 and 5,863 at 500, +9%, for
+ * legs that finish instead of stalling.
  */
-export const FORM_AGENT_MAX_NODES = 120;
+export const FORM_AGENT_MAX_NODES = 500;
 /**
  * The form budget for THIS run, `WOWLIDATOR_FORM_AGENT_MAX_NODES` or the
  * default. A knob, not a fix: HIR-EC-001 (2026-09-07) spent 57 turns and 12

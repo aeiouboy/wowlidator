@@ -525,8 +525,14 @@ Information\* four times, Identity\* three) hunting for them. Every section it
 opened pushed more of what it was looking for out of the window, so the action
 it believed would help was the one making it worse.
 
-`WOWLIDATOR_FORM_AGENT_MAX_NODES` (`formAgentMaxNodes()`) overrides the
-default for one run. **It is a measuring instrument, not the fix.** A goal
+**The default is 500 since 2026-09-07**, and `WOWLIDATOR_FORM_AGENT_MAX_NODES`
+(`formAgentMaxNodes()`) overrides it for one run. The cost of the raise is
+small because `focusTree` returns `min(nodes.length, maxNodes)` — the budget is
+a ceiling the page rarely fills. Measured over the two runs above, the agent's
+prompt averaged 5,380 tokens at 120 and 5,863 at 500: **+9% a turn**, for legs
+that finish instead of stalling.
+
+**It is not the whole fix.** A goal
 naming forty `field = value` pairs flattens `focusTree`'s ranking whatever the
 budget — nearly every control on the form hits one of its hundreds of terms,
 scores tie, and the tie-break falls back to document order, which is why the
