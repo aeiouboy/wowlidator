@@ -586,6 +586,19 @@ const cleanValue = (value: string): string => {
 export function splitPairs(line: string): { key: string; value: string }[] {
   const text = line.replace(BULLET, '').trim();
   if (text === '' || ROUND_HEADER.test(text) || CORRECTION.test(text)) return [];
+  // A sheet may pack several pairs onto one line with semicolons —
+  // `Company = C001; Business Group = 51000000; Business Unit = 10000075`
+  // (QA_Task_Revised, 2026-09-08, every TD-01 block). The whitespace grammar
+  // below reads a packed line, but the semicolon rides along on the value
+  // (`C001;`) and a `/` inside the next key swallows words into the one
+  // before it: `Position = 40106337; Department / Organization = 30042174`
+  // came out as a single Position of `40106337; Department /`, and the code
+  // grounded against no master at all.
+  //
+  // Split only where what FOLLOWS the semicolon is itself a `key = value`, so
+  // a value that merely contains one is left whole.
+  const packed = text.split(/;\s+(?=[^=;\n]{1,60}\s=\s)/u);
+  if (packed.length > 1) return packed.flatMap((part) => splitPairs(part));
   if (!/\s=\s/.test(text)) {
     const unspaced = /^([^=:\s][^=:]{0,60}?)=(.+)$/.exec(text);
     if (unspaced !== null && !/\s=|=\s/.test(text)) {

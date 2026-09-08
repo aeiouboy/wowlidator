@@ -121,8 +121,15 @@ function xmlEsc(value: unknown): string {
 
 const COLS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'] as const;
 const LAST_COL = COLS[COLS.length - 1];
-/** 0-based index of the Photo column — where each screenshot is anchored. */
-const PHOTO_COL = COLS.length - 1;
+/**
+ * 0-based index of the Photo column — where each screenshot is anchored.
+ *
+ * It sits beside the Step number, not at the far end of the row. A reader who
+ * opens the workbook and does not scroll eleven columns right concludes there
+ * are no screenshots at all (asked for, 2026-09-08); the evidence a person
+ * reaches for first belongs where their eye already is.
+ */
+const PHOTO_COL = 4;
 /** Height (points) of a row carrying an embedded screenshot. */
 const PHOTO_ROW_HT = 110;
 /**
@@ -298,19 +305,19 @@ function stepRows(
     textCell(`B${r}`, c.id, S.wrap) +
     textCell(`C${r}`, c.verdict, S.wrap) +
     numberCell(`D${r}`, step.index, S.wrap) +
-    textCell(`E${r}`, step.action, S.wrap) +
-    textCell(`F${r}`, step.intent ?? '', S.wrap) +
+    textCell(`F${r}`, step.action, S.wrap) +
+    textCell(`G${r}`, step.intent ?? '', S.wrap) +
     // The Selector column says what the step was aimed at — for a kind with
     // no single selector, the record's own account (`stepTarget`), never blank.
-    textCell(`G${r}`, stepTarget(step) ?? '', S.wrap) +
-    textCell(`H${r}`, describeTarget(step.target) ?? '', S.wrap) +
-    textCell(`I${r}`, step.status + (step.heal ? ' (healed)' : ''), S.wrap) +
-    textCell(`J${r}`, fmtMs(step.durationMs), S.wrap) +
-    textCell(`K${r}`, stepProof(step), S.wrap) +
+    textCell(`H${r}`, stepTarget(step) ?? '', S.wrap) +
+    textCell(`I${r}`, describeTarget(step.target) ?? '', S.wrap) +
+    textCell(`J${r}`, step.status + (step.heal ? ' (healed)' : ''), S.wrap) +
+    textCell(`K${r}`, fmtMs(step.durationMs), S.wrap) +
+    textCell(`L${r}`, stepProof(step), S.wrap) +
     (hasPhoto
       ? ''
       : textCell(
-          `L${r}`,
+          `E${r}`,
           hasScreenshot ? 'omitted for size — it stays in the proof bundle' : videoHref === null ? '—' : 'see the video row below',
           S.wrap,
         ));
@@ -354,14 +361,14 @@ function headerRow(build: SheetBuild, r: number): void {
         textCell(`B${r}`, 'Case', S.bold) +
         textCell(`C${r}`, 'Verdict', S.bold) +
         textCell(`D${r}`, 'Step', S.bold) +
-        textCell(`E${r}`, 'Action', S.bold) +
-        textCell(`F${r}`, 'Description', S.bold) +
-        textCell(`G${r}`, 'Selector', S.bold) +
-        textCell(`H${r}`, 'Target', S.bold) +
-        textCell(`I${r}`, 'Result', S.bold) +
-        textCell(`J${r}`, 'Duration', S.bold) +
-        textCell(`K${r}`, 'Proof', S.bold) +
-        textCell(`L${r}`, 'Photo', S.bold),
+        textCell(`E${r}`, 'Photo', S.bold) +
+        textCell(`F${r}`, 'Action', S.bold) +
+        textCell(`G${r}`, 'Description', S.bold) +
+        textCell(`H${r}`, 'Selector', S.bold) +
+        textCell(`I${r}`, 'Target', S.bold) +
+        textCell(`J${r}`, 'Result', S.bold) +
+        textCell(`K${r}`, 'Duration', S.bold) +
+        textCell(`L${r}`, 'Proof', S.bold),
     ),
   );
 }
@@ -477,8 +484,8 @@ export function buildCaseWorkbook(c: CatalogReportCase): WorkbookBuild {
   };
 }
 
-/** The column widths of the step workbooks — Scenario ID, Case, Verdict, Step, Action, Description, Selector, Target, Result, Duration, Proof, Photo. */
-const STEP_SHEET_WIDTHS = [14, 14, 12, 6, 16, 44, 36, 34, 14, 10, 46, 45] as const;
+/** The column widths of the step workbooks — Scenario ID, Case, Verdict, Step, Photo, Action, Description, Selector, Target, Result, Duration, Proof. */
+const STEP_SHEET_WIDTHS = [14, 14, 12, 6, 45, 16, 44, 36, 34, 14, 10, 46] as const;
 
 export interface TextWorkbookInput {
   sheetName: string;

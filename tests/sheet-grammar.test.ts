@@ -66,6 +66,24 @@ describe('Test data pairs (CG-02)', () => {
       { key: 'Business Unit', value: 'CDG (10000075)' },
       { key: 'Policy Profile', value: 'CDS' },
     ]);
+    // QA_Task_Revised (2026-09-08) packs its TD-01 block with semicolons. The
+    // whitespace grammar read the line, but `C001;` kept its semicolon and a
+    // `/` in the next key swallowed words into the value before it — the
+    // Position came out as `40106337; Department /` and grounded against
+    // nothing.
+    assert.deepEqual(splitPairs('- Company = C001; Business Group = 51000000; Business Unit = 10000075'), [
+      { key: 'Company', value: 'C001' },
+      { key: 'Business Group', value: '51000000' },
+      { key: 'Business Unit', value: '10000075' },
+    ]);
+    assert.deepEqual(splitPairs('- Position = 40106337; Department / Organization = 30042174; Division = 20000079'), [
+      { key: 'Position', value: '40106337' },
+      { key: 'Department / Organization', value: '30042174' },
+      { key: 'Division', value: '20000079' },
+    ]);
+    // A value that merely contains semicolons is one value, not three.
+    assert.deepEqual(splitPairs('- Note = a; b; c'), [{ key: 'Note', value: 'a; b; c' }]);
+
     assert.deepEqual(splitPairs('- Position = 40106337 Job Code = MKB12.12'), [
       { key: 'Position', value: '40106337' },
       { key: 'Job Code', value: 'MKB12.12' },
