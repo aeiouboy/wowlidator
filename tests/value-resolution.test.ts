@@ -1151,3 +1151,32 @@ describe('derived fields: what the page fills is asserted, not keyed', () => {
     assert.deepEqual(out.steps, authored);
   });
 });
+
+// --- a 13-digit stand-in carries its check digit (HIR-EC-001, 2026-09-08) ---
+
+describe('generated identifiers: a national ID the application will accept', () => {
+  const checkDigitOf = (value: string): number => {
+    const d = value.replace(/\D/g, '');
+    let sum = 0;
+    for (let i = 0; i < 12; i += 1) sum += Number(d[i]) * (13 - i);
+    return (11 - (sum % 11)) % 10;
+  };
+
+  it('mints a valid check digit for every attempt of a 13-digit mask', () => {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const value = candidateFor({ mask: 'N-NNNN-NNNNN-NN-N' }, attempt);
+      const digits = value.replace(/\D/g, '');
+      assert.equal(digits.length, 13, value);
+      assert.equal(Number(digits[12]), checkDigitOf(value), `attempt ${attempt}: ${value}`);
+      assert.match(value, /^\d-\d{4}-\d{5}-\d{2}-\d$/, 'the mask\'s own grouping is kept');
+    }
+    // Deterministic, so a retry steps to a different id rather than repeating one.
+    assert.notEqual(candidateFor({ mask: 'N-NNNN-NNNNN-NN-N' }, 0), candidateFor({ mask: 'N-NNNN-NNNNN-NN-N' }, 1));
+  });
+
+  it('leaves every other mask exactly as it was', () => {
+    assert.equal(candidateFor({ mask: 'EMXXXX' }), 'EM9876');
+    assert.match(candidateFor({ mask: 'N-NNN-NN' }), /^\d-\d{3}-\d{2}$/);
+    assert.equal(candidateFor({ digits: 8, leading: '2' }).length, 8);
+  });
+});

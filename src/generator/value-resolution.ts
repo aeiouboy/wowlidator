@@ -1514,6 +1514,30 @@ export function cleanModelValue(raw: string): string {
   return text;
 }
 
+/**
+ * A thirteen-digit identifier's last place is a check digit, and a stand-in
+ * that ignores it is refused by the application before it is ever read.
+ *
+ * Live (HIR-EC-001, 2026-09-08): a well-formed `9-8765-43210-98-7` was typed,
+ * every field around it was right, Save & Submit came back "Identity format
+ * error", and five minutes of run had proved nothing. The arithmetic is
+ * mod 11 over the first twelve digits weighted 13 down to 2 — the same rule
+ * a person's own card obeys.
+ *
+ * Keyed on the SHAPE (thirteen digits, no letters), never on a field name or
+ * a locale word: a stand-in that satisfies one more constraint than it has to
+ * is never worse, and an application that does not check is unaffected.
+ */
+export function withCheckDigit(value: string): string {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length !== 13 || /[A-Za-z]/.test(value)) return value;
+  let sum = 0;
+  for (let index = 0; index < 12; index += 1) sum += Number(digits[index]) * (13 - index);
+  const check = String((11 - (sum % 11)) % 10);
+  const last = value.lastIndexOf(digits[12]!);
+  return last < 0 ? value : `${value.slice(0, last)}${check}${value.slice(last + 1)}`;
+}
+
 /** A well-formed candidate from the stated format — deterministic, so a retry can step it. */
 export function candidateFor(format: ValueFormat | null, attempt = 0): string {
   const digits = format?.digits ?? 8;
@@ -1521,7 +1545,7 @@ export function candidateFor(format: ValueFormat | null, attempt = 0): string {
   if (format?.mask) {
     // `N-NNNN-NNNNN-NN-N` → digits; `EMXXXX` keeps its literal letters.
     let n = 0;
-    return format.mask.replace(/[NX]/g, () => String((9 - ((n++ + attempt) % 10) + 10) % 10));
+    return withCheckDigit(format.mask.replace(/[NX]/g, () => String((9 - ((n++ + attempt) % 10) + 10) % 10)));
   }
   if (format?.length !== undefined) {
     // A stated length: one over it, one under it, or exactly it — letters, so

@@ -50,6 +50,7 @@ import {
   selectFromListbox,
   splitMultiValue,
 } from '../src/engine/listbox.js';
+import type { FlowStep as EngineFlowStep } from '../src/engine/runner.js';
 import { DateOutOfRangeError, pickDateInDialog, showsDate } from '../src/engine/calendar.js';
 import { readFieldError, readFieldRequired } from '../src/engine/field-error.js';
 import { FixtureMissingError, attachFiles, captureDownload } from '../src/engine/upload.js';
@@ -350,6 +351,32 @@ describe('not-found and modal patterns', () => {
     // A row that is not the empty-state wording is not an empty answer.
     assert.ok(!isEmptyAnswer({ options: [], checkboxes: 0, emptyRow: 'Loading…' }));
     assert.ok(!isEmptyAnswer({ options: [], checkboxes: 0, emptyRow: null }));
+  });
+});
+
+describe('reconstruction: an entry step\'s value is its claim', () => {
+  const original = { action: 'selectOption', selector: 'role=button[name="Position" i]', value: '40106337' } as EngineFlowStep;
+
+  it('refuses a replacement that clicks the same control and puts no value in', async () => {
+    const { reconstructionDropsValue } = await import('../src/engine/runner.js');
+    const bare = { action: 'click', selector: 'role=button[name="Position" i]', value: '' } as unknown as EngineFlowStep;
+    assert.ok(reconstructionDropsValue(original, bare));
+  });
+
+  it('lets the working shape through — a click on the option names the value itself', async () => {
+    const { reconstructionDropsValue } = await import('../src/engine/runner.js');
+    const onOption = { action: 'click', selector: 'text=Studio Traffic Staff & Admin' } as unknown as EngineFlowStep;
+    assert.ok(!reconstructionDropsValue(original, onOption));
+    const rewritten = { action: 'selectOption', selector: 'role=combobox[name="Position" i]', value: '40106337' } as EngineFlowStep;
+    assert.ok(!reconstructionDropsValue(original, rewritten));
+  });
+
+  it('says nothing about a step that carried no value, or one that is not an entry', async () => {
+    const { reconstructionDropsValue } = await import('../src/engine/runner.js');
+    const clickStep = { action: 'click', selector: 'role=button[name="Next" i]' } as unknown as EngineFlowStep;
+    assert.ok(!reconstructionDropsValue(clickStep, clickStep));
+    const empty = { action: 'fill', selector: 'role=textbox[name="Note" i]', value: '' } as EngineFlowStep;
+    assert.ok(!reconstructionDropsValue(empty, { action: 'click', selector: 'role=textbox[name="Note" i]' } as unknown as EngineFlowStep));
   });
 });
 

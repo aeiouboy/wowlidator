@@ -1623,6 +1623,35 @@ export function scriptMismatchNote(expected: string, actual: string): string {
 const ENTRY_ACTIONS: ReadonlySet<string> = new Set(['fill', 'fillRetry', 'type', 'selectOption']);
 
 /**
+ * Does an in-run reconstruction throw away the value the step existed to put in?
+ *
+ * An entry step's VALUE is its claim, exactly as an assertion's text is. Live
+ * (HIR-EC-001 run `720d801c`, 2026-09-08) a failed
+ * `selectOption Position = 40106337` was reconstructed as a bare `click` on
+ * the Position trigger. The click landed, the step was recorded green, and
+ * nothing had been selected — so the application's own auto-fill never fired,
+ * four derived fields stayed empty, and thirty later steps failed against a
+ * form that had never been filled.
+ *
+ * The working reconstruction is the other shape the model offers: open the
+ * control in `insertBefore`, and click the OPTION in the replacement, which
+ * names the value in a selector of its own. Only the shape that silently
+ * drops the value is refused, and the step then fails as it did before.
+ */
+export function reconstructionDropsValue(original: FlowStep, replacement: FlowStep): boolean {
+  if (!ENTRY_ACTIONS.has(original.action)) return false;
+  const wanted = 'value' in original && typeof original.value === 'string' ? original.value.trim() : '';
+  if (wanted === '') return false;
+  const value = 'value' in replacement && typeof replacement.value === 'string' ? replacement.value.trim() : '';
+  if (value !== '') return false;
+  const to = 'selector' in replacement && typeof replacement.selector === 'string' ? replacement.selector : '';
+  const from = 'selector' in original && typeof original.selector === 'string' ? original.selector : '';
+  // A replacement aimed somewhere else names the value in its own selector
+  // (`text=<option>`); one aimed at the same control names nothing.
+  return to === from;
+}
+
+/**
  * Did the control end up holding what the step asked for?
  *
  * Deliberately tolerant in one direction only: a control routinely RENDERS a
@@ -9214,8 +9243,33 @@ async function executeSteps(
           if (proposal !== null) {
             supersededIndexes.push(recordedIndex);
             const isAssertion = (ASSERTION_ACTIONS as readonly string[]).includes(original.action);
-            // An assertion keeps its claim; everything else may be replaced.
-            const replacement = isAssertion ? original : proposal.replacement;
+            // An assertion keeps its claim; everything else may be replaced —
+            // except an entry step whose replacement drops the value.
+            //
+            // An entry step's VALUE is its claim, exactly as an assertion's
+            // text is. Live (HIR-EC-001 run `720d801c`, 2026-09-08) a failed
+            // `selectOption Position = 40106337` was reconstructed as a bare
+            // `click` on the Position trigger. The click landed, the step was
+            // recorded green, and nothing had been selected — so R199 never
+            // fired, Organization, Cost Center, Work Location and Job Code
+            // stayed empty, and thirty of the next steps failed against a form
+            // that had never been filled. The working reconstruction is the
+            // other shape the model offers: open the control in `insertBefore`
+            // and click the OPTION in the replacement, which names the value in
+            // a selector of its own. Only the shape that silently drops the
+            // value is refused, and the step then fails as it did before.
+            const dropsTheValue = !isAssertion && reconstructionDropsValue(original, proposal.replacement);
+            if (dropsTheValue) {
+              history.push({
+                attempt: failures,
+                summary:
+                  `the reconstruction replaced ${original.action} ` +
+                  `${JSON.stringify(('value' in original ? original.value : '') ?? '')} with a click on the same ` +
+                  'control, which puts no value in — refused, the step stands as authored',
+                outcome: 'reconstruction refused',
+              });
+            }
+            const replacement = isAssertion || dropsTheValue ? original : proposal.replacement;
             plan = [...proposal.insertBefore, replacement];
             lastProposal = {
               replacement,
