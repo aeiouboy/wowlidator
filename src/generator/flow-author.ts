@@ -37,6 +37,7 @@ import { fence, sanitizeInline } from '../providers/model-fence.js';
 import { withQualifiedRole, withRelaxedRoleName, withStableGreeting, withLabelForNonAriaRole } from '../engine/selector.js';
 import {
   PLACEHOLDER_TOKEN,
+  assertDerivedFields,
   fieldLabelOf,
   formatStatedFor,
   fromDb,
@@ -3035,6 +3036,24 @@ export class FlowAuthor {
               result.setup = outcome.setup;
               result.steps = outcome.steps;
               const note = `${outcome.expanded.length} value(s) expanded from master data before the lints`;
+              result.notes = result.notes === '' ? note : `${result.notes}; ${note}`;
+            }
+          }
+          if (this.#masterData !== undefined) {
+            // After the expansion, so a value already written `code — label`
+            // is matched on its code half and asserted by its label.
+            const outcome = await assertDerivedFields(result.steps, {
+              lookups: this.#masterData.lookups,
+              fetch: this.#masterData.fetch,
+              appUrl: this.#masterData.appUrl,
+              ...(pairs.length > 0 ? { testDataPairs: pairs } : {}),
+              onLog: (line) => this.#onLog?.(line),
+            });
+            if (outcome.derived.length > 0) {
+              result.steps = outcome.steps;
+              const note =
+                `${outcome.derived.length} field(s) the page fills from an earlier choice are asserted, not keyed: ` +
+                outcome.derived.map((item) => `${item.field} ← ${item.from}.${item.path}`).join(', ');
               result.notes = result.notes === '' ? note : `${result.notes}; ${note}`;
             }
           }

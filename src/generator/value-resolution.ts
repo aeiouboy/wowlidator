@@ -75,7 +75,9 @@ import type { FlowStep } from '../engine/runner.js';
 import { codeAndLabelOf } from '../engine/normalise.js';
 import {
   LookupFetcher,
+  codeText,
   groundCodes,
+  readPath,
   sameField,
   templateTokens,
   type FetchJson,
@@ -1821,6 +1823,151 @@ export async function expandMasterDataCodes(
     }
   }
   return { setup: nextSetup, steps: nextSteps, expanded };
+}
+
+/** One field the page fills from an earlier choice, turned into the assertion it is. */
+export interface DerivedAssertion {
+  index: number;
+  field: string;
+  /** The field whose master row carried this value (`Position`). */
+  from: string;
+  /** The key on that row that carried it (`costCenterCode`). */
+  path: string;
+  action: 'expectValue' | 'expectText';
+  expected: string;
+}
+
+/** The roles whose value a person reads out of an input, not off a label. */
+const VALUE_ROLES = /^role=(textbox|spinbutton|combobox|searchbox)\b/i;
+
+/** Every scalar key on a master row, so a later field's value can be found on it. */
+function scalarEntries(row: unknown): [string, string][] {
+  if (row === null || typeof row !== 'object' || Array.isArray(row)) return [];
+  const out: [string, string][] = [];
+  for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
+    if (typeof value === 'string' || typeof value === 'number') {
+      const text = String(value).trim();
+      // Two characters is the floor: a one-character match is coincidence.
+      if (text.length >= 2) out.push([key, text]);
+    }
+  }
+  return out;
+}
+
+/** The code half of a value the expansion may already have written as `code — label`. */
+function codeHalfOf(value: string): string {
+  return codeAndLabelOf(value)?.code ?? value.trim();
+}
+
+function labelHalfOf(value: string): string | null {
+  return codeAndLabelOf(value)?.label ?? null;
+}
+
+/**
+ * A field the application fills for you is asserted, never keyed in.
+ *
+ * The hire wizard's R199 rule fills Organization, Cost Center, Work Location,
+ * Job Code and a dozen more the moment a Position is chosen — every one of
+ * them off the position's own master row. A sheet that names those values is
+ * describing what the page must SHOW, not asking a tester to pick them; live
+ * (HIR-EC-001, 2026-09-08) `Cost Center = C00132653` and
+ * `Work Location = 50000127` are exactly what position `40106337` carries.
+ * Authored as `selectOption` they either re-pick what is already there — a
+ * step that passes while proving nothing — or fail at a picker that never
+ * offered the value, and the run reads it as a defect.
+ *
+ * The evidence is the master row itself, so nothing here is declared or
+ * guessed: when a later step's value equals a field on the row an earlier
+ * step's choice resolves to, that later field is derived, and the step becomes
+ * the assertion. Two guards keep it honest — only a step AFTER the choice can
+ * be filled by it (which is what stops `Company = C001`, the scope the
+ * position was fetched under, from reading as derived), and a disagreement is
+ * left alone: a sheet naming a value the row does not carry is a finding for a
+ * person, not a step for this pass to rewrite.
+ */
+export async function assertDerivedFields(
+  steps: readonly FlowStep[],
+  ctx: MasterDataContext,
+): Promise<{ steps: FlowStep[]; derived: DerivedAssertion[] }> {
+  const next = steps.map((step) => ({ ...step })) as FlowStep[];
+  const pairs = ctx.testDataPairs ?? [];
+
+  // The choices whose master row may fill a later field, in flow order.
+  const sources: { index: number; field: string; code: string; lookup: MasterDataLookup }[] = [];
+  next.forEach((step, index) => {
+    if (step.action !== 'selectOption') return;
+    const raw = 'value' in step && typeof step.value === 'string' ? step.value.trim() : '';
+    if (raw === '') return;
+    const field = fieldLabelOf(step).trim();
+    if (field === '') return;
+    const lookup = ctx.lookups.find((entry) => entry.field.some((declared) => sameField(declared, field)));
+    if (lookup === undefined) return;
+    sources.push({ index, field, code: codeHalfOf(raw), lookup });
+  });
+  if (sources.length === 0) return { steps: next, derived: [] };
+
+  let fetchJson: FetchJson | null;
+  try {
+    fetchJson = await ctx.fetch();
+  } catch (error) {
+    ctx.onLog?.(`derived-field assertions did not run: ${error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error)}`);
+    return { steps: next, derived: [] };
+  }
+  if (fetchJson === null) return { steps: next, derived: [] };
+
+  const fetcher = new LookupFetcher(fetchJson);
+  const derived: DerivedAssertion[] = [];
+  const claimed = new Set<number>();
+  for (const source of sources) {
+    const bindings: Record<string, string> = {};
+    let bound = true;
+    for (const token of templateTokens(source.lookup.url)) {
+      const pair = pairs.find((entry) => sameField(entry.key, token) && entry.value.trim() !== '');
+      if (pair === undefined) { bound = false; break; }
+      bindings[token] = pair.value.trim();
+    }
+    if (!bound) continue;
+    const fetched = await fetcher.fetch(source.lookup, bindings, ctx.appUrl);
+    if (fetched.status === 'unknown') continue;
+    const row = fetched.rows.find((candidate) => codeText(readPath(candidate, source.lookup.code)) === source.code);
+    if (row === undefined) continue;
+    const onRow = scalarEntries(row);
+
+    for (let index = source.index + 1; index < next.length; index += 1) {
+      if (claimed.has(index)) continue;
+      const step = next[index]!;
+      if (!INPUT_ACTIONS.has(step.action)) continue;
+      const raw = 'value' in step && typeof step.value === 'string' ? step.value.trim() : '';
+      if (raw === '') continue;
+      const field = fieldLabelOf(step).trim();
+      if (field === '' || sameField(field, source.field)) continue;
+      const code = codeHalfOf(raw);
+      if (code.length < 2 || code === source.code) continue;
+      const hit = onRow.find(([, value]) => value === code);
+      if (hit === undefined) continue;
+
+      const selector = 'selector' in step && typeof step.selector === 'string' ? step.selector : '';
+      const byValue = VALUE_ROLES.test(selector);
+      // A control that holds an input shows the code; one that renders a
+      // chosen option shows that option's label.
+      const expected = byValue ? code : (labelHalfOf(raw) ?? code);
+      const action: 'expectValue' | 'expectText' = byValue ? 'expectValue' : 'expectText';
+      const detail =
+        `the page fills ${field} from ${source.field}: position-master field ${hit[0]} on the chosen row ` +
+        `is ${JSON.stringify(code)}, so the sheet's value is what the page must SHOW, not something to key in`;
+      const intent = 'intent' in step && typeof step.intent === 'string' ? step.intent : `${step.action} ${field}`;
+      next[index] = {
+        ...step,
+        action,
+        value: expected,
+        intent: `${intent} — asserted, not keyed: ${detail}`,
+      } as FlowStep;
+      claimed.add(index);
+      derived.push({ index, field, from: source.field, path: hit[0], action, expected });
+      ctx.onLog?.(`  ${field} ← derived from ${source.field} (${hit[0]}); ${step.action} became ${action} ${JSON.stringify(expected)}`);
+    }
+  }
+  return { steps: next, derived };
 }
 
 // --- the model ------------------------------------------------------------------

@@ -22,6 +22,7 @@ import {
   absoluteDateOf,
   candidateFor,
   cleanModelValue,
+  assertDerivedFields,
   expandMasterDataCodes,
   fieldLabelOf,
   findUnresolvedValues,
@@ -1039,5 +1040,81 @@ describe('an open-question id beside a value is a reference (HIR-EC-001)', () =>
     assert.equal(unconfirmedCell('  CF-SIT-19'), true);
     assert.equal(unconfirmedCell('? รอตาราง Rule Table'), true);
     assert.equal(unconfirmedCell('TBC'), true);
+  });
+});
+
+// --- a field the page fills from an earlier choice (HIR-EC-001, 2026-09-08) ---
+
+describe('derived fields: what the page fills is asserted, not keyed', () => {
+  const pick = (field: string, value: string, role = 'button'): FlowStep =>
+    ({ action: 'selectOption', selector: `role=${role}[name="${field}" i]`, value, intent: `select ${field}` }) as FlowStep;
+  const type = (field: string, value: string): FlowStep =>
+    ({ action: 'fill', selector: `role=textbox[name="${field}" i]`, value, intent: `fill ${field}` }) as FlowStep;
+
+  // The chosen row carries every value the page copies out of it.
+  const ROW = {
+    positionCode: 'P-005',
+    name: { en: 'Analyst' },
+    companyCode: 'C-1',
+    costCenterCode: 'CC-07',
+    departmentCode: 'ORG-9',
+    vacant: true,
+  };
+  const context = async () => ({
+    lookups: await readMasterDataDeclaration(MASTER_DATA_FIXTURE),
+    fetch: async () => async (url: string) =>
+      url.includes('/api/positions') ? { data: { rows: [ROW], hasNextPage: false } } : [{ code: 'CC-07', title: 'North Office' }],
+    testDataPairs: [{ phase: null, key: 'Company', value: 'C-1' }],
+  });
+
+  it('turns a picked field the row already carries into the assertion it is', async () => {
+    const authored = [
+      pick('Company', 'C-1'),
+      pick('Position', 'P-005'),
+      pick('Cost Center', 'CC-07 — North Office'),
+      type('Organization', 'ORG-9'),
+    ];
+    const out = await assertDerivedFields(authored, await context());
+
+    assert.equal(out.derived.length, 2, out.derived.map((d) => d.field).join(', '));
+    // A control that renders a chosen option is read by its label…
+    assert.equal(out.steps[2]?.action, 'expectText');
+    assert.equal((out.steps[2] as { value?: string }).value, 'North Office');
+    // …one that holds an input, by the code it holds.
+    assert.equal(out.steps[3]?.action, 'expectValue');
+    assert.equal((out.steps[3] as { value?: string }).value, 'ORG-9');
+    assert.match((out.steps[2] as { intent?: string }).intent ?? '', /asserted, not keyed/);
+    assert.deepEqual(
+      out.derived.map((d) => `${d.field}<-${d.from}.${d.path}`),
+      ['Cost Center<-Position.costCenterCode', 'Organization<-Position.departmentCode'],
+    );
+  });
+
+  it('never rewrites a step that ran BEFORE the choice, however the row agrees', async () => {
+    // `companyCode` is on the row, but Company is the scope the row was fetched
+    // under — it is chosen first, and choosing it is the point.
+    const authored = [pick('Company', 'C-1'), pick('Position', 'P-005')];
+    const out = await assertDerivedFields(authored, await context());
+    assert.deepEqual(out.derived, []);
+    assert.deepEqual(out.steps, authored);
+  });
+
+  it('leaves a value the row does not carry alone — a disagreement is a finding, not a rewrite', async () => {
+    const authored = [pick('Company', 'C-1'), pick('Position', 'P-005'), pick('Cost Center', 'CC-99')];
+    const out = await assertDerivedFields(authored, await context());
+    assert.deepEqual(out.derived, []);
+    assert.equal(out.steps[2]?.action, 'selectOption');
+  });
+
+  it('opens no transport when the row cannot be fetched, and changes nothing', async () => {
+    const lookups = await readMasterDataDeclaration(MASTER_DATA_FIXTURE);
+    const authored = [pick('Position', 'P-005'), pick('Cost Center', 'CC-07')];
+    const out = await assertDerivedFields(authored, {
+      lookups,
+      fetch: async () => null,
+      testDataPairs: [{ phase: null, key: 'Company', value: 'C-1' }],
+    });
+    assert.deepEqual(out.derived, []);
+    assert.deepEqual(out.steps, authored);
   });
 });
