@@ -380,6 +380,23 @@ describe('reconstruction: an entry step\'s value is its claim', () => {
   });
 });
 
+describe('the breaker: a page that answers for nothing is not healed into answering', () => {
+  it('holds the paid rungs back only after the third unresolved step in a row', async () => {
+    const { paidRungsAreWasted } = await import('../src/engine/runner.js');
+    assert.ok(!paidRungsAreWasted(0, 3));
+    assert.ok(!paidRungsAreWasted(2, 3), 'two misses may still be this page');
+    assert.ok(paidRungsAreWasted(3, 3), 'three in a row is the page, not the selector');
+    assert.ok(paidRungsAreWasted(15, 3));
+  });
+
+  it('can be turned off, and never fires on a nonsensical limit', async () => {
+    const { paidRungsAreWasted } = await import('../src/engine/runner.js');
+    assert.ok(!paidRungsAreWasted(99, 0), '0 disables it');
+    assert.ok(!paidRungsAreWasted(99, -1));
+    assert.ok(!paidRungsAreWasted(99, Number.NaN), 'a bad env value must not silently disable healing');
+  });
+});
+
 describe('healer: the prompt says what an entry step needs; the tree says required', () => {
   const request: HealRequest = {
     failedSelector: 'role=combobox[name="Employee Group"]',

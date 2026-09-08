@@ -1623,6 +1623,31 @@ export function scriptMismatchNote(expected: string, actual: string): string {
 const ENTRY_ACTIONS: ReadonlySet<string> = new Set(['fill', 'fillRetry', 'type', 'selectOption']);
 
 /**
+ * How many steps in a row may end "could not resolve" before the paid rungs
+ * stop being offered.
+ *
+ * A page that answers for nothing is not a selector problem, and the ladder
+ * cannot heal its way out of one. Live (HIR-EC-001 run `4989de4a`,
+ * 2026-09-08): once `Special Benefit Group` dead-ended, the next fifteen
+ * controls dead-ended too — Employee Group, the dates, Work Schedule, the
+ * whole Compensation block, and Save & Submit itself — and each one paid a
+ * full ladder first: three healer calls and an agent look, ninety to a
+ * hundred and thirty seconds apiece. Six minutes of run became thirty-three,
+ * and not one of those calls changed a verdict.
+ *
+ * So after three in a row the free rungs still run, and the paid ones say why
+ * they did not. The moment anything resolves the count is cleared, because
+ * the evidence for the breaker is gone. Verdicts are identical either way —
+ * this buys back time, never a different answer.
+ */
+const UNRESOLVED_BREAKER = Number(process.env['WOWLIDATOR_UNRESOLVED_BREAKER'] ?? 3);
+
+/** The rule itself, so a test can check the boundary and the off switch. */
+export function paidRungsAreWasted(unresolvedRun: number, limit: number = UNRESOLVED_BREAKER): boolean {
+  return Number.isFinite(limit) && limit > 0 && unresolvedRun >= limit;
+}
+
+/**
  * Does an in-run reconstruction throw away the value the step existed to put in?
  *
  * An entry step's VALUE is its claim, exactly as an assertion's text is. Live
@@ -6417,6 +6442,19 @@ export class SmartRunner {
     this.#lastActionFailed = failed;
   }
 
+  /** How many steps in a row have ended "could not resolve" — see `UNRESOLVED_BREAKER`. */
+  #unresolvedRun = 0;
+
+  /** Record whether a step's control could be reached at all. Cleared by any success. */
+  noteResolveOutcome(unresolved: boolean): void {
+    this.#unresolvedRun = unresolved ? this.#unresolvedRun + 1 : 0;
+  }
+
+  /** True while the page has answered for nothing long enough that a paid rung cannot help. */
+  get #pageAnswersNothing(): boolean {
+    return paidRungsAreWasted(this.#unresolvedRun);
+  }
+
   /**
    * A form submitted natively before the app hydrated — see
    * `nativeFormResubmitDetected`. Two findings in one: the harness raced the
@@ -7529,6 +7567,11 @@ export class SmartRunner {
 
     if (!contentMiss && popupTarget) {
       attempts.push('jit: skipped — the target lives inside a listbox the healer cannot open');
+    } else if (!contentMiss && this.#pageAnswersNothing) {
+      attempts.push(
+        `jit: skipped — ${this.#unresolvedRun} step(s) in a row could not resolve, so this page is ` +
+          'answering for nothing and a repaired selector would fail the same way',
+      );
     } else if (!contentMiss) {
       if (!this.#healer) {
         attempts.push('jit: healer disabled');
@@ -7792,6 +7835,9 @@ export class SmartRunner {
     // performs the very write the flow's own step already asked for. The
     // step is the authorisation; the read-back is the check.
     if (entry === undefined || this.#agent === null) return null;
+    // The same evidence that stops the healer stops this: a page that has
+    // answered for nothing will not answer for an agent either.
+    if (this.#pageAnswersNothing) return null;
 
     const what = intent && intent.trim() !== '' ? intent.trim() : `${action} ${selector}`;
     const goal =
@@ -9196,8 +9242,12 @@ async function executeSteps(
           try {
             await executeStep(runner, step, baseUrl, issues);
             runner.noteAction(step.action);
+            runner.noteResolveOutcome(false);
           } catch (error) {
             runner.noteAction(step.action, true);
+            runner.noteResolveOutcome(
+              error instanceof StepResolutionError && /^could not resolve/.test(error.message),
+            );
             failedStep = step;
             throw error;
           }
