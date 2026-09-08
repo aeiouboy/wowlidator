@@ -77,6 +77,7 @@ import {
   LookupFetcher,
   codeText,
   groundCodes,
+  labelAt,
   readPath,
   sameField,
   templateTokens,
@@ -1840,20 +1841,6 @@ export interface DerivedAssertion {
 /** The roles whose value a person reads out of an input, not off a label. */
 const VALUE_ROLES = /^role=(textbox|spinbutton|combobox|searchbox)\b/i;
 
-/** Every scalar key on a master row, so a later field's value can be found on it. */
-function scalarEntries(row: unknown): [string, string][] {
-  if (row === null || typeof row !== 'object' || Array.isArray(row)) return [];
-  const out: [string, string][] = [];
-  for (const [key, value] of Object.entries(row as Record<string, unknown>)) {
-    if (typeof value === 'string' || typeof value === 'number') {
-      const text = String(value).trim();
-      // Two characters is the floor: a one-character match is coincidence.
-      if (text.length >= 2) out.push([key, text]);
-    }
-  }
-  return out;
-}
-
 /** The code half of a value the expansion may already have written as `code — label`. */
 function codeHalfOf(value: string): string {
   return codeAndLabelOf(value)?.code ?? value.trim();
@@ -1929,9 +1916,15 @@ export async function assertDerivedFields(
     if (!bound) continue;
     const fetched = await fetcher.fetch(source.lookup, bindings, ctx.appUrl);
     if (fetched.status === 'unknown') continue;
-    const row = fetched.rows.find((candidate) => codeText(readPath(candidate, source.lookup.code)) === source.code);
+    // By its code, else by the name the option carries: a sheet names a
+    // position "Studio Traffic Staff & Admin" as readily as `40106337`, and
+    // either way it is the same row.
+    const row =
+      fetched.rows.find((candidate) => codeText(readPath(candidate, source.lookup.code)) === source.code) ??
+      fetched.rows.find((candidate) => labelAt(candidate, source.lookup.label)?.trim() === source.code);
     if (row === undefined) continue;
-    const onRow = scalarEntries(row);
+    const derives = Object.entries(source.lookup.derives ?? {});
+    if (derives.length === 0) continue;
 
     for (let index = source.index + 1; index < next.length; index += 1) {
       if (claimed.has(index)) continue;
@@ -1941,10 +1934,15 @@ export async function assertDerivedFields(
       if (raw === '') continue;
       const field = fieldLabelOf(step).trim();
       if (field === '' || sameField(field, source.field)) continue;
+      const declared = derives.find(([name]) => sameField(name, field));
+      if (declared === undefined) continue;
+      const carried = codeText(readPath(row, declared[1]))?.trim() ?? '';
       const code = codeHalfOf(raw);
-      if (code.length < 2 || code === source.code) continue;
-      const hit = onRow.find(([, value]) => value === code);
-      if (hit === undefined) continue;
+      // The sheet and the row must agree. They disagree when the sheet asks
+      // for something the chosen row does not give — a finding for a person,
+      // never a rewrite.
+      if (carried === '' || carried !== code) continue;
+      const hit: [string, string] = [declared[1], carried];
 
       const selector = 'selector' in step && typeof step.selector === 'string' ? step.selector : '';
       const byValue = VALUE_ROLES.test(selector);

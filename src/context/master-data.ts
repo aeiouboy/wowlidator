@@ -64,6 +64,16 @@ export const MASTER_DATA_LOOKUP_SCHEMA = z.object({
   consumable: z.string().min(1).optional(),
   /** How many rows the UI picker loads. Given, `reachable` = index < uiPageSize in page-1 order. */
   uiPageSize: z.number().int().positive().optional(),
+  /**
+   * Fields the application fills FROM the chosen row, as `Test Data field` →
+   * row path (`{"Cost Center": "costCenterCode"}`). Declared, never inferred:
+   * a row carries many keys a page does not copy, and a short numeric one
+   * matches an unrelated field by coincidence (live 2026-09-08, a position's
+   * `employeeSubgroupCode` "10" against a Personnel Grade of 10). What the
+   * page copies is a fact about the page, so it is written down here beside
+   * the other facts about the page.
+   */
+  derives: z.record(z.string().min(1), z.string().min(1)).optional(),
 });
 
 export const MASTER_DATA_DECLARATION_SCHEMA = z.array(MASTER_DATA_LOOKUP_SCHEMA).min(1);

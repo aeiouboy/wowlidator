@@ -1106,6 +1106,27 @@ describe('derived fields: what the page fills is asserted, not keyed', () => {
     assert.equal(out.steps[2]?.action, 'selectOption');
   });
 
+  // The row carries `vacant`, and a field could equal any of a dozen keys by
+  // coincidence — live, a position's employeeSubgroupCode "10" against a
+  // Personnel Grade of 10. Only what the declaration names is copied.
+  it('converts nothing the lookup does not declare, however the row agrees', async () => {
+    const authored = [
+      pick('Position', 'P-005'),
+      pick('Employee Sub-Group', 'P-005'),
+      { action: 'fill', selector: 'role=textbox[name="Analyst" i]', value: 'Analyst' } as FlowStep,
+    ];
+    const out = await assertDerivedFields(authored, await context());
+    assert.deepEqual(out.derived, []);
+    assert.deepEqual(out.steps, authored);
+  });
+
+  it('finds the chosen row by the name the sheet writes, not only by its code', async () => {
+    const authored = [pick('Company', 'C-1'), pick('Position', 'Analyst'), pick('Cost Center', 'CC-07')];
+    const out = await assertDerivedFields(authored, await context());
+    assert.equal(out.derived.length, 1);
+    assert.equal(out.steps[2]?.action, 'expectText');
+  });
+
   it('opens no transport when the row cannot be fetched, and changes nothing', async () => {
     const lookups = await readMasterDataDeclaration(MASTER_DATA_FIXTURE);
     const authored = [pick('Position', 'P-005'), pick('Cost Center', 'CC-07')];
