@@ -1937,22 +1937,31 @@ export async function assertDerivedFields(
       const declared = derives.find(([name]) => sameField(name, field));
       if (declared === undefined) continue;
       const carried = codeText(readPath(row, declared[1]))?.trim() ?? '';
+      if (carried === '') continue;
       const code = codeHalfOf(raw);
-      // The sheet and the row must agree. They disagree when the sheet asks
-      // for something the chosen row does not give — a finding for a person,
-      // never a rewrite.
-      if (carried === '' || carried !== code) continue;
+      // A cell that says "choose from the list" names no value at all, and
+      // this field is one the page fills — so the row says what it will hold.
+      // Live (HIR-EC-001, 2026-09-08): Organization's cell is the instruction,
+      // the instruction was typed into the control, and Save & Submit came
+      // back "required fields empty in Organization".
+      const instructed = AUTHORING.offeredChoice.test(code);
+      // Otherwise the sheet and the row must agree. They disagree when the
+      // sheet asks for something the chosen row does not give — a finding for
+      // a person, never a rewrite.
+      if (!instructed && carried !== code) continue;
       const hit: [string, string] = [declared[1], carried];
 
       const selector = 'selector' in step && typeof step.selector === 'string' ? step.selector : '';
       const byValue = VALUE_ROLES.test(selector);
       // A control that holds an input shows the code; one that renders a
       // chosen option shows that option's label.
-      const expected = byValue ? code : (labelHalfOf(raw) ?? code);
+      const expected = byValue ? carried : (labelHalfOf(raw) ?? carried);
       const action: 'expectValue' | 'expectText' = byValue ? 'expectValue' : 'expectText';
       const detail =
-        `the page fills ${field} from ${source.field}: position-master field ${hit[0]} on the chosen row ` +
-        `is ${JSON.stringify(code)}, so the sheet's value is what the page must SHOW, not something to key in`;
+        `the page fills ${field} from ${source.field}: ${hit[0]} on the chosen row is ${JSON.stringify(carried)}` +
+        (instructed
+          ? ", and the sheet's cell is an instruction, not a value — so the row says what the page must SHOW"
+          : ", so the sheet's value is what the page must SHOW, not something to key in");
       const intent = 'intent' in step && typeof step.intent === 'string' ? step.intent : `${step.action} ${field}`;
       next[index] = {
         ...step,

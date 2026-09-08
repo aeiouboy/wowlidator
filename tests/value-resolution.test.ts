@@ -1120,6 +1120,18 @@ describe('derived fields: what the page fills is asserted, not keyed', () => {
     assert.deepEqual(out.steps, authored);
   });
 
+  it('takes the row\'s value when the cell instructs instead of naming one', async () => {
+    const authored = [
+      pick('Position', 'P-005'),
+      { action: 'fill', selector: 'role=textbox[name="Organization" i]', value: 'เลือกจากรายการ' } as FlowStep,
+    ];
+    const out = await assertDerivedFields(authored, await context());
+    assert.equal(out.derived.length, 1);
+    assert.equal(out.steps[1]?.action, 'expectValue');
+    assert.equal((out.steps[1] as { value?: string }).value, 'ORG-9', "the row says what the page will hold");
+    assert.match((out.steps[1] as { intent?: string }).intent ?? '', /an instruction, not a value/);
+  });
+
   it('finds the chosen row by the name the sheet writes, not only by its code', async () => {
     const authored = [pick('Company', 'C-1'), pick('Position', 'Analyst'), pick('Cost Center', 'CC-07')];
     const out = await assertDerivedFields(authored, await context());
