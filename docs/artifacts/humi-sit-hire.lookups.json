@@ -1,0 +1,130 @@
+[
+  {
+    "field": ["Company"],
+    "url": "/humi/api/employee-foundation/foundation?type=companies&isActive=true&page={page}&size=1000",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "companyCode",
+    "label": "companyName.en_GB",
+    "uiPageSize": 1000
+  },
+  {
+    "field": ["Position", "Position Code"],
+    "url": "/humi/api/employee-foundation/foundation?type=positions&isActive=true&companyCode={Company}&page={page}&size=500",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "positionCode",
+    "label": "positionName.en",
+    "facts": ["vacant", "headcount", "jobCodeCode", "costCenterCode", "workLocationCode"],
+    "consumable": "vacant",
+    "uiPageSize": 500
+  },
+  {
+    "field": ["Cost Center", "Cost Centre"],
+    "url": "/humi/api/employee-foundation/foundation?type=cost_centers&isActive=true&companyCode={Company}&page={page}&size=1000",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "costCenterCode",
+    "label": "costCenterName.en_GB",
+    "uiPageSize": 1000
+  },
+  {
+    "field": ["Work Location"],
+    "url": "/humi/api/employee-foundation/foundation?type=work_locations&isActive=true&page={page}&size=1000",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "workLocationCode",
+    "label": "workLocationName.en_GB",
+    "uiPageSize": 1000
+  },
+  {
+    "field": ["Employee Group"],
+    "url": "/humi/api/employee-foundation/foundation?type=employee_groups&isActive=true&page={page}&size=1000",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "employeeGroupCode",
+    "label": "employeeGroupName.en_GB",
+    "uiPageSize": 1000
+  },
+  {
+    "field": ["Employee Sub-Group", "Employee Subgroup"],
+    "url": "/humi/api/employee-foundation/foundation?type=employee_subgroups&isActive=true&employeeGroupCode={Employee Group}&page={page}&size=1000",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "employeeSubgroupCode",
+    "label": "employeeSubgroupName.en_GB",
+    "uiPageSize": 1000
+  },
+  {
+    "field": ["Holiday Calendar"],
+    "url": "/humi/api/employee-foundation/foundation?type=picking_lists&id=zHolidayType&isActive=true&page={page}&size=1000",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "picklistCode",
+    "label": "label.en_GB",
+    "uiPageSize": 1000
+  },
+  {
+    "field": ["Pay Group"],
+    "url": "/humi/api/employee-foundation/foundation?type=pay_groups&isActive=true&page={page}&size=1000",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "payGroupCode",
+    "label": "payGroupName.en_GB",
+    "uiPageSize": 1000
+  },
+  {
+    "field": ["Bank"],
+    "url": "/humi/api/employee-foundation/foundation?type=picking_lists&id=zBank&isActive=true&page={page}&size=1000",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "picklistCode",
+    "label": "label.en_GB",
+    "uiPageSize": 1000
+  },
+  {
+    "field": ["Pay Component"],
+    "url": "/humi/api/employee-foundation/foundation?type=pay_components&isActive=true&page={page}&size=1000",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "payComponentCode",
+    "label": "payComponentName.en_GB",
+    "uiPageSize": 1000
+  },
+  {
+    "field": ["Job Code", "Job Role"],
+    "url": "/humi/api/employee-foundation/foundation?type=job_codes&isActive=true&page={page}&size=1000",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "jobCodeCode",
+    "label": "jobCodeName.en_GB",
+    "uiPageSize": 10000
+  },
+  {
+    "field": ["Band"],
+    "url": "/humi/api/employee-foundation/foundation?type=bands&isActive=true&page={page}&size=1000",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "bandCode",
+    "label": "bandName.en_GB",
+    "uiPageSize": 1000
+  },
+  {
+    "field": ["Organization", "Department"],
+    "url": "/humi/api/employee-foundation/foundation?type=departments&isActive=true&page={page}&size=1000",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "departmentCode",
+    "label": "departmentName.en_GB",
+    "uiPageSize": 1000
+  },
+  {
+    "field": ["Contract Type"],
+    "url": "/humi/api/employee-foundation/foundation?type=picking_lists&id=contractType&isActive=true&page={page}&size=1000",
+    "rows": "data.rows",
+    "next": "data.pagination.hasNextPage",
+    "code": "picklistCode",
+    "label": "label.en_GB",
+    "uiPageSize": 1000
+  }
+]
