@@ -4957,3 +4957,37 @@ describe('a pattern is unquotable, and a cascade is disabled at rest by design (
     assert.equal(ungroundedSelectorRole(steps, opaque)?.disabled, true);
   });
 });
+
+// --- "choose from the list" is an instruction, not a value (HIR-EC-001, 2026-09-08) ---
+
+describe('offered choices: an instruction cell asks the control for its own option', () => {
+  it('rewrites a placeholder choice to ANY_OFFERED and flags it, in both languages', async () => {
+    const { settleOfferedChoices } = await import('../src/generator/flow-author.js');
+    const { ANY_OFFERED } = await import('../src/engine/listbox.js');
+    const steps = [
+      { action: 'selectOption', selector: 'role=button[name="Pay Group" i]', value: 'เลือกจากรายการ' },
+      { action: 'selectOption', selector: 'role=button[name="Bank" i]', value: 'เลือกธนาคารจากรายการ' },
+      { action: 'selectOption', selector: 'role=button[name="Currency" i]', value: 'choose from the list' },
+      // untouched: a real value, a value already settled, and a non-choice step
+      { action: 'selectOption', selector: 'role=button[name="Company" i]', value: 'C001' },
+      { action: 'selectOption', selector: 'role=button[name="Gender" i]', value: ANY_OFFERED },
+      { action: 'fill', selector: 'role=textbox[name="Organization" i]', value: 'เลือกจากรายการ' },
+    ] as unknown as Parameters<typeof settleOfferedChoices>[0];
+
+    const out = settleOfferedChoices(steps);
+    assert.equal(out.settled.length, 3, out.settled.join(' | '));
+    const value = (i: number): unknown => (out.steps[i] as { value?: unknown }).value;
+    assert.equal(value(0), ANY_OFFERED);
+    assert.equal(value(1), ANY_OFFERED);
+    assert.equal(value(2), ANY_OFFERED);
+    assert.equal(value(3), 'C001', 'a real value is never rewritten');
+    assert.equal(value(4), ANY_OFFERED, 'already settled, and not counted twice');
+    assert.equal(value(5), 'เลือกจากรายการ', 'only selectOption understands the sentinel');
+
+    // The reader must be able to see the choice was the harness's, not the sheet's.
+    const source = (out.steps[0] as { valueSource?: { kind?: string; detail?: string } }).valueSource;
+    assert.equal(source?.kind, 'generated');
+    assert.match(String(source?.detail), /an instruction, not a value/);
+    assert.match(String((out.steps[0] as { intent?: string }).intent), /generated/i);
+  });
+});

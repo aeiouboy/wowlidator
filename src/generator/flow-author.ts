@@ -3038,6 +3038,17 @@ export class FlowAuthor {
               result.notes = result.notes === '' ? note : `${result.notes}; ${note}`;
             }
           }
+          {
+            const offered = settleOfferedChoices(result.steps);
+            if (offered.settled.length > 0) {
+              result.steps = offered.steps;
+              const note =
+                `${offered.settled.length} cell(s) that instruct rather than name a value take the control's ` +
+                `first offered option (marked [generated: …]): ${offered.settled.join(', ')}`;
+              result.notes = result.notes === '' ? note : `${result.notes}; ${note}`;
+              this.#onLog?.(`  ${note}`);
+            }
+          }
         } catch (error) {
           this.#onLog?.(`value resolution did not run: ${error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error)}`);
         }
@@ -6806,6 +6817,43 @@ function placeholderChoice(value: string): boolean {
   if (text === '') return false;
   if (AUTHORING.offeredChoice.test(text)) return true;
   return DEFAULT_AUTHORING_RULES.script.choosing.some((verb) => text.toLowerCase().startsWith(verb.toLowerCase()));
+}
+
+/**
+ * A cell that says "choose from the list" is an instruction to the tester, not
+ * a value — so the step it becomes must ask the control for its own first
+ * option, never hunt for one named after the instruction.
+ *
+ * The required-choice path below already inserts `ANY_OFFERED` for a control
+ * the flow has no step for, and `settleWorkflowPairs` already refuses to lift
+ * one out of a leg. Neither reaches the case that actually happens: the model
+ * authored the step ITSELF, carrying the instruction as the value. Live
+ * (HIR-EC-001 run `7af7be5d`, 2026-09-08) Pay Group, Bank, Payment Method and
+ * Pay Component each opened their list, were told to find an option called
+ * "เลือกจากรายการ", and failed with the whole list enumerated in the error —
+ * four steps, seven minutes, and a defect against the application for a
+ * sentence the sheet had written to the tester.
+ *
+ * `ANY_OFFERED` is the harness's own answer to exactly this, and the step is
+ * flagged `generated` so no report reads the choice as the sheet's.
+ */
+export function settleOfferedChoices(steps: readonly FlowStep[]): { steps: FlowStep[]; settled: string[] } {
+  const settled: string[] = [];
+  const next = steps.map((step) => {
+    if (step.action !== 'selectOption') return step;
+    const value = (step as { value?: unknown }).value;
+    if (typeof value !== 'string' || value === ANY_OFFERED || !placeholderChoice(value)) return step;
+    const field = fieldLabelOf(step);
+    const detail = `the sheet says ${JSON.stringify(value.trim())} — an instruction, not a value; took the first option the control offered`;
+    settled.push(`${field}: ${JSON.stringify(value.trim())}`);
+    return {
+      ...step,
+      value: ANY_OFFERED,
+      valueSource: { kind: 'generated' as const, detail },
+      intent: markGenerated((step as { intent?: string | undefined }).intent, `${detail} for ${JSON.stringify(field)}`),
+    } as FlowStep;
+  });
+  return { steps: next, settled };
 }
 
 function pairForControl(controlName: string, pairs: readonly TestDataPair[]): TestDataPair | undefined {
