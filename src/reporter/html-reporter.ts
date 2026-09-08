@@ -17,7 +17,6 @@ import type { RequestRecord } from '../api/api-client.js';
 import type { DbCheckRecord } from '../db/db-actions.js';
 import { classifyCall, isBlockingFailure, type NetworkCall } from '../api/network-observer.js';
 import { BACKEND_TIER_ACTIONS,
-  describeValueSource,
   valueWasGenerated,
   describeTarget,
   familyLabel,
@@ -29,6 +28,7 @@ import {
   RESOLUTION_EXPLANATIONS,
   describeAgentAction,
   describeResolution,
+  describeValueSource,
   displayCaseId,
   observedEvidence,
   provenanceExtras,

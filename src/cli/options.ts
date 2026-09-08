@@ -80,6 +80,7 @@ export interface CliOptions {
    * `--no-value-resolution` / `WOWLIDATOR_VALUE_RESOLUTION=off` disables.
    */
   valueResolution: boolean;
+  masterData: string | undefined;
   /**
    * In-run step reconstruction: a failed step is rebuilt by the repair model
    * against the live page and retried, up to 3 total tries, before final

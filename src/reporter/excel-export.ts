@@ -36,9 +36,9 @@ import { access, mkdir, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { crc32, deflateRawSync } from 'node:zlib';
 
-import { describeDbChanges, describeTarget, describeValueSource, expectedActual, type ProofStep } from '../engine/proof-bundle.js';
+import { describeDbChanges, describeTarget, expectedActual, type ProofStep } from '../engine/proof-bundle.js';
 import { catalogCaseExportName, verdictChipOf, type CatalogReportCase, type CatalogReportInput } from './catalog-report.js';
-import { describeAgentAction, describeResolution, observedEvidence, stepKindFacts, stepTarget } from './step-facts.js';
+import { describeAgentAction, describeResolution, describeValueSource, observedEvidence, stepKindFacts, stepTarget } from './step-facts.js';
 
 /* ------------------------------------------------------------- zip writer */
 

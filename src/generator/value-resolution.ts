@@ -72,6 +72,15 @@ import type { DbClient, DbSchema } from '../db/client.js';
 import { quoteIdent } from '../db/db-actions.js';
 import { redactValue } from '../db/redact-row.js';
 import type { FlowStep } from '../engine/runner.js';
+import { codeAndLabelOf } from '../engine/normalise.js';
+import {
+  LookupFetcher,
+  groundCodes,
+  sameField,
+  templateTokens,
+  type FetchJson,
+  type MasterDataLookup,
+} from '../context/master-data.js';
 import { lenientObject } from '../providers/model-output.js';
 import { generateStructuredForModel, type ModelSource } from '../providers/llm-factory.js';
 import { unconfirmedValue } from '../catalog/test-case-table.js';
@@ -328,7 +337,7 @@ function compileVocabulary(v: Vocabulary): CompiledVocabulary {
 /** The vocabulary, compiled once — what every function below reads. */
 const R = compileVocabulary(VOCABULARY);
 
-export type ValueSourceKind = 'relative-date' | 'unique-per-run' | 'test-data' | 'repo' | 'db' | 'generated';
+export type ValueSourceKind = 'relative-date' | 'unique-per-run' | 'test-data' | 'repo' | 'db' | 'generated' | 'master-data';
 
 /** One `Field = value` pair of the case's Test data, with the phase header it sat under (`--Insert R1--`). */
 export interface TestDataPair {
@@ -345,6 +354,25 @@ export interface ValueSource {
 }
 
 export type ValueSection = 'setup' | 'steps';
+
+export interface MasterDataExpansion {
+  section: ValueSection;
+  index: number;
+  field: string;
+  code: string;
+  label: string;
+  /** The declared lookup's own field list, for the log and the note. */
+  fields: readonly string[];
+}
+
+export interface MasterDataContext {
+  lookups: readonly MasterDataLookup[];
+  /** Lazy and memoised by the caller; may answer null when no transport exists. */
+  fetch: () => Promise<FetchJson | null>;
+  appUrl?: string | undefined;
+  testDataPairs?: readonly TestDataPair[] | undefined;
+  onLog?: ((line: string) => void) | undefined;
+}
 
 /** One input step whose value is not yet a value. */
 export interface ValueNeed {
@@ -1700,6 +1728,99 @@ export async function resolveValues(
     resolved.push(answer);
   }
   return { setup: nextSetup, steps: nextSteps, resolved };
+}
+
+export async function expandMasterDataCodes(
+  setup: readonly FlowStep[],
+  steps: readonly FlowStep[],
+  ctx: MasterDataContext,
+): Promise<{ setup: FlowStep[]; steps: FlowStep[]; expanded: MasterDataExpansion[] }> {
+  const nextSetup = setup.map((step) => ({ ...step })) as FlowStep[];
+  const nextSteps = steps.map((step) => ({ ...step })) as FlowStep[];
+  const candidates = new Map<MasterDataLookup, MasterDataExpansion[]>();
+
+  for (const [section, list] of [['setup', nextSetup], ['steps', nextSteps]] as const) {
+    list.forEach((step, index) => {
+      if (!INPUT_ACTIONS.has(step.action)) return;
+      const value = 'value' in step && typeof step.value === 'string' ? step.value.trim() : '';
+      if (value === '' || codeAndLabelOf(value) !== null) return;
+      const field = fieldLabelOf(step).trim();
+      if (field === '') return;
+      const lookup = ctx.lookups.find((entry) => entry.field.some((declared) => sameField(declared, field)));
+      if (lookup === undefined) return;
+      const pending = candidates.get(lookup) ?? [];
+      pending.push({ section, index, field, code: value, label: '', fields: lookup.field });
+      candidates.set(lookup, pending);
+    });
+  }
+
+  if (candidates.size === 0) return { setup: nextSetup, steps: nextSteps, expanded: [] };
+  const pairs = ctx.testDataPairs ?? [];
+  const bindingsByLookup = new Map<MasterDataLookup, Record<string, string>>();
+  const unbound = new Map<MasterDataLookup, string[]>();
+  for (const lookup of candidates.keys()) {
+    const bindings: Record<string, string> = {};
+    const missing: string[] = [];
+    for (const token of templateTokens(lookup.url)) {
+      const pair = pairs.find((entry) => sameField(entry.key, token) && entry.value.trim() !== '');
+      if (pair === undefined) missing.push(token);
+      else bindings[token] = pair.value.trim();
+    }
+    if (missing.length > 0) unbound.set(lookup, missing);
+    else bindingsByLookup.set(lookup, bindings);
+  }
+  for (const [lookup, missing] of unbound) {
+    ctx.onLog?.(`  master data ${lookup.field.join(' / ')} skipped: token(s) ${missing.map((token) => `{${token}}`).join(', ')} not in this row's Test Data`);
+    candidates.delete(lookup);
+  }
+  if (candidates.size === 0) return { setup: nextSetup, steps: nextSteps, expanded: [] };
+
+  let fetchJson: FetchJson | null;
+  try {
+    fetchJson = await ctx.fetch();
+  } catch (error) {
+    ctx.onLog?.(`master-data expansion did not run: ${error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error)}`);
+    return { setup: nextSetup, steps: nextSteps, expanded: [] };
+  }
+  if (fetchJson === null) {
+    ctx.onLog?.('master-data expansion did not run: no transport is available');
+    return { setup: nextSetup, steps: nextSteps, expanded: [] };
+  }
+
+  const fetcher = new LookupFetcher(fetchJson);
+  const expanded: MasterDataExpansion[] = [];
+  for (const [lookup, uses] of candidates) {
+    const fetched = await fetcher.fetch(lookup, bindingsByLookup.get(lookup) ?? {}, ctx.appUrl);
+    if (fetched.status === 'unknown') {
+      ctx.onLog?.(`  master data ${lookup.field.join(' / ')} could not be read: ${fetched.reason}`);
+      continue;
+    }
+    const grounded = new Map(groundCodes(lookup, fetched.rows, uses.map((use) => use.code)).map((item) => [item.code, item]));
+    for (const use of uses) {
+      const found = grounded.get(use.code);
+      if (found === undefined || !found.found) {
+        ctx.onLog?.(`  ${use.field}: ${JSON.stringify(use.code)} did not appear in master data ${lookup.field.join(' / ')}`);
+        continue;
+      }
+      const label = found.label?.trim() ?? '';
+      if (label === '' || label === use.code) continue;
+      const list = use.section === 'setup' ? nextSetup : nextSteps;
+      const step = list[use.index];
+      if (step === undefined) continue;
+      const detail = `${use.field} code ${JSON.stringify(use.code)} is labelled ${JSON.stringify(label)} in ${lookup.field.join(' / ')}`;
+      const intent = 'intent' in step && typeof step.intent === 'string' ? step.intent : `${step.action} ${use.field}`;
+      Object.assign(step, {
+        value: `${use.code} — ${label}`,
+        valueSource: { kind: 'master-data', detail },
+        intent: `${intent} — value from master-data: ${detail}`,
+      });
+      const result = { ...use, label };
+      expanded.push(result);
+      ctx.onLog?.(`  ${use.field} ← master-data (${use.code} — ${label})`);
+      if (found.reachable === false) ctx.onLog?.(`  ${use.field}: ${JSON.stringify(use.code)} was found but is unreachable in the picker`);
+    }
+  }
+  return { setup: nextSetup, steps: nextSteps, expanded };
 }
 
 // --- the model ------------------------------------------------------------------

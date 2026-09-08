@@ -10,6 +10,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { readMasterDataDeclaration } from '../src/context/master-data.js';
 
 import { zodSchema } from 'ai';
 
@@ -133,6 +134,24 @@ function stubModel(result: Partial<AuthorResult>): FlowAuthorModel & { seen?: Au
 }
 
 describe('FlowAuthor', () => {
+  it('expands master-data codes after value resolution and records the count', async () => {
+    const lookups = await readMasterDataDeclaration(fileURLToPath(new URL('./fixtures/master-data.lookups.json', import.meta.url)));
+    const author = new FlowAuthor({
+      model: stubModel({
+        name: 'master-data flow',
+        steps: [
+          { action: 'selectOption', selector: 'role=combobox[name="Cost Center" i]', value: 'CC-07', intent: 'select Cost Center' },
+          { action: 'expectVisible', selector: 'text="saved"' },
+        ],
+      }),
+      masterData: { lookups, fetch: async () => async () => [{ code: 'CC-07', title: 'North Office' }] },
+    });
+    const authored = await author.author('select a cost centre and verify saved');
+    const first = authored.flow.steps[0];
+    assert.equal(first !== undefined && 'value' in first ? first.value : undefined, 'CC-07 — North Office');
+    assert.match(authored.notes, /1 value\(s\) expanded from master data before the lints/);
+  });
+
   it('preserves consent when the catalog oracle requires the consent blocker', async () => {
     // Given: a catalog case whose machine-readable oracle is CONSENT_REQUIRED.
     const author = new FlowAuthor({

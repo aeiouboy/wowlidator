@@ -27,6 +27,7 @@ import {
   countVerdicts,
   describeAgentAction,
   describeResolution,
+  describeValueSource,
   describeVerdictCounts,
   displayCaseId,
   observedEvidence,
@@ -202,6 +203,13 @@ describe('step-facts — what a step WAS, from the record', () => {
     const fromAgent = observedEvidence({ action: 'workflow', agent: { observations: [{ selector: 's', text: 't' }] } });
     assert.equal(fromAgent[0]?.text, 't');
     assert.deepEqual(observedEvidence({ action: 'click' }), []);
+  });
+
+  it('renders a master-data value in the application-master voice', () => {
+    assert.equal(
+      describeValueSource({ detail: { valueSource: { kind: 'master-data', detail: 'Region code "R-7" is labelled "North" in Region' } } }),
+      'from the application\'s master: Region code "R-7" is labelled "North" in Region',
+    );
   });
 
   it('knows save and signOut, masks a password fill, and still renders an action it has never heard of', () => {

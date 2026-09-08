@@ -9,10 +9,12 @@
  */
 
 import assert from 'node:assert/strict';
+import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 
 import type { DbClient, DbResult, DbSchema } from '../src/db/client.js';
 import type { FlowStep } from '../src/engine/runner.js';
+import { readMasterDataDeclaration } from '../src/context/master-data.js';
 import { describeValueSource, formatStepLine, valueWasGenerated, type ProofStep } from '../src/engine/proof-bundle.js';
 import { typesPlaceholderToken } from '../src/generator/flow-author.js';
 import {
@@ -20,6 +22,7 @@ import {
   absoluteDateOf,
   candidateFor,
   cleanModelValue,
+  expandMasterDataCodes,
   fieldLabelOf,
   findUnresolvedValues,
   formatStatedFor,
@@ -33,6 +36,8 @@ import {
   testDataPairsOf,
   type ValueResolverModel,
 } from '../src/generator/value-resolution.js';
+
+const MASTER_DATA_FIXTURE = resolve(import.meta.dirname, 'fixtures/master-data.lookups.json');
 
 const CASE = [
   'HIR-EC-012: ตรวจสอบการจ้างพนักงานแบบ Replacement ผ่าน Key-in',
@@ -115,6 +120,85 @@ const describedStep = (): FlowStep =>
     value: 'Employee ID ของพนักงานที่มีอยู่จริง',
     intent: 'Step 4: กรอก Replaced Employee ID ของพนักงานที่มีอยู่จริง',
   }) as FlowStep;
+
+describe('master-data value expansion', () => {
+  const step = (field: string, value: string): FlowStep => ({ action: 'selectOption', selector: `role=combobox[name="${field}" i]`, value, intent: `select ${field}` });
+
+  it('expands an exact code and stamps its source', async () => {
+    const lookups = await readMasterDataDeclaration(MASTER_DATA_FIXTURE);
+    let calls = 0;
+    const out = await expandMasterDataCodes([], [step('Cost Center', 'CC-07')], {
+      lookups,
+      fetch: async () => async () => {
+        calls += 1;
+        return [{ code: 'CC-07', title: 'North Office' }];
+      },
+    });
+    assert.equal(calls, 1);
+    const first = out.steps[0];
+    assert.equal(first !== undefined && 'value' in first ? first.value : undefined, 'CC-07 — North Office');
+    assert.deepEqual(first !== undefined && 'valueSource' in first ? first.valueSource : undefined, { kind: 'master-data', detail: 'Cost Center code "CC-07" is labelled "North Office" in Cost Center' });
+    assert.match(first !== undefined && 'intent' in first ? first.intent ?? '' : '', /— value from master-data:/);
+    assert.equal(out.expanded.length, 1);
+  });
+
+  it('leaves an already paired value, a missing code, and an identical label untouched', async () => {
+    const lookups = await readMasterDataDeclaration(MASTER_DATA_FIXTURE);
+    const authored = [step('Cost Center', 'CC-07 — North Office'), step('Cost Center', 'CC-08'), step('Cost Center', 'CC-09')];
+    const out = await expandMasterDataCodes([], authored, { lookups, fetch: async () => async () => [{ code: 'CC-09', title: 'CC-09' }] });
+    assert.deepEqual(out.steps, authored);
+    assert.deepEqual(out.expanded, []);
+  });
+
+  it('skips an unbound lookup without opening a transport', async () => {
+    const lookups = await readMasterDataDeclaration(MASTER_DATA_FIXTURE);
+    const log: string[] = [];
+    let opened = false;
+    const authored = [step('Position', 'P-005')];
+    const out = await expandMasterDataCodes([], authored, {
+      lookups,
+      fetch: async () => {
+        opened = true;
+        return async () => null;
+      },
+      onLog: (line) => log.push(line),
+    });
+    assert.equal(opened, false);
+    assert.deepEqual(out.steps, authored);
+    assert.match(log.join('\n'), /\{Company\} not in this row's Test Data/);
+  });
+
+  it('leaves every step authored when the transport throws or is unavailable', async () => {
+    const lookups = await readMasterDataDeclaration(MASTER_DATA_FIXTURE);
+    const authored = [step('Cost Center', 'CC-07')];
+    const thrown = await expandMasterDataCodes([], authored, { lookups, fetch: async () => { throw new Error('offline'); } });
+    const unavailable = await expandMasterDataCodes([], authored, { lookups, fetch: async () => null });
+    const failedFetch = await expandMasterDataCodes([], authored, { lookups, fetch: async () => async () => { throw new Error('request failed'); } });
+    assert.deepEqual(thrown.steps, authored);
+    assert.deepEqual(unavailable.steps, authored);
+    assert.deepEqual(failedFetch.steps, authored);
+  });
+
+  it('expands a found unreachable code and reports the reachability fact', async () => {
+    const lookups = await readMasterDataDeclaration(MASTER_DATA_FIXTURE);
+    const log: string[] = [];
+    const out = await expandMasterDataCodes([], [step('Position', 'P-005')], {
+      lookups,
+      testDataPairs: [{ phase: null, key: 'Company', value: 'ACME' }],
+      fetch: async () => async () => ({ data: { rows: [
+        { positionCode: 'P-001', name: { en: 'One' } },
+        { positionCode: 'P-002', name: { en: 'Two' } },
+        { positionCode: 'P-003', name: { en: 'Three' } },
+        { positionCode: 'P-004', name: { en: 'Four' } },
+        { positionCode: 'P-005', name: { en: 'Five' } },
+      ], hasNextPage: false } }),
+      onLog: (line) => log.push(line),
+    });
+    const first = out.steps[0];
+    assert.equal(first !== undefined && 'value' in first ? first.value : undefined, 'P-005 — Five');
+    assert.match(log.join('\n'), /found but is unreachable/);
+  });
+});
 
 describe('finding what needs a value', () => {
   it('sees a token, a described value, and nothing else', () => {

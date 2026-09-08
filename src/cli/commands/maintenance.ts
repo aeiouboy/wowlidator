@@ -723,7 +723,6 @@ export async function cmdData(
   catalog: string | undefined,
   options: CliOptions,
   extra: {
-    masterData?: string | undefined;
     fetchJson?: FetchJson | undefined;
     out?: string | undefined;
   } = {},
@@ -737,7 +736,7 @@ export async function cmdData(
     process.stderr.write('wowlidator data check: missing <catalog> — the sheet whose Test Data codes to check\n');
     return 2;
   }
-  if (extra.masterData === undefined) {
+  if (options.masterData === undefined) {
     process.stderr.write('wowlidator data check: --master-data <file> is required — the lookup declaration (see the manual)\n');
     return 2;
   }
@@ -767,7 +766,7 @@ export async function cmdData(
 
   let lookups: MasterDataLookup[];
   try {
-    lookups = await readMasterDataDeclaration(resolve(extra.masterData));
+    lookups = await readMasterDataDeclaration(resolve(options.masterData));
   } catch (error) {
     process.stderr.write(`wowlidator data check: ${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
@@ -827,7 +826,7 @@ export async function cmdData(
   if (options.json) {
     const document = {
       catalog: catalogPath,
-      declaration: resolve(extra.masterData),
+      declaration: resolve(options.masterData),
       appUrl: options.url ?? null,
       rowsRead: table.length,
       notes,

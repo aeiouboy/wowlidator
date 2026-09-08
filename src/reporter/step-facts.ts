@@ -34,6 +34,19 @@
  */
 
 import type { AgentAction, ProofBundle, ResolutionSource } from '../engine/proof-bundle.js';
+import { describeValueSource as describeEngineValueSource } from '../engine/proof-bundle.js';
+
+export function describeValueSource(step: { detail?: Record<string, unknown> | undefined }): string | null {
+  const source = step.detail?.['valueSource'];
+  if (typeof source === 'object' && source !== null) {
+    const value = source as { kind?: unknown; detail?: unknown };
+    if (value.kind === 'master-data') {
+      const detail = typeof value.detail === 'string' ? value.detail : '';
+      return `from the application's master${detail === '' ? '' : `: ${detail}`}`;
+    }
+  }
+  return describeEngineValueSource(step);
+}
 
 /** One labelled fact about a step, rendered wherever the step is. */
 export interface StepFact {

@@ -4,6 +4,7 @@
  */
 
 import type { ExtractedDocument } from '../catalog/extract.js';
+import { resolve } from 'node:path';
 import { connectDb, defaultDbConfig, type DbClient } from '../db/client.js';
 import { LlmFlowAuthorModel, type FlowAuthorModel, type FlowAuthorOptions } from '../generator/flow-author.js';
 import { createModelForRole } from '../providers/llm-factory.js';
@@ -17,6 +18,7 @@ import { LlmDataModel } from '../data/data-model.js';
 import { formatAgentAction, formatStepLine, type ProofStep } from '../engine/proof-bundle.js';
 import type { RunPlan } from '../engine/runner.js';
 import { CAPTURE_PILOT_MAX_STEPS } from '../context/capture-pilot.js';
+import type { FetchJson, MasterDataLookup } from '../context/master-data.js';
 import { currentLogTag } from '../log-format.js';
 import { LlmFlowRepairModel, type FlowRepairModel } from '../repair/flow-repair-model.js';
 import { LlmReviewJudge, type ReviewJudge } from '../engine/review-judge.js';
@@ -273,6 +275,52 @@ export function buildValueResolution(
     return client;
   };
   return { model, db, ...(documents === undefined ? {} : { documents }) };
+}
+
+export async function buildMasterData(options: CliOptions): Promise<FlowAuthorOptions['masterData']> {
+  if (options.masterData === undefined) return undefined;
+  let lookups: MasterDataLookup[];
+  try {
+    const { readMasterDataDeclaration } = await import('../context/master-data.js');
+    lookups = await readMasterDataDeclaration(resolve(options.masterData));
+  } catch (error) {
+    emitTagged(undefined, `master-data declaration refused: ${error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error)}\n`, 'err');
+    return undefined;
+  }
+
+  let transport: Promise<FetchJson | null> | null = null;
+  const fetch = (): Promise<FetchJson | null> => {
+    if (transport !== null) return transport;
+    transport = (async () => {
+      if (options.url === undefined) return null;
+      const { prepare } = await import('./artifacts.js');
+      const { DEFAULT_CDP_URL } = await import('../engine/runner.js');
+      const { SIGN_IN_URL_PATTERN, performSignIn } = await import('../engine/sign-in.js');
+      const { acceptConsentGate } = await import('../engine/consent-gate.js');
+      const { BrowserTransport } = await import('../api/api-client.js');
+      const { fetchJsonThrough } = await import('../context/master-data.js');
+      const { chromium } = await import('playwright');
+      const blocked = await prepare(options, options.url);
+      if (blocked !== null) return null;
+      const browser = await chromium.connectOverCDP(options.cdp ?? DEFAULT_CDP_URL);
+      const context = await browser.newContext();
+      const tab = await context.newPage();
+      await tab.goto(options.url, { waitUntil: 'domcontentloaded' });
+      await tab.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
+      const credentials = options.credentials ?? Object.values(options.personas)[0];
+      if (credentials !== undefined && SIGN_IN_URL_PATTERN.test(tab.url())) {
+        const outcome = await performSignIn(tab, credentials);
+        if (!outcome.ok) return null;
+      }
+      await acceptConsentGate(tab).catch(() => false);
+      return fetchJsonThrough(new BrowserTransport(context));
+    })().catch((error) => {
+      emitTagged(undefined, `master-data transport unavailable: ${error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error)}\n`, 'err');
+      return null;
+    });
+    return transport;
+  };
+  return { lookups, fetch, ...(options.url === undefined ? {} : { appUrl: options.url }) };
 }
 
 /**

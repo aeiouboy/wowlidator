@@ -55,7 +55,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
 import type { ProofBundle, ProofStep } from '../engine/proof-bundle.js';
-import { describeDbChanges, describeTarget, describeValueSource, verdictFamily } from '../engine/proof-bundle.js';
+import { describeDbChanges, describeTarget, verdictFamily } from '../engine/proof-bundle.js';
 import { grimTheme } from './theme.js';
 import { slugify } from './html-reporter.js';
 import { buildFindingsSummary, findingsHeadline, statusCounts, type Finding, type FindingCase, type FindingsSummary } from './findings.js';
@@ -63,6 +63,7 @@ import {
   countVerdicts,
   describeAgentAction,
   describeResolution,
+  describeValueSource,
   describeVerdictCounts,
   displayCaseId,
   observedEvidence,

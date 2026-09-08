@@ -200,9 +200,6 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       'repair-regenerate': { type: 'boolean', default: false },
       openapi: { type: 'string' },
       'db-schema': { type: 'string' },
-      // `data check`: the master-data lookup declaration. Not on CliOptions —
-      // the one command that reads it takes it beside the options, so no other
-      // command grows a field it never reads.
       'master-data': { type: 'string' },
       api: { type: 'boolean', default: false },
       // Catalogs. `context-doc` rather than `context`: `--context` already
@@ -400,6 +397,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       .filter((t) => t !== ''),
     authorReview: values['no-author-review'] !== true,
     valueResolution: values['no-value-resolution'] !== true && process.env['WOWLIDATOR_VALUE_RESOLUTION'] !== 'off',
+    masterData: values['master-data'],
     // Three retry rules, each toggleable by flag AND by env (so a run started
     // from a terminal or the panel obeys the same `.env` line):
     //  - reconstruction (retry a failed step up to 3×): --no-reconstruct, or
@@ -546,7 +544,6 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       return cmdDb(positionals[1], positionals[2], options);
     case 'data':
       return cmdData(positionals[1], positionals[2], options, {
-        masterData: values['master-data'],
         out: values.out,
       });
     case 'mcp':

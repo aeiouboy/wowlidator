@@ -156,6 +156,7 @@ import {
   buildDataModel,
   buildFlowReviewer,
   buildAuthorRetryModel,
+  buildMasterData,
   buildValueResolution,
   buildHealer,
   buildStepRepair,
@@ -3039,6 +3040,7 @@ export async function cmdCatalog(file: string | undefined, options: CliOptions):
   );
   const reviewer = buildFlowReviewer(options);
   const valueResolution = buildValueResolution(options, contextDocs);
+  const masterData = await buildMasterData(options);
   const retryModel = buildAuthorRetryModel(options);
   const author = new FlowAuthor({
     model: new LlmFlowAuthorModel({ factory: options.factory }),
@@ -3048,6 +3050,7 @@ export async function cmdCatalog(file: string | undefined, options: CliOptions):
     ...(options.authorAttempts === undefined ? {} : { attempts: options.authorAttempts }),
     ...(reviewer === null ? {} : { reviewer }),
     ...(valueResolution === undefined ? {} : { valueResolution }),
+    ...(masterData === undefined ? {} : { masterData }),
     ...(tables.length > 0 ? { tables } : {}),
     ...(projectContext !== '' ? { projectContext } : {}),
     // The third grounding source for expectUrl. A route the application
@@ -3874,6 +3877,7 @@ export async function cmdAuthor(prompt: string | undefined, options: CliOptions)
   // out here.
   const reviewer = buildFlowReviewer(options);
   const valueResolution = buildValueResolution(options);
+  const masterData = await buildMasterData(options);
   const retryModel = buildAuthorRetryModel(options);
   const authorOptions = {
     model: new LlmFlowAuthorModel({ factory: options.factory }),
@@ -3883,6 +3887,7 @@ export async function cmdAuthor(prompt: string | undefined, options: CliOptions)
     ...(options.authorAttempts === undefined ? {} : { attempts: options.authorAttempts }),
     ...(reviewer === null ? {} : { reviewer }),
     ...(valueResolution === undefined ? {} : { valueResolution }),
+    ...(masterData === undefined ? {} : { masterData }),
     ...(tables.length > 0 ? { tables } : {}),
     ...(projectContext !== '' ? { projectContext } : {}),
     // The third grounding source for expectUrl. A route the application
