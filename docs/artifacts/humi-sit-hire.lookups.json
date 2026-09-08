@@ -1,6 +1,8 @@
 [
   {
-    "field": ["Company"],
+    "field": [
+      "Company"
+    ],
     "url": "/humi/api/employee-foundation/foundation?type=companies&isActive=true&page={page}&size=1000",
     "rows": "data.rows",
     "next": "data.pagination.hasNextPage",
@@ -9,18 +11,30 @@
     "uiPageSize": 1000
   },
   {
-    "field": ["Position", "Position Code"],
+    "field": [
+      "Position",
+      "Position Code"
+    ],
     "url": "/humi/api/employee-foundation/foundation?type=positions&isActive=true&companyCode={Company}&page={page}&size=500",
     "rows": "data.rows",
     "next": "data.pagination.hasNextPage",
     "code": "positionCode",
     "label": "positionName.en",
-    "facts": ["vacant", "headcount", "jobCodeCode", "costCenterCode", "workLocationCode"],
+    "facts": [
+      "vacant",
+      "headcount",
+      "jobCodeCode",
+      "costCenterCode",
+      "workLocationCode"
+    ],
     "consumable": "vacant",
     "uiPageSize": 500
   },
   {
-    "field": ["Cost Center", "Cost Centre"],
+    "field": [
+      "Cost Center",
+      "Cost Centre"
+    ],
     "url": "/humi/api/employee-foundation/foundation?type=cost_centers&isActive=true&companyCode={Company}&page={page}&size=1000",
     "rows": "data.rows",
     "next": "data.pagination.hasNextPage",
@@ -29,7 +43,9 @@
     "uiPageSize": 1000
   },
   {
-    "field": ["Work Location"],
+    "field": [
+      "Work Location"
+    ],
     "url": "/humi/api/employee-foundation/foundation?type=work_locations&isActive=true&page={page}&size=1000",
     "rows": "data.rows",
     "next": "data.pagination.hasNextPage",
@@ -38,7 +54,9 @@
     "uiPageSize": 1000
   },
   {
-    "field": ["Employee Group"],
+    "field": [
+      "Employee Group"
+    ],
     "url": "/humi/api/employee-foundation/foundation?type=employee_groups&isActive=true&page={page}&size=1000",
     "rows": "data.rows",
     "next": "data.pagination.hasNextPage",
@@ -47,7 +65,10 @@
     "uiPageSize": 1000
   },
   {
-    "field": ["Employee Sub-Group", "Employee Subgroup"],
+    "field": [
+      "Employee Sub-Group",
+      "Employee Subgroup"
+    ],
     "url": "/humi/api/employee-foundation/foundation?type=employee_subgroups&isActive=true&employeeGroupCode={Employee Group}&page={page}&size=1000",
     "rows": "data.rows",
     "next": "data.pagination.hasNextPage",
@@ -56,7 +77,9 @@
     "uiPageSize": 1000
   },
   {
-    "field": ["Holiday Calendar"],
+    "field": [
+      "Holiday Calendar"
+    ],
     "url": "/humi/api/employee-foundation/foundation?type=picking_lists&id=zHolidayType&isActive=true&page={page}&size=1000",
     "rows": "data.rows",
     "next": "data.pagination.hasNextPage",
@@ -65,7 +88,9 @@
     "uiPageSize": 1000
   },
   {
-    "field": ["Pay Group"],
+    "field": [
+      "Pay Group"
+    ],
     "url": "/humi/api/employee-foundation/foundation?type=pay_groups&isActive=true&page={page}&size=1000",
     "rows": "data.rows",
     "next": "data.pagination.hasNextPage",
@@ -74,16 +99,19 @@
     "uiPageSize": 1000
   },
   {
-    "field": ["Bank"],
-    "url": "/humi/api/employee-foundation/foundation?type=picking_lists&id=zBank&isActive=true&page={page}&size=1000",
+    "field": [
+      "Bank"
+    ],
+    "url": "/humi/api/ec-api/employment/lookup/banks?countryCode=THA",
     "rows": "data.rows",
-    "next": "data.pagination.hasNextPage",
-    "code": "picklistCode",
-    "label": "label.en_GB",
+    "code": "bankCode",
+    "label": "bankName",
     "uiPageSize": 1000
   },
   {
-    "field": ["Pay Component"],
+    "field": [
+      "Pay Component"
+    ],
     "url": "/humi/api/employee-foundation/foundation?type=pay_components&isActive=true&page={page}&size=1000",
     "rows": "data.rows",
     "next": "data.pagination.hasNextPage",
@@ -92,8 +120,11 @@
     "uiPageSize": 1000
   },
   {
-    "field": ["Job Code", "Job Role"],
-    "url": "/humi/api/employee-foundation/foundation?type=job_codes&isActive=true&page={page}&size=1000",
+    "field": [
+      "Job Code",
+      "Job Role"
+    ],
+    "url": "/humi/api/employee-foundation/foundation?type=job_codes&isActive=true&page={page}&size=10000",
     "rows": "data.rows",
     "next": "data.pagination.hasNextPage",
     "code": "jobCodeCode",
@@ -101,7 +132,9 @@
     "uiPageSize": 10000
   },
   {
-    "field": ["Band"],
+    "field": [
+      "Band"
+    ],
     "url": "/humi/api/employee-foundation/foundation?type=bands&isActive=true&page={page}&size=1000",
     "rows": "data.rows",
     "next": "data.pagination.hasNextPage",
@@ -110,7 +143,9 @@
     "uiPageSize": 1000
   },
   {
-    "field": ["Organization", "Department"],
+    "field": [
+      "Department"
+    ],
     "url": "/humi/api/employee-foundation/foundation?type=departments&isActive=true&page={page}&size=1000",
     "rows": "data.rows",
     "next": "data.pagination.hasNextPage",
@@ -119,12 +154,35 @@
     "uiPageSize": 1000
   },
   {
-    "field": ["Contract Type"],
+    "field": [
+      "Contract Type"
+    ],
     "url": "/humi/api/employee-foundation/foundation?type=picking_lists&id=contractType&isActive=true&page={page}&size=1000",
     "rows": "data.rows",
     "next": "data.pagination.hasNextPage",
     "code": "picklistCode",
     "label": "label.en_GB",
+    "uiPageSize": 1000
+  },
+  {
+    "field": [
+      "Payment Method"
+    ],
+    "url": "/humi/api/ec-api/employment/lookup/payment-methods?countryCode=THA",
+    "rows": "data.rows",
+    "code": "paymentMethodCode",
+    "label": "paymentMethodName.en_GB",
+    "uiPageSize": 1000
+  },
+  {
+    "field": [
+      "Time Management Status",
+      "Time Status"
+    ],
+    "url": "/humi/api/ec-api/employment/lookup/time-status-master",
+    "rows": "data",
+    "code": "timeStatusCode",
+    "label": "timeStatusName",
     "uiPageSize": 1000
   }
 ]
