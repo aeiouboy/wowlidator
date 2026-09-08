@@ -1784,6 +1784,8 @@ type PersonaSession = {
   lastGotoPath: string | null;
   lastGotoAskedSignIn: boolean;
   lastAction: string | null;
+  /** Did the step that ran that action FAIL? See `dialogIsIntendedContext`. */
+  lastActionFailed: boolean;
   strandedReported: boolean;
   /** See the `#signInDidNotTake` accessor. */
   signInDidNotTake: boolean;
@@ -1968,6 +1970,15 @@ export class SmartRunner {
   }
   set #lastAction(action: string | null) {
     this.#active.lastAction = action;
+    // Assigning an action always clears the failure mark; only `noteAction`
+    // sets it, and only for a step that actually threw.
+    this.#active.lastActionFailed = false;
+  }
+  get #lastActionFailed(): boolean {
+    return this.#active.lastActionFailed;
+  }
+  set #lastActionFailed(failed: boolean) {
+    this.#active.lastActionFailed = failed;
   }
   get #strandedReported(): boolean {
     return this.#active.strandedReported;
@@ -2287,6 +2298,7 @@ export class SmartRunner {
       lastGotoPath: null,
       lastGotoAskedSignIn: false,
       lastAction: null,
+      lastActionFailed: false,
       strandedReported: false,
       signInDidNotTake: false,
       sessionBootstrapTried: false,
@@ -6366,9 +6378,14 @@ export class SmartRunner {
     this.#signInDidNotTake = didNotTake;
   }
 
-  /** Remember what just ran, for `assertSessionHeld`. */
-  noteAction(action: string): void {
+  /**
+   * Remember what just ran, for `assertSessionHeld` — and whether it failed,
+   * for `dialogIsIntendedContext`. A dialog is the flow's own context only
+   * when the step that opened it did what it meant to.
+   */
+  noteAction(action: string, failed = false): void {
     this.#lastAction = action;
+    this.#lastActionFailed = failed;
   }
 
   /**
@@ -7111,7 +7128,7 @@ export class SmartRunner {
     {
       const openNow = await openDialogNow(this.page);
       if (openNow) {
-        const context = dialogIsIntendedContext(this.#lastAction)
+        const context = dialogIsIntendedContext(this.#lastAction, this.#lastActionFailed)
           ? `opened by the previous ${this.#lastAction}`
           : (await selectorInsideDialog(openNow, selector))
             ? 'holding the very control this step is aimed at'
@@ -9151,7 +9168,7 @@ async function executeSteps(
             await executeStep(runner, step, baseUrl, issues);
             runner.noteAction(step.action);
           } catch (error) {
-            runner.noteAction(step.action);
+            runner.noteAction(step.action, true);
             failedStep = step;
             throw error;
           }

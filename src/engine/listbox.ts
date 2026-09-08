@@ -20,7 +20,9 @@
  * 1. open the list unless `aria-expanded="true"` (a second click closes it);
  * 2. wait for the list to HOLD something — ≥ 1 option, ≥ 1 checkbox row, or
  *    an empty row ("No options" / "ไม่พบข้อมูล") — up to `timeout`, because
- *    a dependent list still fetching is the common case;
+ *    a dependent list still fetching is the common case; an empty row on the
+ *    FIRST open is not taken as an answer, and the list is closed and opened
+ *    once more before it is believed;
  * 3. when a search box sits inside or beside the open list, type the stable
  *    head of the value (its CODE half — "A" of "A - Permanent", "40106337"
  *    of "40106337 (Job Title)" — else the whole value); if that leaves the
@@ -267,7 +269,7 @@ async function openList(page: Page, trigger: Locator, timeout: number): Promise<
   }
 }
 
-interface ListState {
+export interface ListState {
   options: string[];
   checkboxes: number;
   emptyRow: string | null;
@@ -309,6 +311,16 @@ async function listState(list: Locator, timeout: number): Promise<ListState> {
     )
     .catch(() => ({ options: [] as string[], checkboxes: 0, emptyRow: null as string | null }));
   return read;
+}
+
+/** The list holds nothing but its own empty-state row — "No options found". */
+export function isEmptyAnswer(state: ListState): boolean {
+  return (
+    state.options.length === 0 &&
+    state.checkboxes === 0 &&
+    state.emptyRow !== null &&
+    EMPTY_ROW.test(state.emptyRow)
+  );
 }
 
 /** Wait until the list holds options, checkbox rows, or an empty-state row. */
@@ -411,9 +423,40 @@ export async function selectFromListbox(
     await page.keyboard.press('Escape').catch(() => undefined);
     throw new ListboxOptionMissingError(triggerName, value, [], `no listbox or menu became visible within ${timeout} ms of opening`);
   }
-  const { list, container } = opened;
+  let { list, container } = opened;
   const filled = await waitForListToFill(page, list, timeout);
   let state = filled.state;
+  // An empty row the moment the list opens is not the same as an empty list.
+  // The control may still be fetching, and its "No options found" is
+  // indistinguishable from a real empty answer. Live (HIR-EC-001 run
+  // `7af7be5d`, 2026-09-08): Position and Work Location each opened onto "No
+  // options found", waited the whole budget, failed — and the very next open,
+  // seconds later, held every option. The application renders no loading
+  // state, so a second reading is the only one available.
+  //
+  // So an empty first open is closed and opened once more. A list that is
+  // genuinely empty says so twice and fails exactly as it did before, one
+  // re-open later; nothing else changes.
+  if (isEmptyAnswer(state)) {
+    // Closed the way it was opened — a second click on the trigger, which is
+    // the contract the rest of this module already turns on. Escape is the
+    // fallback for a control that does not toggle.
+    if ((await attr(trigger, 'aria-expanded', 250)) === 'true') {
+      await trigger.first().click({ timeout }).catch(() => undefined);
+      await page.waitForTimeout(settleMs);
+    }
+    if ((await attr(trigger, 'aria-expanded', 250)) === 'true') {
+      await page.keyboard.press('Escape').catch(() => undefined);
+      await page.waitForTimeout(settleMs);
+    }
+    await trigger.first().click({ timeout }).catch(() => undefined);
+    const reopened = await openList(page, trigger, timeout);
+    if (reopened !== null) {
+      list = reopened.list;
+      container = reopened.container;
+      state = (await waitForListToFill(page, list, timeout)).state;
+    }
+  }
   const isMulti = state.checkboxes > 0 && splitMultiValue(value).length > 1;
   const parts = isMulti ? splitMultiValue(value) : [value];
 

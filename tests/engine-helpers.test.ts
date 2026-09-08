@@ -328,6 +328,29 @@ describe('not-found and modal patterns', () => {
     assert.ok(!dialogIsIntendedContext('goto'));
     assert.ok(!dialogIsIntendedContext(null));
   });
+
+  // HIR-EC-001 run 7af7be5d, 2026-09-08: a click that missed its option landed
+  // on the page behind and opened a "To-do" panel. The action was a `click`,
+  // so the panel was read as context and left open, and the next fourteen
+  // steps each timed out clicking through it.
+  it('refuses the context reading when the step that ran the action FAILED', () => {
+    for (const action of ['click', 'press', 'fill', 'type', 'selectOption', 'check', 'expectModal']) {
+      assert.ok(dialogIsIntendedContext(action), `${action} succeeded: still context`);
+      assert.ok(!dialogIsIntendedContext(action, true), `${action} failed: opened nothing on purpose`);
+    }
+  });
+
+  it('reads an empty-state row as an empty answer, in either language', async () => {
+    const { isEmptyAnswer } = await import('../src/engine/listbox.js');
+    for (const row of ['No options found', 'No options', 'ไม่พบข้อมูล', 'ไม่มีตัวเลือก']) {
+      assert.ok(isEmptyAnswer({ options: [], checkboxes: 0, emptyRow: row }), row);
+    }
+    assert.ok(!isEmptyAnswer({ options: ['A — Permanent'], checkboxes: 0, emptyRow: null }));
+    assert.ok(!isEmptyAnswer({ options: [], checkboxes: 3, emptyRow: null }));
+    // A row that is not the empty-state wording is not an empty answer.
+    assert.ok(!isEmptyAnswer({ options: [], checkboxes: 0, emptyRow: 'Loading…' }));
+    assert.ok(!isEmptyAnswer({ options: [], checkboxes: 0, emptyRow: null }));
+  });
 });
 
 describe('healer: the prompt says what an entry step needs; the tree says required', () => {
@@ -382,6 +405,14 @@ const FIXTURE_HTML = `<!doctype html>
       <li role="option"><label><input type="checkbox" value="C006"> B2S (C006)</label></li>
       <li role="option"><label><input type="checkbox" value="C009"> OfficeMate (C009)</label></li>
     </ul>
+
+    <!-- a list still fetching: "No options found" on the first open, the real rows on the second (HIR-EC-001) -->
+    <button id="slow" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Position">Select Position</button>
+    <ul id="slow-list" role="listbox" hidden><li role="presentation">No options found</li></ul>
+
+    <!-- a list that is genuinely empty, however often it is opened -->
+    <button id="never" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Nothing">Select Nothing</button>
+    <ul id="never-list" role="listbox" hidden><li role="presentation">No options found</li></ul>
 
     <button id="gender" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Gender">Select Gender</button>
     <ul id="gender-list" role="listbox" hidden>
@@ -520,6 +551,26 @@ const FIXTURE_HTML = `<!doctype html>
         company.textContent = picked.length ? picked.join(', ') : 'Select companies';
       });
       document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { companyList.hidden = true; company.setAttribute('aria-expanded', 'false'); genderList.hidden = true; gender.setAttribute('aria-expanded', 'false'); grpPop.hidden = true; grp.setAttribute('aria-expanded', 'false'); } });
+      // --- a list that fills only on its second open, and one that never does
+      var slow = document.getElementById('slow'), slowList = document.getElementById('slow-list'), slowOpens = 0;
+      slow.addEventListener('click', function () {
+        var open = slowList.hidden; slowList.hidden = !open; slow.setAttribute('aria-expanded', String(open));
+        if (!open) return;
+        slowOpens += 1;
+        if (slowOpens < 2) return;
+        slowList.innerHTML = '';
+        ['Business Operation Improvement DM', 'Cycle Count Business DM'].forEach(function (name) {
+          var li = document.createElement('li'); li.setAttribute('role', 'option'); li.textContent = name;
+          li.addEventListener('click', function () {
+            slow.textContent = name; slowList.hidden = true; slow.setAttribute('aria-expanded', 'false'); setStatus('slow:' + name);
+          });
+          slowList.appendChild(li);
+        });
+      });
+      var never = document.getElementById('never'), neverList = document.getElementById('never-list');
+      never.addEventListener('click', function () {
+        var open = neverList.hidden; neverList.hidden = !open; never.setAttribute('aria-expanded', String(open));
+      });
       // --- gender
       var gender = document.getElementById('gender'), genderList = document.getElementById('gender-list');
       gender.addEventListener('click', function () { var open = genderList.hidden; genderList.hidden = !open; gender.setAttribute('aria-expanded', String(open)); });
@@ -709,6 +760,31 @@ describe('engine helpers against a real page (CDP)', { skip: skipBrowser }, () =
     await withPage(async (page) => {
       const result = await selectFromListbox(page, page.locator('#grp'), 'A');
       assert.deepEqual(result.picked, ['A — Permanent']);
+    });
+  });
+
+  // HIR-EC-001 run 7af7be5d, 2026-09-08: Position and Work Location each opened
+  // onto "No options found" while the application was still fetching, waited
+  // the whole budget, and failed — and the very next open held every option.
+  it('listbox: an empty first open is not an answer — the list is opened once more', async () => {
+    await withPage(async (page) => {
+      const result = await selectFromListbox(page, page.locator('#slow'), 'Business Operation Improvement DM');
+      assert.deepEqual(result.picked, ['Business Operation Improvement DM']);
+      assert.equal(await page.locator('#status').innerText(), 'slow:Business Operation Improvement DM');
+      assert.equal(await page.locator('#slow').getAttribute('aria-expanded'), 'false', 'closed again');
+    });
+  });
+
+  it('listbox: a list that is genuinely empty says so twice and fails as before', async () => {
+    await withPage(async (page) => {
+      await assert.rejects(
+        selectFromListbox(page, page.locator('#never'), 'Anything'),
+        (error: unknown) => {
+          assert.ok(error instanceof ListboxOptionMissingError);
+          assert.match(error.message, /no option named "Anything" appeared/);
+          return true;
+        },
+      );
     });
   });
 

@@ -65,8 +65,25 @@ export const DIALOG_CONTEXT_ACTIONS: ReadonlySet<string> = new Set([
   'expectModal', 'closeModal', 'upload',
 ]);
 
-/** True when the step before this one makes an open dialog the intended context. */
-export function dialogIsIntendedContext(lastAction: string | null | undefined): boolean {
+/**
+ * True when the step before this one makes an open dialog the intended context.
+ *
+ * `lastActionFailed` is load-bearing (HIR-EC-001, run `7af7be5d`, 2026-09-08):
+ * a click aimed at an option the page never offered landed on whatever sat
+ * behind it and opened a "To-do" panel. The previous action was a `click`, so
+ * the panel was read as the flow's own context and left open — and the next
+ * fourteen steps each timed out clicking through it. One wrong judgement cost
+ * the rest of the case.
+ *
+ * A step that FAILED opened nothing on purpose, so it cannot make a dialog
+ * intended. The other half of EH-02 is untouched: a dialog holding the failing
+ * step's own target is still kept, by `selectorInsideDialog` at the call site.
+ */
+export function dialogIsIntendedContext(
+  lastAction: string | null | undefined,
+  lastActionFailed = false,
+): boolean {
+  if (lastActionFailed) return false;
   return lastAction !== null && lastAction !== undefined && DIALOG_CONTEXT_ACTIONS.has(lastAction);
 }
 
